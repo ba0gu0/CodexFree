@@ -1,0 +1,20 @@
+{
+  "app_title": "CodexFree",
+  "app_subtitle": "本地 Codex 账号代理与授权文件管理台",
+  "nav_dashboard": "总览",
+  "nav_accounts": "账号",
+  "nav_proxy": "代理",
+  "nav_requests": "请求",
+  "nav_usage": "用量",
+  "nav_settings": "设置",
+  "status_proxy": "代理服务",
+  "status_proxy_value": "等待初始化",
+  "status_accounts": "可用账号",
+  "status_accounts_value": "等待导入",
+  "status_database": "本地数据库",
+  "status_database_value": "SQLite 已选型",
+  "panel_next_title": "下一步",
+  "panel_next_body": "导入 Yakit HAR 数据包后，先固化 Codex 账号模式请求协议，再实现代理切换状态机。",
+  "action_import_auth": "导入授权文件",
+  "action_query_usage": "批量查询用量"
+}

@@ -1,0 +1,20 @@
+{
+  "app_title": "CodexFree",
+  "app_subtitle": "Local Codex account proxy and auth file console",
+  "nav_dashboard": "Dashboard",
+  "nav_accounts": "Accounts",
+  "nav_proxy": "Proxy",
+  "nav_requests": "Requests",
+  "nav_usage": "Usage",
+  "nav_settings": "Settings",
+  "status_proxy": "Proxy service",
+  "status_proxy_value": "Waiting for initialization",
+  "status_accounts": "Available accounts",
+  "status_accounts_value": "Waiting for import",
+  "status_database": "Local database",
+  "status_database_value": "SQLite selected",
+  "panel_next_title": "Next step",
+  "panel_next_body": "After importing Yakit HAR packets, lock down the Codex account-mode protocol before implementing the proxy switching state machine.",
+  "action_import_auth": "Import auth files",
+  "action_query_usage": "Batch query usage"
+}
