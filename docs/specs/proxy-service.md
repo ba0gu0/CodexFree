@@ -11,7 +11,7 @@ proxy forwards account-login traffic through managed auth files.
 
 ## Required Behavior
 
-- Listen on `https://127.0.0.1:55555/v1`.
+- Listen on `http://127.0.0.1:33333/v1`.
 - Accept only Codex account-mode traffic.
 - Reject API-key mode traffic.
 - Do not modify request body bytes.

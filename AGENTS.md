@@ -9,7 +9,7 @@ local OpenAI-compatible endpoint.
 The intended local Codex config points requests to:
 
 ```toml
-openai_base_url = "https://127.0.0.1:55555/v1"
+openai_base_url = "http://127.0.0.1:33333/v1"
 ```
 
 The local `~/.codex/auth.json` used by Codex is a randomly generated placeholder
@@ -28,7 +28,7 @@ upstream authentication headers when proxying through managed account auth files
 ## Current Scope
 
 - Electron app with a management interface.
-- Local HTTPS proxy at `127.0.0.1:55555`.
+- Local HTTP proxy at `127.0.0.1:33333`.
 - OpenAI-compatible `/v1` surface matching Codex account-login traffic.
 - Request forwarding without body mutation.
 - Header-only upstream auth replacement.

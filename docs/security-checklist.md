@@ -4,6 +4,12 @@
 
 - Never log raw auth file contents.
 - Never log authorization headers, cookies, access tokens, or refresh tokens.
+- Protocol-shaped `.http` packets may be captured only when an explicit debug
+  setting is enabled for local analysis.
+- Protocol-shaped `.http` captures contain raw authorization headers and
+  must be treated as secrets.
+- Debug raw capture must write outside the repository into the system temp
+  directory and must be disabled by default.
 - Mask secrets in UI by default.
 - Keep imported auth files out of git.
 - Define encryption or platform credential storage before production use.

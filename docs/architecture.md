@@ -28,7 +28,7 @@ The implementation stack is:
 
 ```text
 Codex CLI
-  -> https://127.0.0.1:55555/v1
+  -> http://127.0.0.1:33333/v1
   -> request classifier
   -> account-session router
   -> upstream Codex/OpenAI account endpoint
@@ -50,6 +50,19 @@ The router owns:
 The critical rule is that quota exhaustion must not forcibly rewrite the auth of
 an in-flight request stream. Switching applies to the next eligible request after
 the current run boundary is identified.
+
+Codex CLI 0.130 traffic exposes that boundary through request headers:
+
+- `thread_id` / `session_id` identify the conversation.
+- `x-codex-turn-metadata` contains a `turn_id` for the active user turn.
+- `x-codex-window-id` stays tied to the active conversation window.
+- `chatgpt-account-id` identifies the upstream account currently used by Codex.
+
+Auth switching should bind an account to the active `turn_id` when present. If
+quota exhaustion is detected during that turn, the account is marked unavailable
+for future eligible turns, but the current turn is not replayed with a different
+auth file. A later user message in the same conversation can switch because it
+will have a new `turn_id`.
 
 ## Storage
 

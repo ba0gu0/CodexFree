@@ -3,7 +3,7 @@
 ## Initialization Facts
 
 - Date: 2026-05-12
-- Root: `/Users/<user>/Documents/Projict/node/CodexProxy`
+- Root: `/Users/<user>/Documents/Projict/node/CodexFree`
 - Initial state: empty directory, no git repository detected.
 - Selected preset: Medium.
 - Reason: desktop app plus local proxy service, management UI, database, import
@@ -29,7 +29,7 @@
 ## Confirmed From User Request
 
 - Electron app is the intended shell.
-- The local proxy endpoint is `https://127.0.0.1:55555/v1`.
+- The local proxy endpoint is `http://127.0.0.1:33333/v1`.
 - Codex local config should use `openai_base_url`.
 - Local placeholder `~/.codex/auth.json` is randomly generated and not verified
   by the proxy.

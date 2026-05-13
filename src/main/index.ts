@@ -4,6 +4,11 @@ import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
 import { logger } from './logger'
+import { readProxyConfig, writeProxyConfig } from './proxy/config'
+import { ProxyLedger } from './proxy/ledger'
+import { readRawCaptureDetail } from './proxy/raw-capture'
+import { TransparentProxyService } from './proxy/service'
+import type { ProxyConfig } from './proxy/types'
 
 interface UpdateCheckErrorSummary {
   name: string
@@ -69,13 +74,37 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.baoguo.codexfree')
+  const configPath = join(app.getPath('userData'), 'proxy-config.json')
+  const databasePath = join(app.getPath('userData'), 'codexfree.sqlite')
+  const ledger = new ProxyLedger(databasePath)
+  const proxyService = new TransparentProxyService(readProxyConfig(configPath), ledger, logger)
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
   ipcMain.handle('app:version', () => app.getVersion())
+  ipcMain.handle('proxy:config', () => readProxyConfig(configPath))
+  ipcMain.handle('proxy:status', () => proxyService.status())
+  ipcMain.handle('proxy:recent-requests', () => ledger.recent())
+  ipcMain.handle('proxy:raw-capture', (_, requestId: string) =>
+    readRawCaptureDetail(proxyService.rawCaptureDir, requestId)
+  )
+  ipcMain.handle('proxy:save-config', async (_, config: ProxyConfig) => {
+    const saved = writeProxyConfig(configPath, config)
+    await proxyService.start(saved)
+    return {
+      config: saved,
+      status: proxyService.status()
+    }
+  })
+  ipcMain.handle('proxy:restart', async () => proxyService.start(readProxyConfig(configPath)))
   logger.info('CodexFree main process ready')
+  proxyService.start().catch((error: unknown) => {
+    logger.error('Transparent proxy failed during startup', {
+      error: error instanceof Error ? error.message : String(error)
+    })
+  })
   autoUpdater.logger = null
   autoUpdater.autoDownload = false
   autoUpdater.checkForUpdates().catch((error: unknown) => {
