@@ -63,6 +63,22 @@ Immediate next step: continue T2 by implementing auth-file import
 normalization in the app, then use a real quota-exhausted account sample to
 finish T4.
 
+T2 has started. The first implementation is a pure normalization module that
+accepts native Codex `auth.json` and flat Codex/CPA-compatible token records,
+returns canonical Codex account-login auth shape, and separates safe metadata
+from the raw token-bearing object. It does not persist secrets and is not wired
+to the Electron import UI yet.
+
+Current T2 verification: `bun run test`, `bun run typecheck`, and
+`bun run lint`.
+
+Remaining T2 work:
+
+- add a real sub2api sample before marking sub2api parsing complete;
+- decide where encrypted auth payloads are stored;
+- wire batch import UI and persistence;
+- add export paths after storage format is fixed.
+
 T7 is complete. Verification: `bun run lint`, `bun run typecheck`,
 `bun run test`, `bun run build`, `bun run build:unpack`, dev UI checked with
 Computer Use, unpacked app checked with Computer Use, and packaged GitHub

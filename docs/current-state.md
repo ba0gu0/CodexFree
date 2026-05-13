@@ -75,6 +75,8 @@ Core behavior:
   `.http` packet files outside the repository under the system temp directory.
 - Added a proxy settings UI for host, port, upstream, outbound proxy, raw capture,
   service status, raw capture directory, and recent request observations.
+- Added the first auth-file normalization module for Codex native auth files and
+  flat Codex/CPA-compatible token records.
 
 ## Known Missing Inputs
 
@@ -82,6 +84,7 @@ Core behavior:
 - HAR or transparent proxy evidence for identifying in-progress runs versus new
   user messages in the same conversation.
 - Example sub2api auth file.
+- Secure auth storage and import UI wiring.
 - SQLite schema and retention requirements.
 - Packaging/signing requirements for macOS.
 - Earlier validation could not bind port `55555`; the active development config
@@ -130,6 +133,9 @@ Core behavior:
 - Raw capture now writes exactly four protocol-shaped packet files per request:
   `codex-inbound-request.http`, `codex-downstream-response.http`,
   `chatgpt-outbound-request.http`, and `chatgpt-upstream-response.http`.
+- Auth normalization tests cover native Codex `auth.json`, flat token records,
+  CPA filename inference, and malformed-file errors without including secret
+  values in error messages.
 - The request ledger now stores `chatgpt-account-id` as account metadata and
   `thread_id` / `session_id` / `x-client-request-id` as conversation metadata.
 - Unpacked app at `dist/mac-arm64/CodexFree.app` launches; Computer Use window
