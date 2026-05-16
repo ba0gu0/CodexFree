@@ -294,6 +294,35 @@ describe('daemon admin server', () => {
     }
   })
 
+  it('switches the active account and closes upgraded websocket connections', async () => {
+    const server = new DaemonAdminServer({
+      host: '127.0.0.1',
+      ledger: fakeLedger(),
+      port: 0,
+      readConfig: () => proxyConfig,
+      service: fakeService(),
+      token: 'secret-token',
+      writeConfig: (config) => config
+    })
+    const status = await server.start()
+
+    try {
+      const response = await postAdmin(
+        status.endpoint,
+        'switch',
+        { accountId: 'account-2' },
+        'secret-token'
+      )
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({
+        result: { accountId: 'account-2', closedWebSockets: 1, switched: true }
+      })
+    } finally {
+      await server.stop()
+    }
+  })
+
   it('records successful admin mutations in the ledger audit log', async () => {
     const ledger = fakeLedger()
     const server = new DaemonAdminServer({
@@ -333,7 +362,12 @@ function fakeService() {
     rawCaptureDir: '/tmp/codexfree-test',
     start: async () => proxyStatus,
     status: () => proxyStatus,
-    stop: async () => undefined
+    stop: async () => undefined,
+    switchActiveAccountAndCloseWebSockets: (accountId?: string) => ({
+      accountId: accountId ?? 'account-2',
+      closedWebSockets: 1,
+      switched: true
+    })
   }
 }
 
@@ -409,7 +443,7 @@ function fakeLedger(events: LogEventRow[] = [], messages: ProtocolMessageRow[] =
 
 function postAdmin(
   endpoint: string,
-  path: 'delete' | 'disable' | 'reset-exhausted',
+  path: 'delete' | 'disable' | 'reset-exhausted' | 'switch',
   body: unknown,
   token: string
 ): Promise<Response> {

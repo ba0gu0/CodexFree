@@ -17,6 +17,37 @@ describe('raw capture resilience', () => {
     expect(frames).toContain('"payloadText":"{\\"ok\\":true}"')
   })
 
+  it('captures complete websocket payloads when max bytes is zero', () => {
+    const root = mkdtempSync(join(tmpdir(), 'codexfree-ws-capture-'))
+    const directory = join(root, 'request-id')
+    const recorder = createWebSocketFrameRecorder(directory, 'codex-to-upstream', 0)
+    const payload = JSON.stringify({ text: 'x'.repeat(2000) })
+
+    expect(() => recorder?.observe(createClientTextFrame(payload))).not.toThrow()
+
+    const frames = readFileSync(join(directory, 'websocket-codex-to-upstream.frames.jsonl'), 'utf8')
+    const entry = JSON.parse(frames) as {
+      capturedPayloadBytes: number
+      decodedPayloadBytes: number
+      payloadText: string
+      truncated: boolean
+    }
+    expect(entry.truncated).toBe(false)
+    expect(entry.capturedPayloadBytes).toBe(entry.decodedPayloadBytes)
+    expect(entry.payloadText).toBe(payload)
+  })
+
+  it('captures complete http bodies when max bytes is zero', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'codexfree-http-capture-'))
+    const capture = createRawCapture(root, 'request-id', true, 0)
+    const body = Buffer.from('x'.repeat(2000))
+
+    capture?.writeRequest('POST', '/backend-api/codex/responses', {}, body)
+
+    const request = await readEventually(join(root, 'request-id', 'codex-inbound-request.http'))
+    expect(request.endsWith('x'.repeat(2000))).toBe(true)
+  })
+
   it('does not throw if capture directories are deleted before response writes', async () => {
     const root = mkdtempSync(join(tmpdir(), 'codexfree-http-capture-'))
     const capture = createRawCapture(root, 'request-id', true, 1024)
@@ -65,4 +96,21 @@ async function readEventually(path: string): Promise<string> {
 function createServerTextFrame(text: string): Buffer {
   const payload = Buffer.from(text)
   return Buffer.concat([Buffer.from([0x81, payload.byteLength]), payload])
+}
+
+function createClientTextFrame(text: string): Buffer {
+  const payload = Buffer.from(text)
+  if (payload.byteLength > 0xffff) {
+    throw new Error('Test client frame payload is too large')
+  }
+  const header =
+    payload.byteLength < 126
+      ? Buffer.from([0x81, 0x80 | payload.byteLength])
+      : Buffer.from([0x81, 0x80 | 126, payload.byteLength >> 8, payload.byteLength & 0xff])
+  const mask = Buffer.from([0x11, 0x22, 0x33, 0x44])
+  const masked = Buffer.from(payload)
+  for (let index = 0; index < masked.byteLength; index += 1) {
+    masked[index] ^= mask[index % 4]
+  }
+  return Buffer.concat([header, mask, masked])
 }

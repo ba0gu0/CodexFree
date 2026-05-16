@@ -46,11 +46,20 @@ Core behavior:
   after a WSS quota event.
 - New WSS requests that immediately hit `usage_limit_reached` can be retried
   upstream without forwarding the quota frame to Codex. The client socket stays
-  open, the exhausted upstream account is marked unavailable, buffered client
-  frames are replayed to the next account, and normal piping resumes after a
-  non-quota upstream frame. If no replacement account is available, the proxy
-  forwards the final attempted account's real `usage_limit_reached` WSS frame
-  to Codex.
+  open only when the buffered `response.create` frame is self-contained: no
+  `previous_response_id` and a non-empty `input` array. If the frame depends on
+  prior upstream response state, the proxy suppresses the quota frame, marks the
+  account exhausted, and then checks whether another account remains available.
+  If another account exists, it closes the client WSS so Codex reconnects and
+  resends its own complete context. If no replacement account exists, it forwards
+  the final `usage_limit_reached` frame to Codex.
+- Already-open client WSS connections re-enter a per-turn probe window when a
+  new `response.create` frame arrives. If quota arrives before any non-quota
+  upstream frame, the same self-contained replay rule applies; otherwise the
+  stream has begun normally and later quota remains a terminal session outcome.
+- The proxy does not persist a complete structured conversation transcript for
+  cross-account reconstruction. Raw WebSocket captures and in-memory probe
+  buffers are debug/retry aids, not a durable message-history model.
 - Usage queries are forwarded with the currently bound/default available account
   and return real upstream usage. The proxy does not fabricate a constant 100%
   usage response.
@@ -282,17 +291,15 @@ Core behavior:
   inspection timed out in this run.
 - Unpacked app includes `app-update.yml`; GitHub update-check failures are logged
   as sanitized summaries.
-- `/backend-api/wham/usage` client responses now preserve the real upstream
-  usage shape and quota values after internal usage parsing. Only
-  `user_id`/`account_id` are rewritten to the inbound `Chatgpt-Account-Id`;
-  upstream forwarding and ledger updates still use the selected managed
-  account.
-- `/backend-api/codex/models` client responses now preserve the upstream model
-  list while adding the Plus-only `priority` service tier and `fast` speed tier
-  to `gpt-5.5` and `gpt-5.4`. Future `/v1/models` API-key compatibility must
-  convert this payload into the standard OpenAI model-list response shape.
+- `/backend-api/wham/usage` client responses are now passed through exactly as
+  returned by upstream after internal usage parsing. The preserved
+  `user_id`/`account_id` rewrite helper remains in code but is not active;
+  upstream forwarding and ledger updates still use the selected managed account.
+- `/backend-api/codex/models` client responses are now passed through exactly as
+  returned by upstream. Future `/v1/models` API-key compatibility must convert
+  this payload into the standard OpenAI model-list response shape.
 - Verification for this slice passed:
-  `bun run test -- src/main/proxy/service.test.ts -t "rewrites codex models responses|forwards usage queries|retries usage queries"`,
+  `bun run test -- src/main/proxy/service.test.ts`,
   `bunx biome check src/main/proxy/service.ts src/main/proxy/service.test.ts`,
   and `bun run typecheck:node`. Direct full `bun test
   src/main/proxy/service.test.ts` still hits the existing raw socket/WebSocket

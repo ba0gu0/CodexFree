@@ -40,6 +40,12 @@ export interface ProxyStatus {
   lastError?: string
 }
 
+export interface ProxyAccountSwitchResult {
+  accountId?: string
+  closedWebSockets: number
+  switched: boolean
+}
+
 export interface RequestLedgerEntry {
   id: string
   accountId?: string

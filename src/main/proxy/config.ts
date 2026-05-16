@@ -22,7 +22,7 @@ const proxyConfigSchema = v.object({
   authPool: authPoolSchema,
   maxRequestBodyBytes: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(50_000_000)),
   rawCaptureEnabled: v.boolean(),
-  rawCaptureMaxBytes: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(1_048_576))
+  rawCaptureMaxBytes: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(50_000_000))
 })
 
 export const defaultProxyConfig: ProxyConfig = {
@@ -39,7 +39,7 @@ export const defaultProxyConfig: ProxyConfig = {
   },
   maxRequestBodyBytes: 10_485_760,
   rawCaptureEnabled: false,
-  rawCaptureMaxBytes: 262_144
+  rawCaptureMaxBytes: 0
 }
 
 export function readProxyConfig(configPath: string): ProxyConfig {

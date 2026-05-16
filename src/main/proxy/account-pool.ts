@@ -117,6 +117,25 @@ export class AccountPool {
     return this.activeAccountId
   }
 
+  selectActiveAccount(accountId?: string): RoutedAccount | undefined {
+    const available = this.availableAccounts()
+    if (available.length === 0) {
+      return undefined
+    }
+
+    const selected = accountId
+      ? available.find((account) => account.accountId === accountId)
+      : this.nextAvailableAfterActive(available)
+    if (!selected) {
+      return undefined
+    }
+
+    const activeChanged = this.activeAccountId !== selected.accountId
+    this.activeAccountId = selected.accountId
+    this.nextAccountIndex = this.indexAfter(selected.accountId)
+    return toRoutedAccount(selected, activeChanged)
+  }
+
   private applyKnownAccountIds(
     accountIds: Iterable<string>,
     apply: (accountId: string) => void
@@ -220,6 +239,13 @@ export class AccountPool {
       available[0]
     this.nextAccountIndex = this.indexAfter(selected.accountId)
     return selected
+  }
+
+  private nextAvailableAfterActive(available: NormalizedAuthFile[]): NormalizedAuthFile {
+    const currentIndex = this.activeAccountId
+      ? available.findIndex((account) => account.accountId === this.activeAccountId)
+      : -1
+    return available[(currentIndex + 1) % available.length]
   }
 
   private indexAfter(accountId: string): number {

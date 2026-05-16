@@ -152,17 +152,23 @@ When an in-flight response is confirmed as quota exhaustion:
 - mark the bound account unavailable for future eligible turns;
 - record the quota event against account id, run key, path, status, and body
   fingerprint;
-- if no upstream business frame has reached Codex yet, hide the quota frame,
-  reconnect upstream with the next available auth file, and replay only the
-  buffered client frames from that probe window;
+- if no upstream business frame has reached Codex yet, hide the quota frame and
+  mark the account exhausted;
+- reconnect upstream and replay the buffered client frames only when the current
+  `response.create` is self-contained;
+- if the current turn is incremental or cannot be proven self-contained, close
+  the client WSS only when a replacement account exists so Codex reconnects with
+  its own complete context;
+- if the current turn cannot be replayed and no replacement account exists,
+  forward the final `usage_limit_reached` frame to Codex;
 - if normal upstream streaming has already begun, do not replay that active task
   across accounts; allow the next eligible request in the same session to select
   a new auth file after the stream ends.
 
 This preserves conversation safety while avoiding client reconnect loops for the
-common initial-quota failure: a failed probe can move to a fresh account before
-Codex sees business data, but an already-streaming task stays on its original
-account.
+common self-contained initial-quota failure: a failed probe can move to a fresh
+account before Codex sees business data, but an incremental or already-streaming
+task is not fabricated by the proxy.
 
 The concrete state machine is:
 
@@ -175,8 +181,10 @@ The concrete state machine is:
 5. For WSS, start in a probe window before any upstream business frame is
    forwarded to Codex.
 6. If the probe frame contains `usage_limit_reached`, mark the bound account
-   exhausted, remove only that conversation binding, reconnect upstream with the
-   next available account, and replay buffered client frames.
+   exhausted, remove only that conversation binding, and suppress the quota frame.
+   Replay buffered client frames to a replacement upstream only when the current
+   `response.create` is self-contained. For non-replayable turns, close the
+   client WSS only when another account remains; otherwise forward final quota.
 7. Once a non-quota upstream frame has been forwarded, switch to normal piping
    and do not replay the active stream across accounts.
 8. On the next request or WSS upgrade for the same conversation, select another
@@ -185,14 +193,15 @@ The concrete state machine is:
 Multiple concurrent conversations are independent because the binding map is
 keyed by conversation id, not by one global active session.
 
-## New WSS Quota Retry Rule
+## WSS Quota Retry Rule
 
-There is one important optimization for a new WSS request that immediately hits
-quota before any useful upstream business frame reaches Codex. This can happen
-when another long-running task spent the last remaining quota on the old
-account, while a new task starts a separate WSS connection.
+There is one important optimization for a WSS request or an already-open client
+WSS that starts a new `response.create` turn and immediately hits quota before
+any useful upstream business frame reaches Codex. This can happen when another
+long-running task spent the last remaining quota on the old account, while a new
+task starts or a new turn is sent on an existing client socket.
 
-For that case, the proxy uses a client-stable upstream retry:
+For a self-contained turn, the proxy uses a client-stable upstream retry:
 
 1. Accept the client WSS upgrade and keep the Codex client socket open.
 2. Connect to upstream with the selected account.
@@ -202,17 +211,33 @@ For that case, the proxy uses a client-stable upstream retry:
 5. If the first upstream business frame is `usage_limit_reached`, do not forward
    that quota frame to Codex.
 6. Mark the attempted account exhausted.
-7. Close only that upstream socket.
+7. If the latest `response.create` is self-contained, close only that upstream
+   socket.
 8. Select the next available account and reconnect upstream with the same
    incoming conversation/session headers, replacing only auth identity headers.
 9. Replay the buffered client frames to the replacement upstream socket.
 10. Once a non-quota upstream frame arrives, flush buffered upstream bytes to the
     Codex client and switch to normal bidirectional piping.
 
+The self-contained test is deliberately conservative. A `response.create` frame
+can be replayed across accounts only when it has no `previous_response_id` and
+has a non-empty `input` array. If it references a previous upstream response, or
+the proxy cannot prove that the current frame carries the required prompt
+context, the proxy suppresses the quota frame, marks the attempted account
+exhausted, and checks the pool. If a replacement account exists, the proxy
+closes the client WSS; Codex will observe a transport failure, open a new WSS,
+and send the complete context it believes is required. If no replacement account
+exists, the proxy forwards the final quota frame.
+
 This rule is intentionally narrow. It applies only before any upstream business
 frame has been forwarded to the client. If a long-running WSS task has already
 started streaming normally and later fails, the proxy must not hide or replay
 that active task across accounts.
+
+The proxy does not persist a complete structured conversation transcript. Raw
+captures and probe buffers can replay bytes that Codex already sent in the
+current probe window, but they are not enough to synthesize earlier assistant
+responses or rebuild an incremental `previous_response_id` chain.
 
 HTTP fallback retry has a stricter safety boundary. A request body may already
 have produced upstream side effects before an HTTP quota response is observed, so
@@ -221,9 +246,9 @@ state-changing `/backend-api/codex/responses` traffic is the WSS initial-frame
 retry shield above, where no upstream business frame has been forwarded to Codex
 before the retry decision.
 
-If every available account returns `usage_limit_reached` during the probe, the
-proxy suppresses the quota payload and ends the client stream with a completion
-frame because there is no valid account left to continue the task.
+If every available account returns `usage_limit_reached` during the probe, or no
+replacement account is available, the proxy forwards the final quota frame
+because the pool has no usable account left for a reconnect to select.
 
 ## Persistent Account State
 

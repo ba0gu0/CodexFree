@@ -134,7 +134,12 @@ function fakeService() {
     rawCaptureDir: '/tmp/codexfree-test',
     start: async () => proxyStatus,
     status: () => proxyStatus,
-    stop: async () => undefined
+    stop: async () => undefined,
+    switchActiveAccountAndCloseWebSockets: (accountId?: string) => ({
+      accountId: accountId ?? 'account-2',
+      closedWebSockets: 1,
+      switched: true
+    })
   }
 }
 

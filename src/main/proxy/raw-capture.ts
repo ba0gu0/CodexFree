@@ -52,7 +52,7 @@ export function createRawCapture(
         join(directory, 'codex-inbound-request.http'),
         `${method} ${path} HTTP/1.1`,
         headers,
-        body.subarray(0, maxBytes)
+        captureBody(body, maxBytes)
       )
     },
     writeOutboundRequest(options, body) {
@@ -61,12 +61,12 @@ export function createRawCapture(
         join(directory, 'chatgpt-outbound-request.http'),
         formatRequestLine(options),
         headers,
-        body.subarray(0, maxBytes)
+        captureBody(body, maxBytes)
       )
     },
     writeResponse(statusCode, headers, body) {
       const startLine = formatResponseLine(statusCode)
-      const bodySample = body.subarray(0, maxBytes)
+      const bodySample = captureBody(body, maxBytes)
       writeHttpMessage(
         join(directory, 'chatgpt-upstream-response.http'),
         startLine,
@@ -146,11 +146,21 @@ export function appendSample(
   chunk: Buffer<ArrayBufferLike>,
   maxBytes: number
 ): Buffer<ArrayBufferLike> {
+  if (maxBytes === 0) {
+    return Buffer.concat([current, chunk])
+  }
   if (current.byteLength >= maxBytes) {
     return current
   }
 
   return Buffer.concat([current, chunk]).subarray(0, maxBytes)
+}
+
+function captureBody(body: Buffer, maxBytes: number): Buffer {
+  if (maxBytes === 0) {
+    return body
+  }
+  return body.subarray(0, maxBytes)
 }
 
 function writeHttpMessage(

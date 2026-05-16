@@ -10,7 +10,12 @@ import type {
   ProtocolMessageRow
 } from '../proxy/ledger-types'
 import { clearRawCaptures } from '../proxy/raw-capture'
-import type { ProxyConfig, ProxyStatus, RecentRequest } from '../proxy/types'
+import type {
+  ProxyAccountSwitchResult,
+  ProxyConfig,
+  ProxyStatus,
+  RecentRequest
+} from '../proxy/types'
 
 const maxJsonBodyBytes = 1_048_576
 
@@ -19,6 +24,7 @@ export interface AdminProxyService {
   start(config?: ProxyConfig): Promise<ProxyStatus>
   status(): ProxyStatus
   stop(): Promise<void>
+  switchActiveAccountAndCloseWebSockets(accountId?: string): ProxyAccountSwitchResult
 }
 
 export interface AdminLedger {
@@ -187,6 +193,16 @@ export class DaemonAdminServer {
       const resetAccounts = this.options.ledger.resetExhaustedAccounts()
       this.auditMutation(request.method, url.pathname, { resetAccounts })
       writeJson(response, 200, { accounts: this.options.ledger.accounts(), resetAccounts })
+      return
+    }
+    if (request.method === 'POST' && url.pathname === '/admin/accounts/switch') {
+      const body = (await readJsonBody(request)) as { accountId?: string }
+      const result = this.options.service.switchActiveAccountAndCloseWebSockets(body.accountId)
+      this.auditMutation(request.method, url.pathname, result)
+      writeJson(response, result.switched ? 200 : 404, {
+        accounts: this.options.ledger.accounts(),
+        result
+      })
       return
     }
     if (request.method === 'POST' && url.pathname === '/admin/accounts/disable') {

@@ -10,6 +10,12 @@ export interface ObserveUpstreamFrameOptions {
   onQuotaExhausted: ((event: QuotaExhaustionEvent) => void) | undefined
 }
 
+export interface ResponseCreateFrameProbe {
+  replayable: boolean
+  rawFrame: Buffer
+  reason: 'self_contained' | 'missing_payload' | 'previous_response_id' | 'empty_input'
+}
+
 export function observeUpstreamFrame(options: ObserveUpstreamFrameOptions): void {
   if (options.frame.direction !== 'upstream-to-codex') {
     return
@@ -27,6 +33,47 @@ export function observeUpstreamFrame(options: ObserveUpstreamFrameOptions): void
     options.onQuotaExhausted?.(quotaEvent)
   }
   options.flushProbe()
+}
+
+export function isResponseCreateFrame(frame: CapturedWebSocketFrame): boolean {
+  return analyzeResponseCreateFrame(frame) !== undefined
+}
+
+export function analyzeResponseCreateFrame(
+  frame: CapturedWebSocketFrame
+): ResponseCreateFrameProbe | undefined {
+  if (frame.direction !== 'codex-to-upstream' || frame.opcode !== 'text') {
+    return undefined
+  }
+  if (!frame.payloadText || !frame.rawFrame) {
+    return undefined
+  }
+
+  try {
+    const payload: unknown = JSON.parse(frame.payloadText)
+    const isResponseCreate =
+      payload !== null &&
+      typeof payload === 'object' &&
+      !Array.isArray(payload) &&
+      (payload as { type?: unknown }).type === 'response.create'
+    if (!isResponseCreate) {
+      return undefined
+    }
+
+    const record = payload as Record<string, unknown>
+    if (typeof record.previous_response_id === 'string' && record.previous_response_id !== '') {
+      return { rawFrame: frame.rawFrame, reason: 'previous_response_id', replayable: false }
+    }
+    if (!Array.isArray(record.input)) {
+      return { rawFrame: frame.rawFrame, reason: 'missing_payload', replayable: false }
+    }
+    if (record.input.length === 0) {
+      return { rawFrame: frame.rawFrame, reason: 'empty_input', replayable: false }
+    }
+    return { rawFrame: frame.rawFrame, reason: 'self_contained', replayable: true }
+  } catch {
+    return undefined
+  }
 }
 
 export function parseQuotaEventFromWebSocketChunk(chunk: Buffer): QuotaExhaustionEvent | undefined {

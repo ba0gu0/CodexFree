@@ -5,7 +5,12 @@ import type {
   ManagedAccountRow,
   ProtocolMessageRow
 } from '../proxy/ledger-types'
-import type { ProxyConfig, ProxyStatus, RecentRequest } from '../proxy/types'
+import type {
+  ProxyAccountSwitchResult,
+  ProxyConfig,
+  ProxyStatus,
+  RecentRequest
+} from '../proxy/types'
 
 export interface DaemonClientOptions {
   endpoint: string
@@ -77,6 +82,16 @@ export class DaemonAdminClient {
     resetAccounts: number
   }> {
     return this.requestJson('/accounts/reset-exhausted', { method: 'POST' })
+  }
+
+  switchAccount(accountId?: string): Promise<{
+    accounts: ManagedAccountRow[]
+    result: ProxyAccountSwitchResult
+  }> {
+    return this.requestJson('/accounts/switch', {
+      body: JSON.stringify({ accountId }),
+      method: 'POST'
+    })
   }
 
   setAccountDisabled(

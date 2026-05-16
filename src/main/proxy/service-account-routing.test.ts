@@ -2,15 +2,18 @@ import { mkdtempSync } from 'node:fs'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { Duplex } from 'node:stream'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ProxyLedger } from './ledger'
 import { TransparentProxyService } from './service'
 import {
   closeServer,
+  createClientTextFrame,
   createConfig,
   createServerTextFrame,
   listen,
   rawHttpRequest,
+  rawHttpRequestBufferWithHead,
   writeAuthFile
 } from './service-test-utils'
 import type { RequestLedgerEntry } from './types'
@@ -38,9 +41,12 @@ describe('transparent proxy service account routing', () => {
     writeAuthFile(authDirectory, 'b.json', 'account-b', 'managed-b')
     const forwardedAccounts: string[] = []
     const forwardedAuth: string[] = []
+    const upstreamSockets = new Set<Duplex>()
     let upgrades = 0
     const upstream = http.createServer()
     upstream.on('upgrade', (request, socket) => {
+      upstreamSockets.add(socket)
+      socket.once('close', () => upstreamSockets.delete(socket))
       upgrades += 1
       forwardedAccounts.push(String(request.headers['chatgpt-account-id']))
       forwardedAuth.push(String(request.headers.authorization))
@@ -55,15 +61,18 @@ describe('transparent proxy service account routing', () => {
         ].join('\r\n')
       )
       if (upgrades === 1) {
-        socket.write(
-          createServerTextFrame(
-            '{"type":"error","status_code":429,"error":{"type":"usage_limit_reached"}}'
+        socket.once('data', () => {
+          socket.write(
+            createServerTextFrame(
+              '{"type":"error","status_code":429,"error":{"type":"usage_limit_reached"}}'
+            )
           )
-        )
+          socket.end()
+        })
       } else {
         socket.write(createServerTextFrame('{"type":"response.created"}'))
+        socket.end()
       }
-      socket.end()
     })
     await listen(upstream)
     upstreams.push(upstream)
@@ -121,8 +130,19 @@ describe('transparent proxy service account routing', () => {
       ''
     ]
 
-    const firstResponse = await rawHttpRequest(Number(endpoint.port), request)
+    const firstResponse = (
+      await rawHttpRequestBufferWithHead(
+        Number(endpoint.port),
+        request,
+        createClientTextFrame(
+          '{"type":"response.create","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"full context"}]}]}'
+        )
+      )
+    ).toString('utf8')
     await rawHttpRequest(Number(endpoint.port), request)
+    for (const socket of upstreamSockets) {
+      socket.destroy()
+    }
 
     expect(firstResponse).not.toContain('usage_limit_reached')
     expect(firstResponse).toContain('response.created')
@@ -198,8 +218,8 @@ describe('transparent proxy service account routing', () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
-      user_id: 'placeholder-account',
-      account_id: 'placeholder-account',
+      user_id: 'upstream-user',
+      account_id: 'upstream-user',
       email: 'upstream@example.test',
       plan_type: 'free',
       rate_limit: {
@@ -285,7 +305,6 @@ describe('transparent proxy service account routing', () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
-      account_id: 'placeholder-account',
       plan_type: 'free',
       rate_limit: { primary_window: { used_percent: 12 } }
     })

@@ -33,13 +33,20 @@ account-login proxy. If enabled later, it must:
 - use a separate listener port and explicit operator-provided local API key;
 - show a clear warning that this behavior can be detected and may cause account
   restrictions or bans;
-- accept only `/v1/models` and `/v1/responses`;
+- accept only `/v1/models`, `/v1/responses`, and legacy
+  `/v1/chat/completions`;
 - return `/v1/models` using the standard OpenAI model-list response shape,
   converted from the upstream account models payload;
-- adapt each external request to the standard account WebSocket flow against
-  `/backend-api/codex/responses`;
+- adapt every generation request to the standard account WebSocket flow against
+  `/backend-api/codex/responses`; upstream generation traffic must not use HTTP
+  `POST /backend-api/codex/responses`;
+- support `/v1/responses` as HTTP/SSE and WebSocket client surfaces;
+- convert legacy Chat Completions requests and responses at the adapter boundary;
 - close the upstream WebSocket after the single external request completes;
 - keep account-login proxy request body forwarding rules unchanged.
+
+The concrete T8 design is recorded in
+`docs/specs/v1-compatibility-adapter.md`.
 
 ## Quota Switching
 
@@ -56,8 +63,16 @@ the payload before quota classification.
 When quota exhaustion is detected:
 
 - mark the current auth file unavailable for future eligible requests;
-- before any upstream business frame is forwarded, suppress the quota frame,
-  reconnect upstream with the next account, and replay buffered client frames;
+- before any upstream business frame is forwarded, suppress the quota frame and
+  mark the account exhausted;
+- reconnect upstream and replay buffered client frames only when the current
+  `response.create` frame is self-contained: no `previous_response_id` and a
+  non-empty `input` array;
+- if the current turn depends on prior upstream response state and another
+  account is available, close the client WSS so Codex reconnects and resends the
+  full context it owns;
+- if the current turn cannot be replayed and no replacement account is
+  available, forward the final `usage_limit_reached` frame to Codex;
 - after normal upstream streaming has begun, keep the active stream on its
   original auth and select a replacement account only for the next eligible
   request;
@@ -68,7 +83,9 @@ Current implementation status: decoded upstream WebSocket frames are parsed for
 bound account is marked exhausted; and the next eligible request or WSS upgrade
 selects another available account. A narrow initial-WSS retry shield hides a
 quota frame only when no upstream business frame has been forwarded yet and
-another account is available.
+the current `response.create` is safe to replay. Otherwise it suppresses quota
+and forces a client reconnect instead of fabricating missing context, unless the
+pool has no replacement account, in which case it forwards terminal quota.
 
 ## Packet Evidence Required
 

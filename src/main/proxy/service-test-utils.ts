@@ -170,10 +170,24 @@ export function createServerPingFrame(payloadText: string): Buffer {
 export function createClientTextFrame(text: string): Buffer {
   const payload = Buffer.from(text)
   const mask = Buffer.from([0x11, 0x22, 0x33, 0x44])
-  const header = Buffer.from([0x81, 0x80 | payload.byteLength])
+  const header =
+    payload.byteLength <= 125
+      ? Buffer.from([0x81, 0x80 | payload.byteLength])
+      : createMaskedExtendedHeader(payload.byteLength)
   const maskedPayload = Buffer.from(payload)
   for (let index = 0; index < maskedPayload.byteLength; index += 1) {
     maskedPayload[index] ^= mask[index % mask.byteLength]
   }
   return Buffer.concat([header, mask, maskedPayload])
+}
+
+function createMaskedExtendedHeader(payloadLength: number): Buffer {
+  if (payloadLength <= 0xffff) {
+    const header = Buffer.alloc(4)
+    header[0] = 0x81
+    header[1] = 0x80 | 126
+    header.writeUInt16BE(payloadLength, 2)
+    return header
+  }
+  throw new Error('Test helper supports websocket payloads up to 65535 bytes')
 }

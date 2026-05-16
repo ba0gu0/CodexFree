@@ -60,6 +60,11 @@ Immediate tasks:
    follows the same account-state rules as WSS quota handling.
 7. Keep normal account-login proxy paths under `/backend-api`; keep `/v1`
    API-key compatibility separate and explicit.
+8. Done: already-open client WSS connections re-enter a per-turn
+   `response.create` probe. Immediate quota is suppressed; self-contained turns
+   are replayed to a replacement upstream account, while incremental turns close
+   the client WSS only when another account exists for Codex to reconnect onto.
+   If the pool has no replacement account, final quota is forwarded.
 
 Verification:
 
@@ -336,12 +341,16 @@ refines T4:
 
 T8 is intentionally separate. It changes the previous hard boundary by adding an
 off-by-default API-key compatibility mode. In that mode, CodexFree would accept
-standard OpenAI-style `/v1/models` and `/v1/responses` requests on a configured
-port/key. `/v1/models` must convert the account models payload into the
-standard OpenAI response shape; `/v1/responses` must adapt each request to a
-short-lived ChatGPT account WSS `/backend-api/codex/responses` call. This is
-not the same as the account-login transparent proxy and needs separate tests and
-operator controls.
+standard OpenAI-style `/v1/models`, `/v1/responses`, and legacy
+`/v1/chat/completions` requests on a configured port/key. `/v1/models` must
+convert the account models payload into the standard OpenAI response shape.
+`/v1/responses` must support HTTP/SSE and WebSocket client surfaces while every
+generation request to ChatGPT goes through a short-lived account WSS
+`/backend-api/codex/responses` call. `chat/completions` must translate requests
+to Codex Responses frames and translate Codex response events back to OpenAI
+Chat Completions chunks or final JSON. The detailed conversion design is in
+`docs/specs/v1-compatibility-adapter.md`. This is not the same as the
+account-login transparent proxy and needs separate tests and operator controls.
 
 ## Overall Proxy Capability Plan
 
@@ -369,17 +378,19 @@ surfaces:
 
 - `/backend-api/wham/usage` still forwards through the selected managed auth
   file and updates quota state from the real upstream response, then returns
-  the real upstream usage shape to Codex with only `user_id`/`account_id`
-  rewritten to the inbound request account id.
+  the real upstream usage shape to Codex without client-visible field rewriting.
+  The previous `user_id`/`account_id` rewrite helper remains in code but is not
+  active.
 - `/backend-api/wham/remote` and child paths now bypass managed auth
   replacement so upstream receives the original Codex `Authorization` and
   `chatgpt-account-id` headers for HTTP and WSS traffic.
-- Terminal WSS quota handling now returns the last attempted account's real
-  `usage_limit_reached` frame when no replacement account remains.
-- `/backend-api/codex/models` keeps the upstream model list and adds Plus-only
-  `priority` / `fast` speed-tier metadata to `gpt-5.5` and `gpt-5.4`.
+- Terminal WSS quota handling now suppresses immediate probe quota frames only
+  while another account remains usable. If no replacement account remains, the
+  final `usage_limit_reached` frame is returned to Codex.
+- `/backend-api/codex/models` keeps the upstream model list exactly as returned
+  by upstream.
 - Verification passed:
-  `bun run test -- src/main/proxy/service.test.ts -t "rewrites codex models responses|forwards usage queries|retries usage queries"`,
+  `bun run test -- src/main/proxy/service.test.ts`,
   `bunx biome check src/main/proxy/service.ts src/main/proxy/service.test.ts`,
   and `bun run typecheck:node`.
 

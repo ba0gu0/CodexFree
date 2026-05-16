@@ -105,32 +105,31 @@ describe('transparent proxy service http handling', () => {
     })
   })
 
-  it('rewrites codex models responses with plus speed tiers', async () => {
+  it('forwards codex models responses without rewriting', async () => {
     let upstreamPath = ''
+    const upstreamBody = {
+      models: [
+        {
+          slug: 'gpt-5.5',
+          service_tiers: [],
+          additional_speed_tiers: []
+        },
+        {
+          slug: 'gpt-5.4',
+          service_tiers: [],
+          additional_speed_tiers: []
+        },
+        {
+          slug: 'gpt-5.4-mini',
+          service_tiers: [],
+          additional_speed_tiers: []
+        }
+      ]
+    }
     const upstream = http.createServer((request, response) => {
       upstreamPath = request.url ?? ''
       response.writeHead(200, { 'content-type': 'application/json' })
-      response.end(
-        JSON.stringify({
-          models: [
-            {
-              slug: 'gpt-5.5',
-              service_tiers: [],
-              additional_speed_tiers: []
-            },
-            {
-              slug: 'gpt-5.4',
-              service_tiers: [],
-              additional_speed_tiers: []
-            },
-            {
-              slug: 'gpt-5.4-mini',
-              service_tiers: [],
-              additional_speed_tiers: []
-            }
-          ]
-        })
-      )
+      response.end(JSON.stringify(upstreamBody))
     })
     await listen(upstream)
     upstreams.push(upstream)
@@ -151,37 +150,7 @@ describe('transparent proxy service http handling', () => {
 
     expect(response.status).toBe(200)
     expect(upstreamPath).toBe('/backend-api/codex/models?client_version=0.130.0')
-    await expect(response.json()).resolves.toEqual({
-      models: [
-        {
-          slug: 'gpt-5.5',
-          service_tiers: [
-            {
-              id: 'priority',
-              name: 'Fast',
-              description: '1.5x speed, increased usage'
-            }
-          ],
-          additional_speed_tiers: ['fast']
-        },
-        {
-          slug: 'gpt-5.4',
-          service_tiers: [
-            {
-              id: 'priority',
-              name: 'Fast',
-              description: '1.5x speed, increased usage'
-            }
-          ],
-          additional_speed_tiers: ['fast']
-        },
-        {
-          slug: 'gpt-5.4-mini',
-          service_tiers: [],
-          additional_speed_tiers: []
-        }
-      ]
-    })
+    await expect(response.json()).resolves.toEqual(upstreamBody)
   })
 
   it('rejects API-key mode requests without forwarding upstream', async () => {

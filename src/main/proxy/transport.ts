@@ -4,6 +4,7 @@ import type { Duplex } from 'node:stream'
 import type { QuotaExhaustionEvent } from './quota'
 import { appendSample, type createRawCapture } from './raw-capture'
 import {
+  analyzeResponseCreateFrame,
   createServerTextFrame,
   formatUpgradeResponse,
   observeUpstreamFrame,
@@ -23,6 +24,7 @@ type WebSocketLifecycleEventType =
   | 'upstream_closed'
   | 'terminal_quota_forwarded'
   | 'quota_frame_suppressed'
+  | 'quota_reconnect_requested'
 
 export interface WebSocketLifecycleEvent {
   statusCode?: number
@@ -38,6 +40,7 @@ export function forwardUpgradeRequest(
   maxPayloadBytes: number,
   onQuotaExhausted?: (event: QuotaExhaustionEvent) => void,
   onEarlyQuotaRetry?: (event: QuotaExhaustionEvent) => RequestOptions | undefined,
+  onEarlyQuotaCannotReplay?: (event: QuotaExhaustionEvent) => boolean,
   onWebSocketFrame?: (frame: CapturedWebSocketFrame) => void,
   onLifecycle?: (event: WebSocketLifecycleEvent) => void
 ): Promise<UpgradeResult> {
@@ -46,7 +49,9 @@ export function forwardUpgradeRequest(
     let settled = false
     let downstreamAccepted = false
     let activeAttemptId = 0
-    const clientReplayChunks: Buffer[] = head.byteLength > 0 ? [Buffer.from(head)] : []
+    const initialDownstreamHead = Buffer.from(head)
+    const clientReplayChunks: Buffer[] = []
+    let firstUpstreamAttempt = true
     const settle = (result: UpgradeResult) => {
       if (settled) {
         return
@@ -80,8 +85,12 @@ export function forwardUpgradeRequest(
         )
         const writeUpgradeResponse = !downstreamAccepted
         downstreamAccepted = true
+        const downstreamHead = firstUpstreamAttempt
+          ? initialDownstreamHead
+          : Buffer.concat(clientReplayChunks)
+        firstUpstreamAttempt = false
         pipeUpgradedSockets({
-          downstreamHead: Buffer.concat(clientReplayChunks),
+          downstreamHead,
           downstreamSocket: socket,
           maxPayloadBytes,
           onEarlyQuota: (event) => {
@@ -96,6 +105,14 @@ export function forwardUpgradeRequest(
           },
           onQuotaExhausted,
           onProbeConfirmed: () => undefined,
+          onProbeStarted: (frame) => {
+            clientReplayChunks.length = 0
+            clientReplayChunks.push(Buffer.from(frame))
+          },
+          onProbeCannotReplayStarted: () => {
+            clientReplayChunks.length = 0
+          },
+          onProbeCannotReplay: onEarlyQuotaCannotReplay,
           onProbeDownstreamChunk: (chunk) => clientReplayChunks.push(Buffer.from(chunk)),
           rawCapture,
           settle: () => settle({ statusCode: upstreamResponse.statusCode }),
@@ -169,6 +186,9 @@ interface PipeUpgradedSocketsOptions {
   onEarlyQuota?: (event: QuotaExhaustionEvent) => boolean
   onProbeDownstreamChunk?: (chunk: Buffer) => void
   onProbeConfirmed?: () => void
+  onProbeCannotReplay?: (event: QuotaExhaustionEvent) => boolean
+  onProbeCannotReplayStarted?: () => void
+  onProbeStarted?: (frame: Buffer) => void
   onQuotaExhausted?: (event: QuotaExhaustionEvent) => void
   onLifecycle?: (event: WebSocketLifecycleEvent) => void
   onWebSocketFrame?: (frame: CapturedWebSocketFrame) => void
@@ -190,6 +210,7 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
       ? 'probing'
       : 'open'
   let observingUpstream = false
+  let replayStartedFromFrame = false
   let pendingUpstreamFlush = false
   const upstreamBuffer: Buffer[] = []
   const cleanup = () => {
@@ -225,8 +246,9 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
     options.downstreamSocket.destroy()
     settle()
   }
+  let lateProbeMode: 'none' | 'replay' | 'reconnect' = 'none'
   const retryWithNextAccount = (event: QuotaExhaustionEvent): boolean => {
-    if (phase !== 'probing' || !options.onEarlyQuota?.(event)) {
+    if (phase !== 'probing' || lateProbeMode !== 'replay' || !options.onEarlyQuota?.(event)) {
       return false
     }
     phase = 'retrying'
@@ -234,6 +256,39 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
     cleanup()
     options.upstreamSocket.destroy()
     return true
+  }
+  const handleCannotReplayQuota = (event: QuotaExhaustionEvent): void => {
+    const hasReplacement = options.onProbeCannotReplay?.(event) ?? false
+    if (!hasReplacement) {
+      forwardTerminalQuotaEvent(event)
+      return
+    }
+    phase = 'closing'
+    upstreamBuffer.length = 0
+    options.onLifecycle?.({ type: 'quota_reconnect_requested' })
+    options.upstreamSocket.destroy()
+    options.downstreamSocket.destroy()
+    settle()
+  }
+  const startProbe = (probe: ReturnType<typeof analyzeResponseCreateFrame>): void => {
+    if (!probe) {
+      return
+    }
+    if (phase !== 'probing' && phase !== 'open') {
+      return
+    }
+    if (phase === 'open') {
+      upstreamBuffer.length = 0
+      pendingUpstreamFlush = false
+    }
+    phase = 'probing'
+    lateProbeMode = probe.replayable ? 'replay' : 'reconnect'
+    replayStartedFromFrame = probe.replayable
+    if (probe.replayable) {
+      options.onProbeStarted?.(probe.rawFrame)
+      return
+    }
+    options.onProbeCannotReplayStarted?.()
   }
   const flushUpstreamBuffer = () => {
     if (phase !== 'probing') {
@@ -244,6 +299,8 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
       return
     }
     phase = 'open'
+    replayStartedFromFrame = false
+    lateProbeMode = 'none'
     pendingUpstreamFlush = false
     options.onProbeConfirmed?.()
     for (const chunk of upstreamBuffer.splice(0)) {
@@ -278,17 +335,29 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
     options.maxPayloadBytes,
     {
       onFrame: (frame) => {
-        options.onWebSocketFrame?.(frame)
         observeUpstreamFrame({
           frame,
           flushProbe: flushUpstreamBuffer,
           onEarlyQuota: (event) => {
-            return retryWithNextAccount(event)
+            if (lateProbeMode === 'reconnect') {
+              handleCannotReplayQuota(event)
+              return true
+            }
+            if (lateProbeMode === 'replay') {
+              const retrying = retryWithNextAccount(event)
+              if (!retrying) {
+                forwardTerminalQuotaEvent(event)
+              }
+              return true
+            }
+            handleCannotReplayQuota(event)
+            return true
           },
           onQuotaExhausted: (event) => {
             forwardTerminalQuotaEvent(event)
           }
         })
+        options.onWebSocketFrame?.(frame)
       }
     }
   )
@@ -296,7 +365,13 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
     options.rawCapture?.directory,
     'codex-to-upstream',
     options.maxPayloadBytes,
-    { onFrame: (frame) => options.onWebSocketFrame?.(frame) }
+    {
+      onFrame: (frame) => {
+        const probe = analyzeResponseCreateFrame(frame)
+        startProbe(probe)
+        options.onWebSocketFrame?.(frame)
+      }
+    }
   )
   const flushIfReady = (): void => {
     if (pendingUpstreamFlush && phase !== 'closing' && phase !== 'retrying') {
@@ -317,10 +392,17 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
     upstreamBuffer.push(Buffer.from(chunk))
     const directQuotaEvent = parseQuotaEventFromWebSocketChunk(chunk)
     if (directQuotaEvent) {
-      if (retryWithNextAccount(directQuotaEvent)) {
+      if (lateProbeMode === 'reconnect') {
+        handleCannotReplayQuota(directQuotaEvent)
         return
       }
-      forwardTerminalQuotaEvent(directQuotaEvent)
+      if (lateProbeMode === 'replay') {
+        if (!retryWithNextAccount(directQuotaEvent)) {
+          forwardTerminalQuotaEvent(directQuotaEvent)
+        }
+        return
+      }
+      handleCannotReplayQuota(directQuotaEvent)
       return
     }
     observingUpstream = true
@@ -333,9 +415,15 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
   }
   function forwardDownstreamChunk(chunk: Buffer, recordForReplay: boolean): void {
     downstreamFrames?.observe(chunk)
-    if (recordForReplay && phase === 'probing') {
+    if (
+      recordForReplay &&
+      phase === 'probing' &&
+      lateProbeMode === 'replay' &&
+      !replayStartedFromFrame
+    ) {
       options.onProbeDownstreamChunk?.(Buffer.from(chunk))
     }
+    replayStartedFromFrame = false
     if (!safeSocketWrite(options.upstreamSocket, chunk)) {
       options.downstreamSocket.destroy()
       settle()

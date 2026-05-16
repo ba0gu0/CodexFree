@@ -19,7 +19,7 @@ import { handleProxyHttpRequest } from './service-http'
 import { handleProxyUpgrade } from './service-upgrade'
 import type { ForwardResult } from './transport-http'
 import { closeUpgradedSocket } from './transport-utils'
-import type { ProxyConfig, ProxyStatus } from './types'
+import type { ProxyAccountSwitchResult, ProxyConfig, ProxyStatus } from './types'
 import { extractUsageResponse, isUsageExhausted, type UsageSnapshot } from './usage-response'
 import type { CapturedWebSocketFrame } from './websocket-capture'
 
@@ -119,6 +119,29 @@ export class TransparentProxyService {
       })
     })
     this.server = undefined
+  }
+
+  switchActiveAccountAndCloseWebSockets(accountId?: string): ProxyAccountSwitchResult {
+    const account = this.accountPool.selectActiveAccount(accountId)
+    if (!account) {
+      this.log.warn('Manual account switch requested but target account is unavailable', {
+        accountId
+      })
+      return { accountId, closedWebSockets: 0, switched: false }
+    }
+
+    this.ledger.setActiveAccount(account.accountId)
+    const closedWebSockets = this.upgradedSockets.size
+    for (const socket of this.upgradedSockets) {
+      closeUpgradedSocket(socket)
+    }
+    this.upgradedSockets.clear()
+    this.log.info('Manual account switch requested; closed upgraded sockets', {
+      accountId: account.accountId,
+      accountLabel: account.label,
+      closedWebSockets
+    })
+    return { accountId: account.accountId, closedWebSockets, switched: true }
   }
 
   status(): ProxyStatus {

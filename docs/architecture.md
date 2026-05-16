@@ -53,7 +53,10 @@ separate trust boundaries. API-key shaped requests remain rejected on the normal
 Codex account proxy. If the compatibility service is implemented, it must listen
 on its own configured port, require an explicit local API key, and translate each
 accepted OpenAI-compatible request into a short-lived account WebSocket exchange
-against `/backend-api/codex/responses`.
+against `/backend-api/codex/responses`. This applies to `/v1/responses` HTTP,
+SSE, and WebSocket clients, and to legacy `/v1/chat/completions` after request
+conversion. Upstream generation calls to ChatGPT must use WSS, not HTTP
+`POST /backend-api/codex/responses`.
 
 ## Account Session Routing
 

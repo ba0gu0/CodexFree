@@ -3,8 +3,10 @@ import { arrayField, isRecord, parseJsonRecord, stringField } from './json-utils
 import { isCodexModelsPath, isWhamUsagePath } from './path-utils'
 import type { ForwardResult } from './transport-http'
 
+const CLIENT_JSON_RESPONSE_REWRITES_ENABLED = false
+
 export function shouldRewriteClientJsonResponse(path: string | undefined): boolean {
-  return isWhamUsagePath(path) || isCodexModelsPath(path)
+  return CLIENT_JSON_RESPONSE_REWRITES_ENABLED && (isWhamUsagePath(path) || isCodexModelsPath(path))
 }
 
 export function transformHttpResponseForClient(
@@ -13,6 +15,9 @@ export function transformHttpResponseForClient(
   result: ForwardResult
 ): ForwardResult {
   if (!result.deferredBody || result.streaming || result.statusCode !== 200) {
+    return result
+  }
+  if (!shouldRewriteClientJsonResponse(path)) {
     return result
   }
   const body = parseJsonRecord(result.deferredBody.toString('utf8'))

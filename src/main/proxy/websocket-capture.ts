@@ -12,6 +12,7 @@ export interface CapturedWebSocketFrame {
   direction: WebSocketFrameDirection
   opcode: string
   opcodeValue: number
+  rawFrame?: Buffer
   payloadText?: string
   decodeError?: string
 }
@@ -26,6 +27,7 @@ interface ParsedFrame {
   opcode: number
   masked: boolean
   payload: Buffer
+  rawFrame: Buffer
   frameBytes: number
 }
 
@@ -179,6 +181,7 @@ function parseFrame(buffer: Buffer): ParsedFrame | undefined {
   }
 
   const payload = Buffer.from(buffer.subarray(offset, frameBytes))
+  const rawFrame = Buffer.from(buffer.subarray(0, frameBytes))
   if (masked) {
     const mask = buffer.subarray(maskOffset, maskOffset + 4)
     for (let index = 0; index < payload.byteLength; index += 1) {
@@ -192,6 +195,7 @@ function parseFrame(buffer: Buffer): ParsedFrame | undefined {
     opcode: firstByte & 0x0f,
     masked,
     payload,
+    rawFrame,
     frameBytes
   }
 }
@@ -208,7 +212,7 @@ function appendFrame(
   }
 ): void {
   const decoded = payload.decodedPayload
-  const sample = decoded.subarray(0, maxPayloadBytes)
+  const sample = maxPayloadBytes === 0 ? decoded : decoded.subarray(0, maxPayloadBytes)
   const payloadText = utf8OrUndefined(sample)
   const entry = {
     capturedAt: new Date().toISOString(),
@@ -231,6 +235,7 @@ function appendFrame(
       direction,
       opcode: entry.opcode,
       opcodeValue: entry.opcodeValue,
+      rawFrame: frame.rawFrame,
       payloadText,
       decodeError: payload.decodeError
     })

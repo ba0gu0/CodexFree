@@ -158,6 +158,25 @@ export async function handleProxyUpgrade(
     })
     return ctx.createRequestOptions(request, targetUrl)
   }
+  const hasReplacementAfterQuota = (event: QuotaExhaustionEvent) => {
+    markQuotaExhausted(event)
+    const hasReplacement = ctx.availableAccountCount() > 0
+    if (!hasReplacement) {
+      ctx.log.warn('No replacement account is available after usage limit', {
+        id: requestId,
+        accountId: routedAccountId
+      })
+      ctx.ledger.recordRoutingEvent({
+        requestId,
+        conversationKey,
+        accountId: routedAccountId,
+        eventType: 'all_accounts_exhausted',
+        reason: event.errorType
+      })
+      terminalQuotaMessage = formatQuotaLedgerMessage(event)
+    }
+    return hasReplacement
+  }
   const logLifecycle = (event: WebSocketLifecycleEvent) => {
     if (event.type === 'upstream_closed' && suppressedRetryCloseLogs > 0) {
       suppressedRetryCloseLogs -= 1
@@ -189,6 +208,7 @@ export async function handleProxyUpgrade(
     ctx.config.rawCaptureMaxBytes,
     useAccountRules ? markTerminalQuotaExhausted : undefined,
     useAccountRules && ctx.config.authPool.enabled ? retryWithNextAccount : undefined,
+    useAccountRules && ctx.config.authPool.enabled ? hasReplacementAfterQuota : undefined,
     (frame) =>
       ctx.logWebSocketFrame(requestId, request.url ?? '/', routedAccountId, conversationKey, frame),
     logLifecycle
