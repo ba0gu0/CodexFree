@@ -8,20 +8,25 @@
   setting is enabled for local analysis.
 - Protocol-shaped `.http` captures contain raw authorization headers and
   must be treated as secrets.
-- Debug raw capture must write outside the repository into the system temp
-  directory and must be disabled by default.
+- Debug raw capture must write outside the repository into the app data
+  `raw-captures` directory and must be disabled by default.
 - Mask secrets in UI by default.
 - Keep imported auth files out of git.
 - Define encryption or platform credential storage before production use.
 
 ## Proxy Safety
 
-- Reject API-key mode requests.
+- Reject API-key mode requests on the normal account-login proxy.
+- Keep any future API-key compatibility service on a separate port with an
+  explicit off-by-default switch and a visible account-ban/detection warning.
+- Treat local compatibility API keys as secrets and never log them.
 - Forward account-mode request bodies unchanged.
+- Enforce a local request body size limit before forwarding upstream.
 - Mutate only upstream authentication headers.
 - Do not add diagnostic headers containing account identifiers unless explicitly
   approved.
 - Keep quota and auth switching decisions auditable without storing secrets.
+- Record successful admin write operations in the ledger audit log.
 
 ## Account Protection
 

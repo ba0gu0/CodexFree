@@ -6,16 +6,134 @@
 |----|--------|------|------------|
 | T1a | Done | Implement transparent proxy service and redacted observation ledger | Stack decision |
 | T1b | Done | Complete Codex account-mode packet contract from HAR or proxy logs | T1a or Yakit exports |
-| T2 | In Progress | Define auth file normalization for Codex, CPA, and sub2api | Sample files |
-| T3 | Draft | Design proxy request classification and API-key rejection | T1b |
-| T4 | Draft | Design quota-exhaustion detection and auth switching state machine | T1b |
-| T5 | Draft | Define SQLite schema for requests, accounts, usage, and events | T2, T4 |
-| T6 | Draft | Design Electron management UI information architecture | T2, T5 |
+| T2 | Done | Define auth file normalization for Codex, CPA, and sub2api | Sample files |
+| T3 | Done | Design proxy request classification and API-key rejection | T1b |
+| T4 | Done | Implement quota-exhaustion detection and auth switching state machine | T1b |
+| T5 | Done | Define SQLite schema for accounts, usage, and events | T2, T4 |
+| T6 | Done | Design Electron management UI information architecture | T2, T5 |
 | T7 | Done | Create Bun Electron Vite React project manifest | Stack decision |
+| T8 | Draft | Add explicit API-key OpenAI-compatible adapter mode | T1b, T4 |
+| T9 | Done | Split proxy into standalone daemon controlled by app | T4, T5 |
+| T10 | In Progress | Make proxy logs operator-readable from real Docker Codex traffic | T4 |
+| T11 | In Progress | Continue desktop app console work against daemon/admin API | T6, T9 |
+
+## Parallel Work Lines
+
+### Work Line A: Proxy Daemon Core
+
+This line can run in a separate thread from UI work.
+
+Owned scope:
+
+- `src/main/proxy/**`;
+- daemon/CLI entrypoint;
+- local admin API or IPC;
+- SQLite ledger and account-state reads/writes;
+- WSS and HTTP quota handling;
+- terminal logs;
+- Docker Codex validation.
+
+Immediate tasks:
+
+1. Done: `bun run proxy` now starts the daemon entrypoint and uses the shared
+   `codexfree.sqlite` ledger.
+2. Done: daemon admin API is token-protected and exposes status, config,
+   accounts, usage updates, requests, log events, protocol messages, start,
+   restart, stop, account disable/delete/reset, and clear.
+3. Done: normal daemon runs write log events to SQLite without request spam;
+   `--debug` prints readable lines from the same event stream.
+4. Done: Electron main no longer imports the SQLite ledger or embedded proxy
+   service. Packaged builds include the daemon JS bundle and run it with
+   Electron's Node runtime; development startup uses the same `bun run proxy`
+   path.
+5. Continue reworking `bun run proxy` logs against real Docker Codex
+   traffic:
+   - daemon startup;
+   - active account loaded from SQLite;
+   - quota remaining and reset time;
+   - HTTP request purpose and response result;
+   - WSS connection lifecycle;
+   - user request, AI reply, and tool events;
+   - quota detection;
+   - account switch or no replacement account.
+6. Fix HTTP fallback `POST /backend-api/codex/responses` quota handling so it
+   follows the same account-state rules as WSS quota handling.
+7. Keep normal account-login proxy paths under `/backend-api`; keep `/v1`
+   API-key compatibility separate and explicit.
+
+Verification:
+
+- `bun run lint`;
+- `bun run typecheck`;
+- focused proxy tests;
+- `docker exec codex ... codex exec ...` through
+  `chatgpt_base_url = ".../backend-api"` and
+  `openai_base_url = ".../backend-api/codex"`;
+- terminal log review proving the whole flow is understandable.
+
+### Work Line B: Desktop App Console
+
+This line should avoid changing proxy hot-path code unless it needs a new admin
+status field.
+
+Owned scope:
+
+- `src/renderer/**`;
+- `src/preload/**`;
+- Electron shell and admin client glue;
+- app navigation and account/request/usage views.
+
+Immediate tasks:
+
+1. Done for main-process control: Electron main has a daemon admin client and
+   does not import the SQLite ledger or embedded proxy service. Runtime startup
+   ensures the daemon is reachable, and status, restart, config-save, import
+   sync, usage updates, reset, and account disable/delete actions go through the
+   daemon admin API.
+2. Show startup/config helper values:
+   - `chatgpt_base_url = "http://127.0.0.1:<port>/backend-api"`;
+   - `openai_base_url = "http://127.0.0.1:<port>/backend-api/codex"`.
+3. Show active account label/email, quota, reset time, available count,
+   exhausted count, and recent account switch event.
+4. Keep account import, batch usage checks, enable/disable/reset, and request
+   ledger screens usable while the daemon evolves.
+
+Verification:
+
+- `bun run lint`;
+- `bun run typecheck`;
+- renderer build;
+- manual app launch;
+- app can inspect/control an already-running daemon.
+
+Renderer initial-mode state:
+
+- Coss-first and shadcn-fallback component policy remains the target.
+- `src/renderer/src/components/ui/` may contain source-owned component building
+  blocks, but it is not the app UI implementation.
+- `src/renderer/src/App.tsx` is currently an initial shell placeholder.
+- Dashboard, Accounts, Proxy, Requests, Usage, and Settings need to be rebuilt
+  as a separate renderer refactor slice.
+- `docs/CodexFree-v2.pen`, `docs/CodexFree-v3.pen`, and preview images are
+  references, not evidence that the renderer is implemented.
+
+Current verification:
+
+- `bun run lint`;
+- `bun run typecheck`;
+- `bun run build`.
+- `bun run build:unpack`.
+- Renderer functional verification is pending the planned UI refactor.
+- Current daemon/proxy core verification:
+  - `bun run test` passed 14 test files and 48 tests;
+  - `bun run typecheck:node` passed;
+  - `bun run daemon -- --help` passed;
+  - local daemon smoke confirmed log events are persisted by default and printed
+    only with `--debug`.
 
 ## Immediate Next Step
 
-T1a is complete. The service starts from the Electron main process, supports
+T1a is complete. The service starts from the standalone daemon, supports
 configurable listen host, listen port, upstream base URL, outbound proxy mode,
 redacted logs, SQLite request ledger fields, and explicit temp-directory raw
 capture. It does not mutate request bodies and does not replace upstream auth.
@@ -25,31 +143,38 @@ Verification: `bun run lint`, `bun run typecheck`, `bun run test`,
 local curl through `127.0.0.1:33333`, Docker Node fetch through
 `10.211.55.2:33333`, and `codex exec` from the existing `codex` container.
 
-Environment notes: the default port is now `33333`. The existing `codex`
-container has `codex-cli 0.130.0`; its config was pointed to
-`http://10.211.55.2:33333/v1` for validation.
+Environment notes: the default port is now `33333` and the default host is
+`127.0.0.1`. The existing `codex` container has `codex-cli 0.130.0`; Docker
+validation needs an explicit `--host 0.0.0.0` override before its config can be
+pointed to the Mac proxy. Docker should use `host.docker.internal`; local host
+Codex should use `127.0.0.1`, or the computer IP when accessed from a VM/LAN
+client.
 
 T1b is complete for normal account-mode traffic. HAR analysis confirmed the
 direct upstream paths under `https://chatgpt.com/backend-api`. Two local routing
 shapes are now verified:
 
-- `openai_base_url = "http://10.211.55.2:33333/v1"` makes Codex emit
-  OpenAI-compatible local paths such as `/v1/models` and `/v1/responses`; the
-  proxy maps those paths back to `/backend-api/codex/*`.
-- `openai_base_url = "http://10.211.55.2:33333/backend-api/codex"` keeps
+- `openai_base_url = "http://host.docker.internal:33333/backend-api/codex"`
+  keeps Docker Codex-to-proxy model traffic on `/backend-api/codex/models` and
+  `/backend-api/codex/responses` while `chatgpt_base_url =
+  "http://host.docker.internal:33333/backend-api"` keeps auxiliary ChatGPT
+  backend traffic on `/backend-api/*`.
+- `/v1/models` and `/v1/responses` belong to the future API-key compatibility
+  surface. `/v1/models` must convert upstream account models into the standard
+  OpenAI model-list response shape.
+- `openai_base_url = "http://127.0.0.1:33333/backend-api/codex"` keeps host
   Codex-to-proxy model traffic on `/backend-api/codex/models` and
   `/backend-api/codex/responses` while `chatgpt_base_url =
-  "http://10.211.55.2:33333/backend-api"` keeps auxiliary ChatGPT backend
-  traffic on `/backend-api/*`.
+  "http://127.0.0.1:33333/backend-api"` keeps auxiliary ChatGPT backend traffic
+  on `/backend-api/*`.
 
 In both verified shapes, the proxy rewrites `Host` to `chatgpt.com` and
 preserves request bodies.
 
 The provided flat auth template was normalized into Codex 0.130 native
 `auth.json` shape. After normalization, `codex exec` through
-`http://10.211.55.2:33333/v1` returned `converted-auth-proxy-ok`; the ledger
-showed `GET /v1/models` status `200` and WebSocket `GET /v1/responses` status
-`101`.
+the earlier `/v1` experiment returned `converted-auth-proxy-ok`; that result is
+historical evidence only and should not be used as the account-login default.
 
 The second HAR, `test/History-1778652315307.har`, verified the
 `/backend-api/codex` base URL shape. `codex exec` returned
@@ -59,30 +184,199 @@ Auxiliary interfaces (`analytics-events`, `connectors`, `wham/apps`, and
 `plugins/featured`) matched between HAR and raw capture with unchanged bodies
 and selected auth/protocol headers.
 
-Immediate next step: continue T2 by implementing auth-file import
-normalization in the app, then use a real quota-exhausted account sample to
-finish T4.
+Immediate next step: keep API-key compatibility mode as a separate T8 phase.
+The account-login proxy path is now usable with imported managed accounts,
+real usage checks, persisted account state, and explicit auth-pool takeover.
 
-T2 has started. The first implementation is a pure normalization module that
-accepts native Codex `auth.json` and flat Codex/CPA-compatible token records,
-returns canonical Codex account-login auth shape, and separates safe metadata
-from the raw token-bearing object. It does not persist secrets and is not wired
-to the Electron import UI yet.
+T2 is complete for the current supported import surface. The normalization
+module accepts native Codex `auth.json`, CPA-style records, and sub2api-style
+records that contain ChatGPT account tokens. It returns canonical Codex
+account-login auth shape and separates safe metadata from the raw token-bearing
+object.
 
-Current T2 verification: `bun run test`, `bun run typecheck`, and
-`bun run lint`.
+Current T2 verification: `bun run lint`, `bun run typecheck`, `bun run test`,
+and `bun run build`.
 
-Remaining T2 work:
+Deferred T2 hardening:
 
-- add a real sub2api sample before marking sub2api parsing complete;
-- decide where encrypted auth payloads are stored;
-- wire batch import UI and persistence;
-- add export paths after storage format is fixed.
+- add more real-world sub2api variants as samples appear;
+- replace plaintext app-managed auth-file storage with encrypted or
+  platform-protected storage in a later security phase.
+
+T3 is complete. The proxy now classifies requests by account-mode path and
+headers before forwarding. Known Codex account backend paths are allowed only
+when they carry account auth headers; `Bearer sk-` API-key mode requests and
+unknown backend paths are rejected locally and written to the ledger as
+`rejected` without reaching upstream. This applies to normal HTTP requests and
+WebSocket Upgrade requests.
+
+Current T3 verification: `bun run lint`, `bun run typecheck`, `bun run test`,
+and `bun run build`.
+
+T4 has advanced because real usage-limit samples were captured and decoded from
+the WebSocket packet stream. The loop run
+`/tmp/codexfree-ws-loop-usage.jsonl` hit:
+
+```text
+You've hit your usage limit. Upgrade to Plus to continue using Codex
+(https://chatgpt.com/explore/plus), or try again at May 20th, 2026 3:15 AM.
+```
+
+The matching raw capture id was `<uuid>`, with
+`GET /backend-api/codex/responses` returning HTTP `101`. The decoded
+`websocket-upstream-to-codex.frames.jsonl` payload contained
+`usage_limit_reached`, `status_code: 429`, `X-Codex-Plan-Type: free`,
+`X-Codex-Active-Limit: premium`, and `X-Codex-Primary-Used-Percent: 100`.
+
+Implemented T4 slice: decoded upstream WSS text frames are now parsed for
+`usage_limit_reached`, and matching upgraded requests are updated in the ledger
+as `quota_exhausted` with status `429`. This does not replay or modify the
+in-flight turn.
+
+Current T4 verification: `bun run lint:fix`, `bun run test`,
+`bun run typecheck`, and `bun run build`.
+
+Immediate next step: update account availability and implement next-boundary
+auth replacement without changing request bodies or replaying the failed turn.
+
+Implemented T4 account-pool slice: `authPool.enabled` loads normalized auth
+files from the app-managed import directory into an in-memory router. The user
+cannot select a custom runtime auth directory. The router binds each
+conversation key to a selected account, replaces only upstream `Authorization`
+and `chatgpt-account-id`, marks the bound account exhausted on decoded WSS
+`usage_limit_reached`, and selects the next available account on the next
+request or WSS upgrade boundary. Multiple conversations are handled by separate
+conversation bindings.
+
+Implemented WSS quota retry shielding: when a newly opened upstream WSS returns
+`usage_limit_reached` before any upstream business frame has been forwarded to
+Codex, the proxy buffers the client socket, hides that quota frame, marks the
+attempted account exhausted, reconnects upstream with the next available
+account, replays buffered client frames, and then resumes normal piping. This
+prevents a new Codex task from showing quota exhausted when another long task
+spent the previous account's final quota.
+
+Usage query policy is also fixed: `/backend-api/wham/usage` should be forwarded
+with the currently bound/default available account and return that account's
+real upstream usage. The proxy must not fabricate a constant 100% or fake low
+usage value.
+
+Four free-account `hi` samples were captured in
+`test/raw-captures/account-hi`. The packet comparison showed:
+
+- account-varying fields: `Authorization`, `chatgpt-account-id`;
+- session-varying fields: `thread_id`, `session_id`, `x-client-request-id`,
+  `x-codex-window-id`, `x-codex-turn-metadata`;
+- transport-varying fields: `sec-websocket-key`;
+- stable protocol fields: `/backend-api/codex/models`,
+  `/backend-api/codex/responses`, `openai-beta:
+  responses_websockets=2026-02-06`, request bodies for model/responses.
+
+Same-session account switching was also captured in
+`test/raw-captures/same-session-account-switch`. Three auth files were used with
+the same `codex exec resume` thread id
+`019e<thread-redacted>`. The response WSS account id changed per
+auth file, while `thread_id`, `session_id`, `x-client-request-id`,
+`x-codex-window-id`, and `x-codex-turn-metadata` stayed stable. This confirms
+that account switching can happen inside one conversation at the next WSS
+upgrade boundary.
+
+Current T4 verification: `bun run lint`, `bun run test`, `bun run typecheck`,
+`bun run build`, and Docker validation with Codex CLI `0.130.0`.
+
+Completed T4 core work:
+
+- persisted account availability into SQLite `proxy_accounts`;
+- persisted route decisions into `proxy_routing_events`;
+- persisted quota exhaustion details into `proxy_quota_events`;
+- reloaded persisted exhausted accounts before routing after service restart;
+- marked token/account failures during forwarding without refreshing inside the
+  proxy path;
+- kept concurrent conversation bindings separate and avoided stealing an account
+  already bound to another active conversation when an unbound account exists;
+- shielded initial WSS `usage_limit_reached` frames and retried on the next
+  available account;
+- passed through the quota error only when every managed account is exhausted;
+- verified real `/backend-api/wham/usage` forwarding with the selected account.
+
+Docker validation evidence:
+
+- Container inbound account:
+  `<uuid>`.
+- Local auth-pool outbound account:
+  `<uuid>`.
+- Raw captures show account replacement on `/backend-api/codex/models`,
+  WebSocket `/backend-api/codex/responses`, and `/backend-api/wham/usage`.
+- The chat task returned `authpool-docker-ok`; the manual usage query returned
+  HTTP 200 with a real upstream body.
+
+T4 is complete for the account-login proxy path. The latest slice added:
+
+- app-managed account import without automatically enabling takeover;
+- runtime routing uses the same app-managed directory as batch import;
+- batch usage checks for imported accounts;
+- per-account disable/enable control;
+- exhausted-account reset control;
+- exported auth-file backup path;
+- 24-hour retention pruning for in-memory conversation bindings;
+- status reporting for available, exhausted, and disabled account counts.
+
+The latest evidence from `test/History-1778683339690.har` and raw captures
+refines T4:
+
+- Codex establishes a WSS `/backend-api/codex/responses` channel after a
+  session/turn starts.
+- The proxy must preserve auth headers for an already-upgraded WSS connection.
+- Only a decoded upstream WSS payload with `error.type =
+  "usage_limit_reached"` marks the bound account as exhausted.
+- Network disconnects, `EPIPE`, local proxy failures, or Yakit HTML errors must
+  not trigger auth replacement.
+- After quota exhaustion, the same session can become eligible for a new account
+  on the next request boundary; the failed in-flight WSS turn is not replayed.
+
+T8 is intentionally separate. It changes the previous hard boundary by adding an
+off-by-default API-key compatibility mode. In that mode, CodexFree would accept
+standard OpenAI-style `/v1/models` and `/v1/responses` requests on a configured
+port/key. `/v1/models` must convert the account models payload into the
+standard OpenAI response shape; `/v1/responses` must adapt each request to a
+short-lived ChatGPT account WSS `/backend-api/codex/responses` call. This is
+not the same as the account-login transparent proxy and needs separate tests and
+operator controls.
+
+## Overall Proxy Capability Plan
+
+Still needed after the account-login proxy core:
+
+- Account storage hardening: encrypted or platform-protected auth payload
+  storage.
+- Validation tools: one-click raw capture cleanup and packet diff summaries for
+  account/header changes. Docker smoke output for the current daemon path is now
+  recorded in `docs/current-state.md`.
+- Token refresh integration: `src/main/auth/refresh.ts` exists, but forwarding
+  should not refresh inside HTTP/WSS proxy paths. Use the main app
+  account-maintenance flow to refresh or recover accounts marked unavailable.
+- API-key compatibility mode: separate disabled-by-default listener, explicit
+  local API key, visible ban/detection warning, and adapter from OpenAI-style
+  `/v1/*` requests to short-lived account WSS exchanges.
 
 T7 is complete. Verification: `bun run lint`, `bun run typecheck`,
 `bun run test`, `bun run build`, `bun run build:unpack`, dev UI checked with
 Computer Use, unpacked app checked with Computer Use, and packaged GitHub
 update metadata confirmed with sanitized update-check failure logging.
+
+The latest proxy-response slice is complete for the two client-visible account
+surfaces:
+
+- `/backend-api/wham/usage` still forwards through the selected managed auth
+  file and updates quota state from the real upstream response, then returns a
+  Plus-shaped usage JSON to Codex with the inbound request account id, upstream
+  reset fields, and `used_percent: 50`.
+- `/backend-api/codex/models` keeps the upstream model list and adds Plus-only
+  `priority` / `fast` speed-tier metadata to `gpt-5.5` and `gpt-5.4`.
+- Verification passed:
+  `bun run test -- src/main/proxy/service.test.ts -t "rewrites codex models responses|forwards usage queries|retries usage queries"`,
+  `bunx biome check src/main/proxy/service.ts src/main/proxy/service.test.ts`,
+  and `bun run typecheck:node`.
 
 ## Readiness Rules
 
@@ -90,6 +384,6 @@ update metadata confirmed with sanitized update-check failure logging.
 - Any task that changes request forwarding, auth handling, or persistence must
   update `docs/security-checklist.md` if it discovers a new risk.
 - Temporary raw capture is allowed only behind an explicit debug setting and
-  must write outside the repository into the system temp directory.
+  must write outside the repository into the app data `raw-captures` directory.
 - When a task becomes Done, record the verification evidence here.
 - Independent task cards are not enabled; this file is the task queue authority.

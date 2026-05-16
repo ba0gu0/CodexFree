@@ -29,8 +29,9 @@
 ## Confirmed From User Request
 
 - Electron app is the intended shell.
-- The local proxy endpoint is `http://127.0.0.1:33333/v1`.
-- Codex local config should use `openai_base_url`.
+- The local proxy endpoint is `http://127.0.0.1:33333/backend-api/codex` for
+  `openai_base_url` and `http://127.0.0.1:33333/backend-api` for
+  `chatgpt_base_url`.
 - Local placeholder `~/.codex/auth.json` is randomly generated and not verified
   by the proxy.
 - Proxy mutates authentication headers only.

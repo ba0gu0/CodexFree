@@ -12,7 +12,9 @@ account-mode packet contract is fully finalized.
 ## Scope
 
 - Listen on a configurable host and port.
-- Forward `/v1/*` requests to a configurable upstream base URL.
+- Forward `/backend-api/codex/*` requests to a configurable upstream base URL.
+- Treat `/v1/*` as future API-key compatibility scope, not account-login proxy
+  default behavior.
 - Support outbound modes: direct, HTTP proxy, HTTPS proxy, SOCKS4, SOCKS5.
 - Preserve request body bytes.
 - Preserve streaming responses.
@@ -22,7 +24,7 @@ account-mode packet contract is fully finalized.
 
 ## Defaults
 
-- Listen host: `0.0.0.0`.
+- Listen host: `127.0.0.1`.
 - Listen port: `33333`.
 - Upstream base URL: `https://chatgpt.com/backend-api/codex`.
 - Outbound mode: direct.
@@ -64,18 +66,23 @@ This is for local protocol analysis only and must never write inside the repo.
 ## Codex 0.130 Observation
 
 Container validation with `codex-cli 0.130.0` confirmed these account-mode
-surfaces through the local proxy:
+surfaces through the local proxy when using the preferred backend config:
 
-- `GET /v1/models?client_version=0.130.0`
-- `GET /v1/responses` with `connection: Upgrade` and WebSocket beta headers
-- `POST /v1/responses` with `accept: text/event-stream` fallback
+- `GET /backend-api/codex/models?client_version=0.130.0`
+- `GET /backend-api/codex/responses` with `connection: Upgrade` and WebSocket
+  beta headers
+- `POST /backend-api/codex/responses` with `accept: text/event-stream` fallback
 
 The proxy records `chatgpt-account-id` as account metadata and records
 `thread_id`, `session_id`, or `x-client-request-id` as the conversation key.
 
-When `openai_base_url` is set, Codex emits local OpenAI-compatible paths such as
-`/v1/models` and `/v1/responses`. The proxy maps those to the ChatGPT account
-upstream paths observed in HAR:
+When `openai_base_url` is set to `/backend-api/codex`, Codex emits the same path
+family observed in HAR. A future API-key compatibility mode can expose
+OpenAI-style `/v1/models` and `/v1/responses`, but that mode must return
+OpenAI-standard response shapes and stay separate from account-login proxying.
+For example:
 
-- `/v1/models` -> `/backend-api/codex/models`
-- `/v1/responses` -> `/backend-api/codex/responses`
+- `/v1/models` fetches upstream account models and converts them to the standard
+  OpenAI model-list response shape.
+- `/v1/responses` adapts a stateless OpenAI-style request to the account
+  `/backend-api/codex/responses` flow.

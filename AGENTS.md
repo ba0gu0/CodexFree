@@ -9,8 +9,13 @@ local OpenAI-compatible endpoint.
 The intended local Codex config points requests to:
 
 ```toml
-openai_base_url = "http://127.0.0.1:33333/v1"
+chatgpt_base_url = "http://127.0.0.1:33333/backend-api"
+openai_base_url = "http://127.0.0.1:33333/backend-api/codex"
 ```
+
+Inside Docker, replace only the host with `host.docker.internal`. For another
+machine on the LAN, replace only the host with that computer's IP address. Keep
+the `/backend-api` and `/backend-api/codex` paths unchanged.
 
 The local `~/.codex/auth.json` used by Codex is a randomly generated placeholder
 token. CodexFree does not validate that local placeholder; it only replaces the
@@ -29,7 +34,9 @@ upstream authentication headers when proxying through managed account auth files
 
 - Electron app with a management interface.
 - Local HTTP proxy at `127.0.0.1:33333`.
-- OpenAI-compatible `/v1` surface matching Codex account-login traffic.
+- Default `/backend-api/codex` Codex account-login surface.
+- Future API-key compatibility surface under `/v1/models` and `/v1/responses`,
+  disabled by default and separated from account-login proxying.
 - Request forwarding without body mutation.
 - Header-only upstream auth replacement.
 - Auth pool management for Codex `auth.json`, CPA format, and sub2api format.
@@ -52,8 +59,9 @@ upstream authentication headers when proxying through managed account auth files
 
 ## Hard Boundaries
 
-- Do not accept API-key mode requests in the proxy. This project only supports
-  Codex account-login request traffic.
+- Do not accept API-key mode requests on the normal account-login proxy.
+  API-key compatibility is allowed only as a future explicit, disabled-by-default
+  separate listener with a visible account-ban/detection warning.
 - Do not mutate proxied request bodies unless a future spec explicitly allows it.
 - Do not log access tokens, refresh tokens, authorization headers, cookies, or
   raw auth file contents.
