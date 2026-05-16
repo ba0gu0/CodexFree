@@ -1,13 +1,16 @@
+import { createHash } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { classifyProxyRequest } from './classification'
 import { safeJson, summarizeBuffer } from './json-utils'
+import { isWhamRemotePath } from './path-utils'
 import { formatQuotaLedgerMessage, type QuotaExhaustionEvent } from './quota'
 import { createRawCapture } from './raw-capture'
 import { createRequestId, fingerprint, firstHeaderValue, redactHeaders } from './redaction'
 import type { ProxyHandlerContext } from './service-context'
+import { createTerminalQuotaPayload } from './terminal-quota'
 import { forwardUpgradeRequest, type WebSocketLifecycleEvent } from './transport'
-import { formatHttpResponse } from './transport-utils'
+import { createServerTextFrame, formatHttpResponse, formatUpgradeResponse } from './transport-utils'
 import type { RequestLedgerEntry } from './types'
 
 export async function handleProxyUpgrade(
@@ -52,23 +55,20 @@ export async function handleProxyUpgrade(
     return
   }
 
-  const useAccountRules = classification.mode === 'account'
+  const preserveOriginalAuth = isWhamRemotePath(request.url)
+  const useAccountRules = classification.mode === 'account' && !preserveOriginalAuth
   if (useAccountRules && ctx.config.authPool.enabled && ctx.availableAccountCount() === 0) {
+    const terminalQuota = createTerminalQuotaPayload(ctx.ledger, accountId)
     ctx.ledger.recordRoutingEvent({
       requestId,
       conversationKey,
-      accountId,
+      accountId: terminalQuota.accountId ?? accountId,
       eventType: 'all_accounts_exhausted',
       reason: 'no_available_account'
     })
-    rejectUpgrade(ctx, {
+    finishUpgradeWithTerminalQuota(ctx, {
       accountId,
       authHeader,
-      classification: {
-        ...classification,
-        errorCode: 'no_available_account',
-        statusCode: 503
-      },
       completedAt: new Date(),
       conversationKey,
       cookieHeader,
@@ -77,20 +77,20 @@ export async function handleProxyUpgrade(
       request,
       requestId,
       socket,
-      startedAt
+      startedAt,
+      terminalAccountId: terminalQuota.accountId,
+      terminalBody: terminalQuota.body
     })
     return
   }
-  const routedAccount = await ctx.routeAccount(request, requestId, accountId, conversationKey)
+  const routedAccount = preserveOriginalAuth
+    ? undefined
+    : await ctx.routeAccount(request, requestId, accountId, conversationKey)
   if (useAccountRules && ctx.config.authPool.enabled && !routedAccount) {
-    rejectUpgrade(ctx, {
+    const terminalQuota = createTerminalQuotaPayload(ctx.ledger, accountId)
+    finishUpgradeWithTerminalQuota(ctx, {
       accountId,
       authHeader,
-      classification: {
-        ...classification,
-        errorCode: 'no_available_account',
-        statusCode: 503
-      },
       completedAt: new Date(),
       conversationKey,
       cookieHeader,
@@ -99,7 +99,9 @@ export async function handleProxyUpgrade(
       request,
       requestId,
       socket,
-      startedAt
+      startedAt,
+      terminalAccountId: terminalQuota.accountId,
+      terminalBody: terminalQuota.body
     })
     return
   }
@@ -223,6 +225,82 @@ export async function handleProxyUpgrade(
     startedAt,
     completedAt
   })
+}
+
+interface TerminalQuotaUpgradeInput {
+  accountId: string | undefined
+  authHeader: string | undefined
+  completedAt: Date
+  conversationKey: string | undefined
+  cookieHeader: string | undefined
+  head: Buffer
+  rawCapture: ReturnType<typeof createRawCapture>
+  request: IncomingMessage
+  requestId: string
+  socket: Duplex
+  startedAt: Date
+  terminalAccountId: string | undefined
+  terminalBody: Buffer
+}
+
+function finishUpgradeWithTerminalQuota(
+  ctx: ProxyHandlerContext,
+  input: TerminalQuotaUpgradeInput
+): void {
+  const headers = {
+    connection: 'Upgrade',
+    upgrade: 'websocket',
+    'sec-websocket-accept': websocketAcceptKey(
+      firstHeaderValue(input.request.headers['sec-websocket-key']) ?? ''
+    )
+  }
+  input.socket.write(formatUpgradeResponse(101, headers))
+  input.socket.write(createServerTextFrame(input.terminalBody.toString('utf8')))
+  input.socket.end()
+  input.rawCapture?.writeUpgradeResponse(101, headers)
+  ctx.log.warn('HTTP result', {
+    id: input.requestId,
+    method: input.request.method ?? 'GET',
+    path: input.request.url ?? '/',
+    statusCode: 429,
+    durationMs: input.completedAt.getTime() - input.startedAt.getTime(),
+    bytes: input.terminalBody.byteLength,
+    accountId: input.terminalAccountId ?? input.accountId,
+    conversationKey: input.conversationKey,
+    body: summarizeBuffer(input.terminalBody)
+  })
+  ctx.ledger.insert({
+    id: input.requestId,
+    accountId: input.terminalAccountId ?? input.accountId,
+    conversationKey: input.conversationKey,
+    method: input.request.method ?? 'GET',
+    path: input.request.url ?? '/',
+    mode: 'account',
+    outcome: 'quota_exhausted',
+    statusCode: 429,
+    durationMs: input.completedAt.getTime() - input.startedAt.getTime(),
+    requestBytes: input.head.byteLength,
+    responseBytes: input.terminalBody.byteLength,
+    streaming: true,
+    upstreamHost: 'not-forwarded',
+    outboundMode: ctx.config.outboundProxy.mode,
+    authHeaderPresent: input.authHeader !== undefined,
+    cookieHeaderPresent: input.cookieHeader !== undefined,
+    authFingerprint: fingerprint(input.authHeader),
+    cookieFingerprint: fingerprint(input.cookieHeader),
+    requestHeadersJson: safeJson(redactHeaders(input.request.headers)),
+    responseHeadersJson: safeJson(headers),
+    requestBodySample: summarizeBuffer(input.head),
+    responseBodySample: summarizeBuffer(input.terminalBody),
+    rawCapturePath: input.rawCapture?.directory,
+    errorMessage: 'usage_limit_reached status=429',
+    startedAt: input.startedAt,
+    completedAt: input.completedAt
+  })
+}
+
+function websocketAcceptKey(key: string): string {
+  return createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64')
 }
 
 interface RejectUpgradeInput {

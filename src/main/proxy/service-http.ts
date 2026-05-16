@@ -5,11 +5,17 @@ import {
   transformHttpResponseForClient
 } from './http-response-transform'
 import { RequestBodyTooLargeError, readRequestBody, safeJson, summarizeBuffer } from './json-utils'
-import { isCodexCompactPath, isWhamUsagePath } from './path-utils'
+import {
+  isCodexCompactPath,
+  isCodexResponsesPath,
+  isWhamRemotePath,
+  isWhamUsagePath
+} from './path-utils'
 import { formatQuotaLedgerMessage, parseQuotaExhaustionEvent } from './quota'
 import { createRawCapture } from './raw-capture'
 import { createRequestId, fingerprint, firstHeaderValue, redactHeaders } from './redaction'
 import type { ProxyHandlerContext } from './service-context'
+import { createTerminalQuotaPayload } from './terminal-quota'
 import { forwardHttpRequest } from './transport-http'
 
 export async function handleProxyHttpRequest(
@@ -139,34 +145,43 @@ export async function handleProxyHttpRequest(
   }
 
   const mode = classification.mode
-  const useAccountRules = classification.mode === 'account' && !isCodexCompactPath(request.url)
-  const routedAccount = await ctx.routeAccount(request, requestId, accountId, conversationKey)
+  const preserveOriginalAuth = isWhamRemotePath(request.url)
+  const useAccountRules =
+    classification.mode === 'account' && !isCodexCompactPath(request.url) && !preserveOriginalAuth
+  const routedAccount = preserveOriginalAuth
+    ? undefined
+    : await ctx.routeAccount(request, requestId, accountId, conversationKey)
   if (useAccountRules && ctx.config.authPool.enabled && !routedAccount) {
     const completedAt = new Date()
-    const body = Buffer.from(JSON.stringify({ error: 'no_available_account' }))
-    response.writeHead(503, { 'content-type': 'application/json' })
+    const terminalQuota = isCodexResponsesPath(request.url)
+      ? createTerminalQuotaPayload(ctx.ledger, accountId)
+      : undefined
+    const statusCode = terminalQuota ? 429 : 503
+    const body =
+      terminalQuota?.body ?? Buffer.from(JSON.stringify({ error: 'no_available_account' }))
+    response.writeHead(statusCode, { 'content-type': 'application/json' })
     response.end(body)
-    rawCapture?.writeResponse(503, { 'content-type': 'application/json' }, body)
+    rawCapture?.writeResponse(statusCode, { 'content-type': 'application/json' }, body)
     ctx.log.warn('HTTP result', {
       id: requestId,
       method: request.method ?? 'GET',
       path: request.url ?? '/',
-      statusCode: 503,
+      statusCode,
       durationMs: completedAt.getTime() - startedAt.getTime(),
       bytes: body.byteLength,
-      accountId,
+      accountId: terminalQuota?.accountId ?? accountId,
       conversationKey,
       body: summarizeBuffer(body)
     })
     ctx.ledger.insert({
       id: requestId,
-      accountId,
+      accountId: terminalQuota?.accountId ?? accountId,
       conversationKey,
       method: request.method ?? 'GET',
       path: request.url ?? '/',
       mode,
-      outcome: 'rejected',
-      statusCode: 503,
+      outcome: terminalQuota ? 'quota_exhausted' : 'rejected',
+      statusCode,
       durationMs: completedAt.getTime() - startedAt.getTime(),
       requestBytes: requestBody.byteLength,
       responseBytes: body.byteLength,
@@ -182,7 +197,7 @@ export async function handleProxyHttpRequest(
       requestBodySample: summarizeBuffer(requestBody),
       responseBodySample: summarizeBuffer(body),
       rawCapturePath: rawCapture?.directory,
-      errorMessage: 'no_available_account',
+      errorMessage: terminalQuota ? 'usage_limit_reached status=429' : 'no_available_account',
       startedAt,
       completedAt
     })

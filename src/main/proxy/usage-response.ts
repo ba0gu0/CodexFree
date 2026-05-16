@@ -1,4 +1,4 @@
-import { numberField, recordField, stringField } from './json-utils'
+import { recordField, stringField } from './json-utils'
 import type { AccountUsageInput } from './ledger-types'
 
 export interface UsageSnapshot extends Omit<AccountUsageInput, 'accountId'> {
@@ -50,16 +50,4 @@ export function isUsageExhausted(value: string | undefined): boolean {
   }
   const numeric = Number.parseFloat(value)
   return Number.isFinite(numeric) && numeric >= 100
-}
-
-export function rewriteUsageWindow(
-  window: Record<string, unknown> | undefined,
-  fallbackLimitWindowSeconds: number
-): Record<string, unknown> {
-  return {
-    used_percent: 50,
-    limit_window_seconds: numberField(window, 'limit_window_seconds') ?? fallbackLimitWindowSeconds,
-    reset_after_seconds: numberField(window, 'reset_after_seconds') ?? 0,
-    reset_at: numberField(window, 'reset_at') ?? 0
-  }
 }

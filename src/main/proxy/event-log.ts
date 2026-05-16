@@ -181,6 +181,9 @@ function formatWebSocketLifecycle(record: Record<string, unknown> | undefined): 
   if (phase === 'quota_frame_suppressed') {
     return `已拦截 usage_limit_reached 响应并结束当前WSS: ${path} ${accountText(record)}`
   }
+  if (phase === 'terminal_quota_forwarded') {
+    return `已返回最终 usage_limit_reached 响应并结束当前WSS: ${path} ${accountText(record)}`
+  }
   if (phase === 'ping') {
     return `连接保活: 上游发送 ping 保活 ChatGPT->Codex ${path} ${accountText(record)}`
   }

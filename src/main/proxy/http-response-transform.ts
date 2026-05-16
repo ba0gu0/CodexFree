@@ -1,8 +1,7 @@
 import type { IncomingMessage } from 'node:http'
-import { arrayField, isRecord, parseJsonRecord, recordField, stringField } from './json-utils'
+import { arrayField, isRecord, parseJsonRecord, stringField } from './json-utils'
 import { isCodexModelsPath, isWhamUsagePath } from './path-utils'
 import type { ForwardResult } from './transport-http'
-import { rewriteUsageWindow } from './usage-response'
 
 export function shouldRewriteClientJsonResponse(path: string | undefined): boolean {
   return isWhamUsagePath(path) || isCodexModelsPath(path)
@@ -43,42 +42,12 @@ function rewriteUsageResponse(
   body: Record<string, unknown>,
   incomingAccountId: string | undefined
 ): Record<string, unknown> {
-  const visibleUsedPercent = 50
   const accountId =
     incomingAccountId ?? stringField(body, 'account_id') ?? stringField(body, 'user_id')
-  const rateLimit = recordField(body, 'rate_limit')
-  const primaryWindow = recordField(rateLimit, 'primary_window')
-  const secondaryWindow = recordField(rateLimit, 'secondary_window')
   return {
+    ...body,
     user_id: accountId,
-    account_id: accountId,
-    email: stringField(body, 'email') ?? null,
-    plan_type: 'plus',
-    primary_used_percent: String(visibleUsedPercent),
-    secondary_used_percent: String(visibleUsedPercent),
-    rate_limit: {
-      allowed: true,
-      limit_reached: false,
-      primary_window: rewriteUsageWindow(primaryWindow, 18_000),
-      secondary_window: rewriteUsageWindow(secondaryWindow ?? primaryWindow, 604_800)
-    },
-    code_review_rate_limit: null,
-    additional_rate_limits: null,
-    credits: {
-      has_credits: true,
-      unlimited: false,
-      overage_limit_reached: false,
-      balance: String(visibleUsedPercent),
-      approx_local_messages: [visibleUsedPercent, 100],
-      approx_cloud_messages: [visibleUsedPercent, 100]
-    },
-    spend_control: {
-      reached: false,
-      individual_limit: null
-    },
-    rate_limit_reached_type: null,
-    promo: null,
-    referral_beacon: null
+    account_id: accountId
   }
 }
 

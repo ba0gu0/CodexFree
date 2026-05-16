@@ -48,10 +48,16 @@ Core behavior:
   upstream without forwarding the quota frame to Codex. The client socket stays
   open, the exhausted upstream account is marked unavailable, buffered client
   frames are replayed to the next account, and normal piping resumes after a
-  non-quota upstream frame.
+  non-quota upstream frame. If no replacement account is available, the proxy
+  forwards the final attempted account's real `usage_limit_reached` WSS frame
+  to Codex.
 - Usage queries are forwarded with the currently bound/default available account
   and return real upstream usage. The proxy does not fabricate a constant 100%
   usage response.
+- `/backend-api/wham/remote` and its child paths are transparent exceptions:
+  the proxy preserves the original Codex `Authorization` and
+  `chatgpt-account-id` headers instead of replacing them from the managed
+  auth pool on both HTTP and WSS upgrade traffic.
 - Account availability is now persisted in SQLite. The proxy syncs loaded auth
   files into `proxy_accounts`, records route decisions in
   `proxy_routing_events`, and records quota exhaustion details in
@@ -276,11 +282,11 @@ Core behavior:
   inspection timed out in this run.
 - Unpacked app includes `app-update.yml`; GitHub update-check failures are logged
   as sanitized summaries.
-- `/backend-api/wham/usage` client responses are now rewritten to Plus-shaped
-  usage JSON after internal usage parsing. The account id returned to Codex is
-  the inbound `Chatgpt-Account-Id`, while upstream forwarding and ledger updates
-  still use the selected managed account. The rewritten usage windows preserve
-  upstream reset fields and return `used_percent: 50`.
+- `/backend-api/wham/usage` client responses now preserve the real upstream
+  usage shape and quota values after internal usage parsing. Only
+  `user_id`/`account_id` are rewritten to the inbound `Chatgpt-Account-Id`;
+  upstream forwarding and ledger updates still use the selected managed
+  account.
 - `/backend-api/codex/models` client responses now preserve the upstream model
   list while adding the Plus-only `priority` service tier and `fast` speed tier
   to `gpt-5.5` and `gpt-5.4`. Future `/v1/models` API-key compatibility must

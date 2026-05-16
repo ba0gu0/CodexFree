@@ -368,9 +368,14 @@ The latest proxy-response slice is complete for the two client-visible account
 surfaces:
 
 - `/backend-api/wham/usage` still forwards through the selected managed auth
-  file and updates quota state from the real upstream response, then returns a
-  Plus-shaped usage JSON to Codex with the inbound request account id, upstream
-  reset fields, and `used_percent: 50`.
+  file and updates quota state from the real upstream response, then returns
+  the real upstream usage shape to Codex with only `user_id`/`account_id`
+  rewritten to the inbound request account id.
+- `/backend-api/wham/remote` and child paths now bypass managed auth
+  replacement so upstream receives the original Codex `Authorization` and
+  `chatgpt-account-id` headers for HTTP and WSS traffic.
+- Terminal WSS quota handling now returns the last attempted account's real
+  `usage_limit_reached` frame when no replacement account remains.
 - `/backend-api/codex/models` keeps the upstream model list and adds Plus-only
   `priority` / `fast` speed-tier metadata to `gpt-5.5` and `gpt-5.4`.
 - Verification passed:

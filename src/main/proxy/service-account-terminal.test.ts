@@ -54,6 +54,7 @@ describe('transparent proxy terminal account routing states', () => {
     const ledger = {
       accountUsageSummary: () => undefined,
       activeAccountId: () => undefined,
+      accounts: () => [],
       disabledAccountIds: () => [],
       exhaustedAccountIds: () => exhaustedAccounts,
       insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
@@ -128,6 +129,7 @@ describe('transparent proxy terminal account routing states', () => {
     const ledger = {
       accountUsageSummary: () => undefined,
       activeAccountId: () => undefined,
+      accounts: () => [],
       disabledAccountIds: () => [],
       exhaustedAccountIds: () => exhaustedAccounts,
       insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
@@ -186,6 +188,7 @@ describe('transparent proxy terminal account routing states', () => {
     const ledger = {
       accountUsageSummary: () => undefined,
       activeAccountId: () => undefined,
+      accounts: () => [],
       disabledAccountIds: () => [],
       exhaustedAccountIds: () => [],
       insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
@@ -213,17 +216,20 @@ describe('transparent proxy terminal account routing states', () => {
       body: JSON.stringify({ model: 'gpt-5.5', input: 'hi' })
     })
 
-    expect(response.status).toBe(503)
-    await expect(response.json()).resolves.toEqual({ error: 'no_available_account' })
+    expect(response.status).toBe(429)
+    await expect(response.json()).resolves.toMatchObject({
+      error: { type: 'usage_limit_reached' },
+      status_code: 429
+    })
     expect(upstreamHits).toBe(0)
     expect(entries[0]).toMatchObject({
-      outcome: 'rejected',
-      statusCode: 503,
+      outcome: 'quota_exhausted',
+      statusCode: 429,
       upstreamHost: 'not-forwarded'
     })
   })
 
-  it('suppresses quota errors after every managed account is exhausted', async () => {
+  it('returns the terminal quota response after every managed account is exhausted', async () => {
     const authDirectory = mkdtempSync(join(tmpdir(), 'codexfree-auth-pool-'))
     writeAuthFile(authDirectory, 'a.json', 'account-a', 'managed-a')
     const routingEvents: string[] = []
@@ -245,6 +251,8 @@ describe('transparent proxy terminal account routing states', () => {
       exhaustedAccountIds: () => [],
       disabledAccountIds: () => [],
       activeAccountId: () => undefined,
+      accountUsageSummary: () => undefined,
+      accounts: () => [],
       setActiveAccount: () => 1,
       recordRoutingEvent: (event: { eventType: string; reason: string }) => {
         routingEvents.push(`${event.eventType}:${event.reason}`)
@@ -283,8 +291,8 @@ describe('transparent proxy terminal account routing states', () => {
     ])
 
     expect(upgrades).toBe(1)
-    expect(response).not.toContain('usage_limit_reached')
-    expect(response).toContain('response.completed')
+    expect(response).toContain('usage_limit_reached')
+    expect(response).not.toContain('response.completed')
     expect(routingEvents).toContain('all_accounts_exhausted:usage_limit_reached')
     expect(entries[0]).toMatchObject({
       outcome: 'quota_exhausted',
@@ -310,6 +318,8 @@ describe('transparent proxy terminal account routing states', () => {
       exhaustedAccountIds: () => [],
       disabledAccountIds: () => [],
       activeAccountId: () => undefined,
+      accountUsageSummary: () => undefined,
+      accounts: () => [],
       setActiveAccount: () => 1,
       recordRoutingEvent: () => undefined,
       markAccountQuotaExhausted: () => undefined,
@@ -335,12 +345,12 @@ describe('transparent proxy terminal account routing states', () => {
       ''
     ])
 
-    expect(response).toContain('HTTP/1.1 503')
-    expect(response).toContain('no_available_account')
+    expect(response).toContain('HTTP/1.1 101 Switching Protocols')
+    expect(response).toContain('usage_limit_reached')
     expect(upstreamHits).toBe(0)
     expect(entries[0]).toMatchObject({
-      outcome: 'rejected',
-      statusCode: 503,
+      outcome: 'quota_exhausted',
+      statusCode: 429,
       upstreamHost: 'not-forwarded'
     })
   })

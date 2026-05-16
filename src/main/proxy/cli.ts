@@ -294,6 +294,9 @@ function formatWebSocketLifecycle(record: Record<string, unknown> | undefined): 
   if (event === 'quota_frame_suppressed') {
     return `已拦截 usage_limit_reached 响应并结束当前WSS: ${path} ${account}`
   }
+  if (event === 'terminal_quota_forwarded') {
+    return `已返回最终 usage_limit_reached 响应并结束当前WSS: ${path} ${account}`
+  }
   if (event === 'upstream_closed') {
     return `WSS上游连接已关闭: ${path} ${account}`
   }

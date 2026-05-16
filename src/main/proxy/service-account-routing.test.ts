@@ -201,28 +201,15 @@ describe('transparent proxy service account routing', () => {
       user_id: 'placeholder-account',
       account_id: 'placeholder-account',
       email: 'upstream@example.test',
-      plan_type: 'plus',
-      primary_used_percent: '50',
-      secondary_used_percent: '50',
+      plan_type: 'free',
       rate_limit: {
-        allowed: true,
-        limit_reached: false,
+        allowed: false,
+        limit_reached: true,
         primary_window: {
-          used_percent: 50,
-          reset_at: 1_779_285_181
-        },
-        secondary_window: {
-          used_percent: 50,
+          used_percent: 100,
           reset_at: 1_779_285_181
         }
-      },
-      credits: {
-        has_credits: true,
-        balance: '50',
-        approx_local_messages: [50, 100],
-        approx_cloud_messages: [50, 100]
-      },
-      rate_limit_reached_type: null
+      }
     })
     expect(forwardedAccountId).toBe('account-a')
     expect(forwardedAuthorization).toBe('Bearer managed-a')
@@ -299,8 +286,8 @@ describe('transparent proxy service account routing', () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
       account_id: 'placeholder-account',
-      plan_type: 'plus',
-      rate_limit: { primary_window: { used_percent: 50 } }
+      plan_type: 'free',
+      rate_limit: { primary_window: { used_percent: 12 } }
     })
     expect(forwardedAccounts).toEqual(['account-a', 'account-b'])
     expect(activeAccounts).toEqual(['account-a', 'account-b'])

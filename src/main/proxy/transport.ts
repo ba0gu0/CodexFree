@@ -21,6 +21,7 @@ type WebSocketLifecycleEventType =
   | 'upstream_connecting'
   | 'upstream_connected'
   | 'upstream_closed'
+  | 'terminal_quota_forwarded'
   | 'quota_frame_suppressed'
 
 export interface WebSocketLifecycleEvent {
@@ -259,6 +260,17 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
   function onDownstreamError(): void {
     closeUpstream()
   }
+  function forwardTerminalQuotaEvent(event: QuotaExhaustionEvent): void {
+    options.onQuotaExhausted?.(event)
+    phase = 'closing'
+    options.onLifecycle?.({ type: 'terminal_quota_forwarded' })
+    for (const buffered of upstreamBuffer.splice(0)) {
+      safeSocketWrite(options.downstreamSocket, buffered)
+    }
+    options.upstreamSocket.destroy()
+    options.downstreamSocket.end()
+    settle()
+  }
 
   const upstreamFrames = createWebSocketFrameRecorder(
     options.rawCapture?.directory,
@@ -274,13 +286,7 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
             return retryWithNextAccount(event)
           },
           onQuotaExhausted: (event) => {
-            options.onQuotaExhausted?.(event)
-            phase = 'closing'
-            upstreamBuffer.length = 0
-            options.onLifecycle?.({ type: 'quota_frame_suppressed' })
-            options.upstreamSocket.destroy()
-            endDownstreamWithCompletion(options.downstreamSocket)
-            settle()
+            forwardTerminalQuotaEvent(event)
           }
         })
       }
@@ -292,15 +298,6 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
     options.maxPayloadBytes,
     { onFrame: (frame) => options.onWebSocketFrame?.(frame) }
   )
-  const suppressQuotaEvent = (event: QuotaExhaustionEvent): void => {
-    options.onQuotaExhausted?.(event)
-    phase = 'closing'
-    upstreamBuffer.length = 0
-    options.onLifecycle?.({ type: 'quota_frame_suppressed' })
-    options.upstreamSocket.destroy()
-    endDownstreamWithCompletion(options.downstreamSocket)
-    settle()
-  }
   const flushIfReady = (): void => {
     if (pendingUpstreamFlush && phase !== 'closing' && phase !== 'retrying') {
       flushUpstreamBuffer()
@@ -323,7 +320,7 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
       if (retryWithNextAccount(directQuotaEvent)) {
         return
       }
-      suppressQuotaEvent(directQuotaEvent)
+      forwardTerminalQuotaEvent(directQuotaEvent)
       return
     }
     observingUpstream = true

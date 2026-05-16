@@ -43,9 +43,22 @@ export function isWhamUsagePath(path: string | undefined): boolean {
   return requestPathname(path) === '/backend-api/wham/usage'
 }
 
+export function isWhamRemotePath(path: string | undefined): boolean {
+  const pathname = requestPathname(path)
+  return (
+    pathname === '/backend-api/wham/remote' ||
+    pathname?.startsWith('/backend-api/wham/remote/') === true
+  )
+}
+
 export function isCodexModelsPath(path: string | undefined): boolean {
   const pathname = requestPathname(path)
   return pathname === '/backend-api/codex/models' || pathname === '/v1/models'
+}
+
+export function isCodexResponsesPath(path: string | undefined): boolean {
+  const pathname = requestPathname(path)
+  return pathname === '/backend-api/codex/responses' || pathname === '/v1/responses'
 }
 
 export function isCodexCompactPath(path: string | undefined): boolean {

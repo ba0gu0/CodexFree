@@ -78,6 +78,71 @@ describe('transparent proxy service websocket handling', () => {
     })
   })
 
+  it('preserves original auth for wham remote websocket upgrades', async () => {
+    const authDirectory = mkdtempSync(join(tmpdir(), 'codexfree-auth-pool-'))
+    writeAuthFile(authDirectory, 'a.json', 'account-a', 'managed-a')
+    let forwardedAccount = ''
+    let forwardedAuthorization = ''
+    const upstream = http.createServer()
+    upstream.on('upgrade', (request, socket) => {
+      forwardedAccount = String(request.headers['chatgpt-account-id'])
+      forwardedAuthorization = String(request.headers.authorization)
+      socket.write(
+        [
+          'HTTP/1.1 101 Switching Protocols',
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Accept: test',
+          '',
+          ''
+        ].join('\r\n')
+      )
+      socket.end()
+    })
+    await listen(upstream)
+    upstreams.push(upstream)
+
+    const entries: RequestLedgerEntry[] = []
+    const ledger = {
+      activeAccountId: () => undefined,
+      disabledAccountIds: () => [],
+      exhaustedAccountIds: () => [],
+      insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
+      recent: () => [],
+      setActiveAccount: () => 1,
+      syncAccountPool: () => undefined
+    } as unknown as ProxyLedger
+    const service = new TransparentProxyService(
+      { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
+      ledger,
+      log
+    )
+    services.push(service)
+    const endpoint = new URL((await service.start()).endpoint)
+    const response = await rawHttpRequest(Number(endpoint.port), [
+      'GET /backend-api/wham/remote/control/server HTTP/1.1',
+      `Host: ${endpoint.host}`,
+      'Connection: Upgrade',
+      'Upgrade: websocket',
+      'Sec-WebSocket-Version: 13',
+      'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+      'Authorization: Bearer placeholder-token',
+      'Chatgpt-Account-Id: placeholder-account',
+      '',
+      ''
+    ])
+
+    expect(response).toContain('HTTP/1.1 101 Switching Protocols')
+    expect(forwardedAccount).toBe('placeholder-account')
+    expect(forwardedAuthorization).toBe('Bearer placeholder-token')
+    expect(entries[0]).toMatchObject({
+      accountId: 'placeholder-account',
+      mode: 'account_passthrough',
+      path: '/backend-api/wham/remote/control/server',
+      statusCode: 101
+    })
+  })
+
   it('captures websocket frame payloads after a successful upgrade', async () => {
     const upstream = http.createServer()
     upstream.on('upgrade', (_request, socket) => {
@@ -301,7 +366,8 @@ describe('transparent proxy service websocket handling', () => {
     ])
 
     expect(response).toContain('HTTP/1.1 101 Switching Protocols')
-    expect(response).toContain('response.completed')
+    expect(response).toContain('usage_limit_reached')
+    expect(response).not.toContain('response.completed')
     expect(entries[0]).toMatchObject({
       outcome: 'quota_exhausted',
       statusCode: 429

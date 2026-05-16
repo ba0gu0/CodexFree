@@ -311,6 +311,56 @@ describe('transparent proxy service http handling', () => {
     })
   })
 
+  it('preserves original auth for wham remote paths', async () => {
+    const authDirectory = mkdtempSync(join(tmpdir(), 'codexfree-auth-pool-'))
+    writeAuthFile(authDirectory, 'a.json', 'account-a', 'managed-a')
+    let forwardedAccount = ''
+    let forwardedAuthorization = ''
+    const upstream = http.createServer((request, response) => {
+      forwardedAccount = String(request.headers['chatgpt-account-id'])
+      forwardedAuthorization = String(request.headers.authorization)
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ ok: true }))
+    })
+    await listen(upstream)
+    upstreams.push(upstream)
+
+    const entries: RequestLedgerEntry[] = []
+    const ledger = {
+      activeAccountId: () => undefined,
+      disabledAccountIds: () => [],
+      exhaustedAccountIds: () => [],
+      insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
+      recent: () => [],
+      setActiveAccount: () => 1,
+      syncAccountPool: () => undefined
+    } as unknown as ProxyLedger
+    const service = new TransparentProxyService(
+      { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
+      ledger,
+      log
+    )
+    services.push(service)
+    const status = await service.start()
+    const response = await fetch(`${status.endpoint}/wham/remote/session?probe=1`, {
+      headers: {
+        authorization: 'Bearer placeholder-token',
+        'chatgpt-account-id': 'placeholder-account'
+      }
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(forwardedAccount).toBe('placeholder-account')
+    expect(forwardedAuthorization).toBe('Bearer placeholder-token')
+    expect(entries[0]).toMatchObject({
+      accountId: 'placeholder-account',
+      mode: 'account_passthrough',
+      path: '/backend-api/wham/remote/session?probe=1',
+      statusCode: 200
+    })
+  })
+
   it('passes compact responses through with managed auth', async () => {
     const authDirectory = mkdtempSync(join(tmpdir(), 'codexfree-auth-'))
     writeAuthFile(authDirectory, 'account-a.auth.json', 'account-a', 'token-a')

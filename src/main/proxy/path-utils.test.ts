@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveAccountUpstreamPath } from './path-utils'
+import { isWhamRemotePath, resolveAccountUpstreamPath } from './path-utils'
 
 describe('proxy path utilities', () => {
   it('does not duplicate native backend-api/codex paths', () => {
@@ -12,5 +12,12 @@ describe('proxy path utilities', () => {
     expect(resolveAccountUpstreamPath('/backend-api/codex', '/backend-api/wham/apps')).toBe(
       '/backend-api/wham/apps'
     )
+  })
+
+  it('matches only wham remote paths for original auth preservation', () => {
+    expect(isWhamRemotePath('/backend-api/wham/remote')).toBe(true)
+    expect(isWhamRemotePath('/backend-api/wham/remote/session?probe=1')).toBe(true)
+    expect(isWhamRemotePath('/backend-api/wham/remote-control')).toBe(false)
+    expect(isWhamRemotePath('/backend-api/wham/usage')).toBe(false)
   })
 })
