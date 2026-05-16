@@ -1,7 +1,8 @@
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFile } from 'node:fs'
 import { type IncomingHttpHeaders, type OutgoingHttpHeaders, STATUS_CODES } from 'node:http'
 import type { RequestOptions } from 'node:https'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { stderr } from 'node:process'
 
 export interface RawCapture {
   directory: string
@@ -22,6 +23,14 @@ export interface RawCaptureDetail {
   directory: string
   files: RawCaptureFile[]
 }
+
+export interface RawCaptureCleanupResult {
+  deletedEntries: number
+}
+
+const requestIdPatternStart = '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-'
+const requestIdPatternEnd = '[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+const requestIdPattern = new RegExp(`${requestIdPatternStart}${requestIdPatternEnd}`, 'i')
 
 export function createRawCapture(
   rootDirectory: string,
@@ -93,6 +102,10 @@ export function readRawCaptureDetail(
   rootDirectory: string,
   requestId: string
 ): RawCaptureDetail | undefined {
+  if (!isRequestId(requestId)) {
+    return undefined
+  }
+
   const directory = join(rootDirectory, requestId)
   let files: RawCaptureFile[]
   try {
@@ -114,6 +127,20 @@ export function readRawCaptureDetail(
   return { requestId, directory, files }
 }
 
+function isRequestId(value: string): boolean {
+  return requestIdPattern.test(value)
+}
+
+export function clearRawCaptures(rootDirectory: string): RawCaptureCleanupResult {
+  mkdirSync(rootDirectory, { recursive: true, mode: 0o700 })
+  let deletedEntries = 0
+  for (const entry of readdirSync(rootDirectory)) {
+    rmSync(join(rootDirectory, entry), { recursive: true, force: true })
+    deletedEntries += 1
+  }
+  return { deletedEntries }
+}
+
 export function appendSample(
   current: Buffer<ArrayBufferLike>,
   chunk: Buffer<ArrayBufferLike>,
@@ -133,13 +160,24 @@ function writeHttpMessage(
   body: Buffer
 ): void {
   const headerLines = serializeHeaders(headers)
-  writeFileSync(
-    path,
-    Buffer.concat([Buffer.from(`${startLine}\r\n${headerLines}\r\n\r\n`), body]),
-    {
-      mode: 0o600
-    }
-  )
+  try {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+    writeFile(
+      path,
+      Buffer.concat([Buffer.from(`${startLine}\r\n${headerLines}\r\n\r\n`), body]),
+      {
+        mode: 0o600
+      },
+      (writeError) => {
+        if (writeError) {
+          stderr.write(`[codexfree] raw capture write failed: ${writeError.message}\n`)
+        }
+      }
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    stderr.write(`[codexfree] raw capture write failed: ${message}\n`)
+  }
 }
 
 function formatRequestLine(options: RequestOptions): string {

@@ -57,13 +57,14 @@ export function normalizeAuthFile(
   options: NormalizeOptions = {}
 ): NormalizedAuthFile {
   const record = expectRecord(input)
+  const flatRecord = record as FlatAuthRecord
   const format = detectFormat(record, options.fileName)
   const codexAuth = isNativeCodexAuth(record)
     ? normalizeNativeCodexAuth(record)
-    : normalizeFlatAuthRecord(record as FlatAuthRecord)
-  const email = stringOrUndefined((record as FlatAuthRecord).email)
-  const disabled = Boolean((record as FlatAuthRecord).disabled)
-  const expiresAt = stringOrUndefined((record as FlatAuthRecord).expired)
+    : normalizeFlatAuthRecord(flatRecord)
+  const email = stringOrUndefined(flatRecord.email)
+  const disabled = Boolean(flatRecord.disabled)
+  const expiresAt = stringOrUndefined(flatRecord.expired)
   const label = email ?? `${format}:${codexAuth.tokens.account_id}`
 
   return {

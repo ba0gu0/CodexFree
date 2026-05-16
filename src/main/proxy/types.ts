@@ -1,8 +1,15 @@
 export type OutboundProxyMode = 'direct' | 'http' | 'https' | 'socks4' | 'socks5'
+export type ProxyRequestMode = 'account' | 'account_passthrough' | 'api_key' | 'unknown'
+export type ProxyRequestOutcome = 'forwarded' | 'rejected' | 'quota_exhausted' | 'failed'
 
 export interface OutboundProxyConfig {
   mode: OutboundProxyMode
   url: string
+}
+
+export interface AuthPoolConfig {
+  enabled: boolean
+  directory: string
 }
 
 export interface ProxyConfig {
@@ -10,6 +17,8 @@ export interface ProxyConfig {
   listenPort: number
   upstreamBaseUrl: string
   outboundProxy: OutboundProxyConfig
+  authPool: AuthPoolConfig
+  maxRequestBodyBytes: number
   rawCaptureEnabled: boolean
   rawCaptureMaxBytes: number
 }
@@ -17,8 +26,15 @@ export interface ProxyConfig {
 export interface ProxyStatus {
   running: boolean
   endpoint: string
+  openaiBaseUrl: string
+  openaiCompatibleEndpoint: string
   upstreamBaseUrl: string
   outboundMode: OutboundProxyMode
+  authPoolEnabled: boolean
+  authPoolAccounts: number
+  authPoolAvailableAccounts: number
+  authPoolExhaustedAccounts: number
+  authPoolDisabledAccounts: number
   rawCaptureEnabled: boolean
   rawCaptureDir: string
   lastError?: string
@@ -30,8 +46,8 @@ export interface RequestLedgerEntry {
   conversationKey?: string
   method: string
   path: string
-  mode: 'account' | 'api_key' | 'unknown'
-  outcome: 'forwarded' | 'rejected' | 'quota_exhausted' | 'failed'
+  mode: ProxyRequestMode
+  outcome: ProxyRequestOutcome
   statusCode?: number
   durationMs: number
   requestBytes: number
@@ -43,6 +59,10 @@ export interface RequestLedgerEntry {
   cookieHeaderPresent: boolean
   authFingerprint?: string
   cookieFingerprint?: string
+  requestHeadersJson?: string
+  responseHeadersJson?: string
+  requestBodySample?: string
+  responseBodySample?: string
   rawCapturePath?: string
   errorMessage?: string
   startedAt: Date

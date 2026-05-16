@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyRequest, fingerprint, redactHeaders } from './redaction'
+import { fingerprint, redactHeaders } from './redaction'
 
 describe('proxy redaction', () => {
   it('redacts sensitive headers and keeps fingerprints stable', () => {
@@ -14,9 +14,19 @@ describe('proxy redaction', () => {
     expect(redacted['content-type']).toBe('application/json')
   })
 
-  it('classifies obvious API-key traffic without storing the key', () => {
-    expect(classifyRequest({ authorization: 'Bearer sk-test' })).toBe('api_key')
-    expect(classifyRequest({ authorization: 'Bearer account-token' })).toBe('account')
-    expect(classifyRequest({})).toBe('unknown')
+  it('redacts Node raw header arrays by header name', () => {
+    const redacted = redactHeaders([
+      'Host',
+      '127.0.0.1:33333',
+      'Authorization',
+      'Bearer raw-secret',
+      'Content-Type',
+      'application/json'
+    ])
+
+    expect(redacted.Authorization).toBe(`[redacted:${fingerprint('Bearer raw-secret')}]`)
+    expect(redacted.Host).toBe('127.0.0.1:33333')
+    expect(redacted['Content-Type']).toBe('application/json')
+    expect(redacted[2]).toBeUndefined()
   })
 })

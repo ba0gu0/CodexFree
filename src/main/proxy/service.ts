@@ -1,50 +1,62 @@
 import { mkdirSync } from 'node:fs'
-import http, {
-  type IncomingMessage,
-  type RequestOptions,
-  type ServerResponse,
-  STATUS_CODES
-} from 'node:http'
-import https from 'node:https'
-import type { AddressInfo } from 'node:net'
+import http, { type IncomingMessage, type RequestOptions, type ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Duplex } from 'node:stream'
 import { ProxyAgent } from 'proxy-agent'
+import { AccountPool, type RoutedAccount } from './account-pool'
+import { formatAccountUsageText } from './account-usage-text'
+import { parseJsonRecord, summarizeBuffer } from './json-utils'
 import type { ProxyLedger } from './ledger'
-import { appendSample, createRawCapture } from './raw-capture'
 import {
-  classifyRequest,
-  createRequestId,
-  fingerprint,
-  firstHeaderValue,
-  redactHeaders
-} from './redaction'
-import type { ProxyConfig, ProxyStatus, RequestLedgerEntry } from './types'
+  normalizeDisplayHost,
+  normalizeOutboundProxyUrl,
+  resolveAccountUpstreamPath
+} from './path-utils'
+import { ProtocolMessageLogger } from './protocol-message-logger'
+import { formatQuotaLedgerMessage, type QuotaExhaustionEvent } from './quota'
+import { handleProxyHttpRequest } from './service-http'
+import { handleProxyUpgrade } from './service-upgrade'
+import type { ForwardResult } from './transport-http'
+import { closeUpgradedSocket } from './transport-utils'
+import type { ProxyConfig, ProxyStatus } from './types'
+import { extractUsageResponse, isUsageExhausted, type UsageSnapshot } from './usage-response'
+import type { CapturedWebSocketFrame } from './websocket-capture'
 
 export class TransparentProxyService {
+  private static readonly accountSwitchTimeoutMs = 10_000
   private server?: http.Server
-  private config: ProxyConfig
+  config: ProxyConfig
   private lastError?: string
+  private accountPool: AccountPool
+  private accountSwitchPromise?: Promise<RoutedAccount | undefined>
+  private accountSwitchStartedAt = 0
+  private readonly upgradedSockets = new Set<Duplex>()
+  private readonly protocolLogger: ProtocolMessageLogger
+  private outboundProxyAgent?: ProxyAgent
+  private outboundProxyAgentKey?: string
   readonly rawCaptureDir: string
-
   constructor(
     initialConfig: ProxyConfig,
-    private readonly ledger: ProxyLedger,
-    private readonly log: {
+    readonly ledger: ProxyLedger,
+    readonly log: {
       info: (message: string, data?: unknown) => void
       warn: (message: string, data?: unknown) => void
       error: (message: string, data?: unknown) => void
-    }
+    },
+    rawCaptureDir?: string
   ) {
     this.config = initialConfig
-    this.rawCaptureDir = join(tmpdir(), 'CodexFree', 'raw-captures')
+    this.accountPool = this.loadAccountPool(initialConfig)
+    this.protocolLogger = new ProtocolMessageLogger(ledger, log)
+    this.rawCaptureDir = rawCaptureDir ?? join(tmpdir(), 'CodexFree', 'raw-captures')
     mkdirSync(this.rawCaptureDir, { recursive: true, mode: 0o700 })
   }
 
   async start(config = this.config): Promise<ProxyStatus> {
     await this.stop()
     this.config = config
+    this.accountPool = this.loadAccountPool(config)
 
     this.server = http.createServer((request, response) => {
       this.handleRequest(request, response).catch((error: unknown) => {
@@ -57,6 +69,8 @@ export class TransparentProxyService {
       })
     })
     this.server.on('upgrade', (request, socket, head) => {
+      this.upgradedSockets.add(socket)
+      socket.once('close', () => this.upgradedSockets.delete(socket))
       this.handleUpgrade(request, socket, head).catch((error: unknown) => {
         this.lastError = error instanceof Error ? error.message : String(error)
         this.log.error('Transparent proxy upgrade failed', { error: this.lastError })
@@ -84,6 +98,16 @@ export class TransparentProxyService {
     if (!this.server) {
       return
     }
+    if (!this.server.listening) {
+      this.server.removeAllListeners()
+      this.server = undefined
+      return
+    }
+
+    for (const socket of this.upgradedSockets) {
+      closeUpgradedSocket(socket)
+    }
+    this.upgradedSockets.clear()
 
     await new Promise<void>((resolve, reject) => {
       this.server?.close((error) => {
@@ -106,11 +130,20 @@ export class TransparentProxyService {
     const port =
       typeof address === 'object' && address !== null ? address.port : this.config.listenPort
 
+    const accountPoolStatus = this.accountPool.status(this.config.authPool.enabled)
+    const origin = `http://${host}:${port}`
     return {
       running: this.server?.listening ?? false,
-      endpoint: `http://${host}:${port}/v1`,
+      endpoint: `${origin}/backend-api`,
+      openaiBaseUrl: `${origin}/backend-api/codex`,
+      openaiCompatibleEndpoint: `${origin}/v1`,
       upstreamBaseUrl: this.config.upstreamBaseUrl,
       outboundMode: this.config.outboundProxy.mode,
+      authPoolEnabled: accountPoolStatus.enabled,
+      authPoolAccounts: accountPoolStatus.totalAccounts,
+      authPoolAvailableAccounts: accountPoolStatus.availableAccounts,
+      authPoolExhaustedAccounts: accountPoolStatus.exhaustedAccounts,
+      authPoolDisabledAccounts: accountPoolStatus.disabledAccounts,
       rawCaptureEnabled: this.config.rawCaptureEnabled,
       rawCaptureDir: this.rawCaptureDir,
       lastError: this.lastError
@@ -118,71 +151,106 @@ export class TransparentProxyService {
   }
 
   private async handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const startedAt = new Date()
-    const requestId = createRequestId()
-    const requestBody = await readRequestBody(request)
-    const targetUrl = this.buildTargetUrl(request.url ?? '/')
-    const rawCapture = createRawCapture(
-      this.rawCaptureDir,
-      requestId,
-      this.config.rawCaptureEnabled,
-      this.config.rawCaptureMaxBytes
-    )
-    rawCapture?.writeRequest(
-      request.method ?? 'GET',
-      request.url ?? '/',
-      request.headers,
-      requestBody
-    )
+    return handleProxyHttpRequest(this, request, response)
+  }
 
-    const authHeader = firstHeaderValue(request.headers.authorization)
-    const cookieHeader = firstHeaderValue(request.headers.cookie)
-    const accountId = firstHeaderValue(request.headers['chatgpt-account-id'])
-    const conversationKey =
-      firstHeaderValue(request.headers.thread_id) ??
-      firstHeaderValue(request.headers.session_id) ??
-      firstHeaderValue(request.headers['x-client-request-id'])
-    const mode = classifyRequest(request.headers)
-    const outboundMode = this.config.outboundProxy.mode
-    const options = this.createRequestOptions(request, targetUrl)
-    rawCapture?.writeOutboundRequest(options, requestBody)
+  writeDeferredHttpResponse(response: ServerResponse, result: ForwardResult): void {
+    if (!result.deferredBody) {
+      return
+    }
 
-    this.log.info('Forwarding Codex proxy request', {
-      id: requestId,
-      method: request.method,
-      path: request.url,
-      targetHost: targetUrl.host,
-      outboundMode,
-      headers: redactHeaders(request.headers)
-    })
+    response.writeHead(result.statusCode ?? 502, result.responseHeaders ?? {})
+    response.end(result.deferredBody)
+  }
 
-    const upstreamResult = await this.forward(options, requestBody, response, rawCapture)
+  markHttpQuotaExhausted(
+    requestId: string,
+    accountId: string | undefined,
+    conversationKey: string | undefined,
+    event: QuotaExhaustionEvent
+  ): void {
+    this.accountPool.markExhausted(accountId, conversationKey)
     const completedAt = new Date()
-    const entry: RequestLedgerEntry = {
+    const message = formatQuotaLedgerMessage(event)
+    this.log.warn('Usage limit reached; marking account exhausted', {
       id: requestId,
       accountId,
+      used: event.primaryUsedPercent,
+      resetsAt: event.resetsAt
+    })
+    this.ledger.markQuotaExhausted(requestId, message, completedAt)
+    this.ledger.markAccountQuotaExhausted(
+      accountId,
+      requestId,
       conversationKey,
-      method: request.method ?? 'GET',
-      path: request.url ?? '/',
-      mode,
-      outcome: upstreamResult.errorMessage ? 'failed' : 'forwarded',
-      statusCode: upstreamResult.statusCode,
-      durationMs: completedAt.getTime() - startedAt.getTime(),
-      requestBytes: requestBody.byteLength,
-      responseBytes: upstreamResult.responseBytes,
-      streaming: upstreamResult.streaming,
-      upstreamHost: targetUrl.host,
-      outboundMode,
-      authHeaderPresent: authHeader !== undefined,
-      cookieHeaderPresent: cookieHeader !== undefined,
-      authFingerprint: fingerprint(authHeader),
-      cookieFingerprint: fingerprint(cookieHeader),
-      rawCapturePath: rawCapture?.directory,
-      errorMessage: upstreamResult.errorMessage,
-      startedAt,
+      event,
+      message,
       completedAt
+    )
+  }
+
+  markHttpAuthFailed(
+    requestId: string,
+    accountId: string | undefined,
+    conversationKey: string | undefined,
+    result: ForwardResult
+  ): void {
+    this.accountPool.markDisabled(accountId, conversationKey)
+    if (accountId) {
+      this.ledger.setAccountDisabled(accountId, true)
     }
-    this.ledger.insert(entry)
+    const message = summarizeBuffer(result.deferredBody ?? result.responseSample ?? Buffer.alloc(0))
+    this.log.warn('Auth failed; disabling account', {
+      id: requestId,
+      accountId,
+      statusCode: result.statusCode,
+      body: message
+    })
+    this.ledger.recordRoutingEvent({
+      requestId,
+      conversationKey,
+      accountId,
+      eventType: 'auth_failed',
+      reason: 'http_401'
+    })
+  }
+
+  updateUsageFromHttpResponse(
+    requestUrl: string | undefined,
+    accountId: string | undefined,
+    result: ForwardResult
+  ): UsageSnapshot | undefined {
+    if (!accountId || !requestUrl?.includes('/backend-api/wham/usage')) {
+      return undefined
+    }
+
+    const body = parseJsonRecord(
+      (result.deferredBody ?? result.responseSample ?? Buffer.alloc(0)).toString('utf8')
+    )
+    const usage = extractUsageResponse(body)
+    this.ledger.updateAccountUsage({
+      accountId,
+      ...usage
+    })
+    this.log.info('Ledger updated from usage response', {
+      accountId,
+      planType: usage.planType,
+      primaryUsedPercent: usage.primaryUsedPercent,
+      secondaryUsedPercent: usage.secondaryUsedPercent,
+      rateLimitResetsAt: usage.rateLimitResetsAt
+    })
+    if (isUsageExhausted(usage.primaryUsedPercent)) {
+      this.accountPool.markExhausted(accountId, undefined)
+      this.log.warn('Usage limit reached; marking account exhausted', {
+        accountId,
+        used: usage.primaryUsedPercent,
+        resetsAt: usage.rateLimitResetsAt
+      })
+    }
+    return {
+      ...usage,
+      exhausted: isUsageExhausted(usage.primaryUsedPercent)
+    }
   }
 
   private async handleUpgrade(
@@ -190,74 +258,29 @@ export class TransparentProxyService {
     socket: Duplex,
     head: Buffer
   ): Promise<void> {
-    const startedAt = new Date()
-    const requestId = createRequestId()
-    const targetUrl = this.buildTargetUrl(request.url ?? '/')
-    const rawCapture = createRawCapture(
-      this.rawCaptureDir,
-      requestId,
-      this.config.rawCaptureEnabled,
-      this.config.rawCaptureMaxBytes
-    )
-    rawCapture?.writeRequest(request.method ?? 'GET', request.url ?? '/', request.headers, head)
-
-    const options = this.createRequestOptions(request, targetUrl)
-    rawCapture?.writeOutboundRequest(options, head)
-    const upstreamResult = await this.forwardUpgrade(options, socket, head, rawCapture)
-    const completedAt = new Date()
-
-    this.ledger.insert({
-      id: requestId,
-      accountId: firstHeaderValue(request.headers['chatgpt-account-id']),
-      conversationKey:
-        firstHeaderValue(request.headers.thread_id) ??
-        firstHeaderValue(request.headers.session_id) ??
-        firstHeaderValue(request.headers['x-client-request-id']),
-      method: request.method ?? 'GET',
-      path: request.url ?? '/',
-      mode: classifyRequest(request.headers),
-      outcome: upstreamResult.errorMessage ? 'failed' : 'forwarded',
-      statusCode: upstreamResult.statusCode,
-      durationMs: completedAt.getTime() - startedAt.getTime(),
-      requestBytes: head.byteLength,
-      responseBytes: 0,
-      streaming: true,
-      upstreamHost: targetUrl.host,
-      outboundMode: this.config.outboundProxy.mode,
-      authHeaderPresent: request.headers.authorization !== undefined,
-      cookieHeaderPresent: request.headers.cookie !== undefined,
-      authFingerprint: fingerprint(firstHeaderValue(request.headers.authorization)),
-      cookieFingerprint: fingerprint(firstHeaderValue(request.headers.cookie)),
-      rawCapturePath: rawCapture?.directory,
-      errorMessage: upstreamResult.errorMessage,
-      startedAt,
-      completedAt
-    })
+    return handleProxyUpgrade(this, request, socket, head)
   }
 
-  private buildTargetUrl(requestUrl: string): URL {
+  logWebSocketFrame(
+    requestId: string,
+    path: string,
+    accountId: string | undefined,
+    conversationKey: string | undefined,
+    frame: CapturedWebSocketFrame
+  ): void {
+    this.protocolLogger.logFrame(requestId, path, accountId, conversationKey, frame)
+  }
+
+  buildTargetUrl(requestUrl: string): URL {
     const upstream = new URL(this.config.upstreamBaseUrl)
     const parsedRequest = new URL(requestUrl, 'http://codexfree.local')
-    const requestPath = normalizeCodexPath(parsedRequest.pathname)
-    const basePath = upstream.pathname === '/' ? '' : upstream.pathname.replace(/\/$/, '')
-    upstream.pathname = `${basePath}${requestPath}`
+    upstream.pathname = resolveAccountUpstreamPath(upstream.pathname, parsedRequest.pathname)
     upstream.search = parsedRequest.search
     return upstream
   }
 
-  private createRequestOptions(request: IncomingMessage, targetUrl: URL): RequestOptions {
+  createRequestOptions(request: IncomingMessage, targetUrl: URL): RequestOptions {
     const headers = { ...request.headers, host: targetUrl.host }
-    const agent =
-      this.config.outboundProxy.mode === 'direct'
-        ? undefined
-        : new ProxyAgent({
-            getProxyForUrl: () =>
-              normalizeOutboundProxyUrl(
-                this.config.outboundProxy.mode,
-                this.config.outboundProxy.url
-              )
-          })
-
     return {
       protocol: targetUrl.protocol,
       hostname: targetUrl.hostname,
@@ -265,195 +288,213 @@ export class TransparentProxyService {
       path: `${targetUrl.pathname}${targetUrl.search}`,
       method: request.method,
       headers,
-      agent
+      agent: this.proxyAgent()
     }
   }
 
-  private forward(
-    options: RequestOptions,
-    requestBody: Buffer,
-    response: ServerResponse,
-    rawCapture: ReturnType<typeof createRawCapture>
-  ): Promise<{
-    statusCode?: number
-    responseBytes: number
-    streaming: boolean
-    errorMessage?: string
-  }> {
-    return new Promise((resolve) => {
-      const client = options.protocol === 'http:' ? http : https
-      const upstreamRequest = client.request(options, (upstreamResponse) => {
-        const headers = upstreamResponse.headers
-        const contentType = firstHeaderValue(headers['content-type'])
-        const streaming = contentType?.includes('text/event-stream') ?? false
-        let responseBytes = 0
-        let responseSample: Buffer<ArrayBufferLike> = Buffer.alloc(0)
+  private proxyAgent(): ProxyAgent | undefined {
+    if (this.config.outboundProxy.mode === 'direct') {
+      return undefined
+    }
 
-        response.writeHead(upstreamResponse.statusCode ?? 502, headers)
-        upstreamResponse.on('data', (chunk: Buffer) => {
-          responseBytes += chunk.byteLength
-          responseSample = appendSample(responseSample, chunk, this.config.rawCaptureMaxBytes)
-          response.write(chunk)
-        })
-        upstreamResponse.on('end', () => {
-          rawCapture?.writeResponse(upstreamResponse.statusCode ?? 502, headers, responseSample)
-          response.end()
-          resolve({ statusCode: upstreamResponse.statusCode, responseBytes, streaming })
-        })
+    const proxyUrl = normalizeOutboundProxyUrl(
+      this.config.outboundProxy.mode,
+      this.config.outboundProxy.url
+    )
+    const key = `${this.config.outboundProxy.mode}:${proxyUrl}`
+    if (!this.outboundProxyAgent || this.outboundProxyAgentKey !== key) {
+      this.outboundProxyAgent = new ProxyAgent({ getProxyForUrl: () => proxyUrl })
+      this.outboundProxyAgentKey = key
+    }
+    return this.outboundProxyAgent
+  }
+
+  async routeAccount(
+    request: IncomingMessage,
+    requestId: string,
+    incomingAccountId: string | undefined,
+    conversationKey: string | undefined,
+    eventType: 'selected' | 'quota_retry_selected' | 'auth_retry_selected' = 'selected'
+  ): Promise<RoutedAccount | undefined> {
+    await this.waitForAccountSwitch(requestId)
+    return this.routeAccountNow(request, requestId, incomingAccountId, conversationKey, eventType)
+  }
+
+  routeAccountNow(
+    request: IncomingMessage,
+    requestId: string,
+    incomingAccountId: string | undefined,
+    conversationKey: string | undefined,
+    eventType: 'selected' | 'quota_retry_selected' | 'auth_retry_selected' = 'selected'
+  ): RoutedAccount | undefined {
+    if (!this.config.authPool.enabled) {
+      return undefined
+    }
+
+    const account = this.accountPool.select({ conversationKey, incomingAccountId })
+    if (!account) {
+      this.log.warn('Auth pool is enabled but no available account was selected', {
+        conversationKey,
+        incomingAccountId
       })
-
-      upstreamRequest.on('upgrade', (upstreamResponse, upstreamSocket, head) => {
-        const downstreamSocket = response.socket
-        if (!downstreamSocket) {
-          upstreamSocket.destroy()
-          resolve({
-            responseBytes: 0,
-            streaming: true,
-            errorMessage: 'websocket_downstream_socket_missing'
-          })
-          return
-        }
-
-        downstreamSocket.write(
-          formatUpgradeResponse(upstreamResponse.statusCode ?? 101, upstreamResponse.headers)
-        )
-        if (head.byteLength > 0) {
-          downstreamSocket.write(head)
-        }
-        upstreamSocket.pipe(downstreamSocket)
-        downstreamSocket.pipe(upstreamSocket)
-        upstreamSocket.once('close', () => {
-          resolve({
-            statusCode: upstreamResponse.statusCode,
-            responseBytes: 0,
-            streaming: true
-          })
-        })
+      this.ledger.recordRoutingEvent({
+        requestId,
+        conversationKey,
+        accountId: incomingAccountId,
+        eventType: 'all_accounts_exhausted',
+        reason: 'no_available_account'
       })
+      return undefined
+    }
 
-      upstreamRequest.on('error', (error: Error) => {
-        if (!response.headersSent) {
-          response.writeHead(502, { 'content-type': 'application/json' })
-        }
-        response.end(JSON.stringify({ error: 'proxy_forward_failed' }))
-        resolve({
-          responseBytes: 0,
-          streaming: false,
-          errorMessage: error.message
+    request.headers.authorization = account.authorization
+    request.headers['chatgpt-account-id'] = account.accountId
+    if (account.activeChanged) {
+      this.ledger.setActiveAccount(account.accountId)
+      if (eventType === 'selected') {
+        this.log.info('Active account selected', {
+          id: requestId,
+          accountId: account.accountId,
+          accountLabel: account.label,
+          usage: this.accountUsageText(account.accountId)
         })
-      })
-      upstreamRequest.end(requestBody)
+      }
+    }
+    this.ledger.recordRoutingEvent({
+      requestId,
+      conversationKey,
+      accountId: account.accountId,
+      eventType,
+      reason: 'auth_pool'
     })
+    return account
   }
 
-  private forwardUpgrade(
-    options: RequestOptions,
-    socket: Duplex,
-    head: Buffer,
-    rawCapture: ReturnType<typeof createRawCapture>
-  ): Promise<{ statusCode?: number; errorMessage?: string }> {
-    return new Promise((resolve) => {
-      const client = options.protocol === 'http:' ? http : https
-      const upstreamRequest = client.request(options)
-
-      upstreamRequest.on('upgrade', (upstreamResponse, upstreamSocket, upstreamHead) => {
-        rawCapture?.writeUpgradeResponse(
-          upstreamResponse.statusCode ?? 101,
-          upstreamResponse.headers
-        )
-        socket.write(
-          formatUpgradeResponse(upstreamResponse.statusCode ?? 101, upstreamResponse.headers)
-        )
-        if (upstreamHead.byteLength > 0) {
-          socket.write(upstreamHead)
-        }
-        if (head.byteLength > 0) {
-          upstreamSocket.write(head)
-        }
-        upstreamSocket.pipe(socket)
-        socket.pipe(upstreamSocket)
-        upstreamSocket.once('close', () => resolve({ statusCode: upstreamResponse.statusCode }))
+  async switchAccountAfterExhaustion(
+    request: IncomingMessage,
+    requestId: string,
+    exhaustedAccountId: string | undefined,
+    conversationKey: string | undefined,
+    eventType: 'quota_retry_selected'
+  ): Promise<RoutedAccount | undefined> {
+    const existing = this.freshAccountSwitchPromise()
+    if (existing) {
+      this.log.info('Waiting for active account switch', {
+        id: requestId,
+        accountId: exhaustedAccountId
       })
-
-      upstreamRequest.on('response', (upstreamResponse) => {
-        let responseSample: Buffer<ArrayBufferLike> = Buffer.alloc(0)
-        socket.write(
-          formatUpgradeResponse(upstreamResponse.statusCode ?? 502, upstreamResponse.headers)
-        )
-        upstreamResponse.on('data', (chunk: Buffer) => {
-          responseSample = appendSample(responseSample, chunk, this.config.rawCaptureMaxBytes)
-          socket.write(chunk)
-        })
-        upstreamResponse.on('end', () => {
-          rawCapture?.writeResponse(
-            upstreamResponse.statusCode ?? 502,
-            upstreamResponse.headers,
-            responseSample
-          )
-          socket.end()
-          resolve({ statusCode: upstreamResponse.statusCode })
-        })
-      })
-
-      upstreamRequest.on('error', (error: Error) => {
-        socket.destroy()
-        resolve({ errorMessage: error.message })
-      })
-
-      upstreamRequest.end()
-    })
-  }
-}
-
-function normalizeDisplayHost(address: AddressInfo): string {
-  if (address.address === '::' || address.address === '0.0.0.0') {
-    return '127.0.0.1'
-  }
-
-  return address.address
-}
-
-function normalizeCodexPath(pathname: string): string {
-  const normalized = pathname.startsWith('/') ? pathname : `/${pathname}`
-  if (normalized === '/v1') {
-    return ''
-  }
-  if (normalized.startsWith('/v1/')) {
-    return normalized.slice(3)
-  }
-  return normalized
-}
-
-function normalizeOutboundProxyUrl(mode: string, value: string): string {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    throw new Error(`Outbound proxy URL is required for ${mode} mode`)
-  }
-  if (trimmed.includes('://')) {
-    return trimmed
-  }
-  return `${mode}://${trimmed}`
-}
-
-function formatUpgradeResponse(statusCode: number, headers: IncomingMessage['headers']): string {
-  const statusText = STATUS_CODES[statusCode] ?? 'Connection Established'
-  const headerLines = Object.entries(headers).flatMap(([name, value]) => {
-    if (Array.isArray(value)) {
-      return value.map((item) => `${name}: ${item}`)
+      return existing
     }
-    if (value === undefined) {
-      return []
-    }
-    return [`${name}: ${value}`]
-  })
-  return [`HTTP/1.1 ${statusCode} ${statusText}`, ...headerLines, '', ''].join('\r\n')
-}
 
-function readRequestBody(request: IncomingMessage): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    request.on('data', (chunk: Buffer) => chunks.push(chunk))
-    request.on('end', () => resolve(Buffer.concat(chunks)))
-    request.on('error', reject)
-  })
+    const startedAt = Date.now()
+    const promise = Promise.resolve()
+      .then(() => {
+        this.accountPool.markExhausted(exhaustedAccountId, conversationKey)
+        return this.routeAccountNow(
+          request,
+          requestId,
+          exhaustedAccountId,
+          conversationKey,
+          eventType
+        )
+      })
+      .finally(() => {
+        if (this.accountSwitchPromise === promise) {
+          this.accountSwitchPromise = undefined
+          this.accountSwitchStartedAt = 0
+        }
+      })
+    this.accountSwitchStartedAt = startedAt
+    this.accountSwitchPromise = promise
+    return promise
+  }
+
+  async switchAccountAfterAuthFailure(
+    request: IncomingMessage,
+    requestId: string,
+    failedAccountId: string | undefined,
+    conversationKey: string | undefined
+  ): Promise<RoutedAccount | undefined> {
+    const existing = this.freshAccountSwitchPromise()
+    if (existing) {
+      this.log.info('Waiting for active account switch', {
+        id: requestId,
+        accountId: failedAccountId
+      })
+      return existing
+    }
+
+    const startedAt = Date.now()
+    const promise = Promise.resolve()
+      .then(() => {
+        this.accountPool.markDisabled(failedAccountId, conversationKey)
+        return this.routeAccountNow(
+          request,
+          requestId,
+          failedAccountId,
+          conversationKey,
+          'auth_retry_selected'
+        )
+      })
+      .finally(() => {
+        if (this.accountSwitchPromise === promise) {
+          this.accountSwitchPromise = undefined
+          this.accountSwitchStartedAt = 0
+        }
+      })
+    this.accountSwitchStartedAt = startedAt
+    this.accountSwitchPromise = promise
+    return promise
+  }
+
+  private async waitForAccountSwitch(requestId: string): Promise<void> {
+    const existing = this.freshAccountSwitchPromise()
+    if (!existing) {
+      return
+    }
+    this.log.info('Waiting for active account switch', { id: requestId })
+    await existing
+  }
+
+  private freshAccountSwitchPromise(): Promise<RoutedAccount | undefined> | undefined {
+    if (!this.accountSwitchPromise) {
+      return undefined
+    }
+    const ageMs = Date.now() - this.accountSwitchStartedAt
+    if (ageMs <= TransparentProxyService.accountSwitchTimeoutMs) {
+      return this.accountSwitchPromise
+    }
+    this.log.warn('Active account switch lock expired', { ageMs })
+    this.accountSwitchPromise = undefined
+    this.accountSwitchStartedAt = 0
+    return undefined
+  }
+
+  accountUsageText(accountId: string | undefined): string | undefined {
+    return formatAccountUsageText(this.ledger, accountId)
+  }
+
+  availableAccountCount(): number {
+    return this.accountPool.status(true).availableAccounts
+  }
+
+  private loadAccountPool(config: ProxyConfig): AccountPool {
+    try {
+      const pool = AccountPool.fromConfig(config.authPool, {
+        onWarning: (warning) =>
+          this.log.warn('Auth file skipped while loading account pool', warning)
+      })
+      if (config.authPool.enabled) {
+        pool.applyExhaustedAccountIds(this.ledger.exhaustedAccountIds())
+        pool.applyDisabledAccountIds(this.ledger.disabledAccountIds())
+        this.ledger.syncAccountPool(pool.snapshot())
+        pool.applyActiveAccountId(this.ledger.activeAccountId())
+      }
+      return pool
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      this.log.warn('Failed to load auth pool; account routing is disabled', { error: message })
+      return AccountPool.disabled()
+    }
+  }
 }

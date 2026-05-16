@@ -26,7 +26,7 @@ export function firstHeaderValue(value: string | string[] | undefined): string |
 export function redactHeaders(headers: HeaderMap): Record<string, string | string[] | number> {
   const redacted: Record<string, string | string[] | number> = {}
 
-  for (const [key, value] of Object.entries(headers)) {
+  for (const [key, value] of headerEntries(headers)) {
     if (value === undefined) {
       continue
     }
@@ -44,11 +44,16 @@ export function redactHeaders(headers: HeaderMap): Record<string, string | strin
   return redacted
 }
 
-export function classifyRequest(headers: IncomingHttpHeaders): 'account' | 'api_key' | 'unknown' {
-  const authorization = firstHeaderValue(headers.authorization)
-  if (!authorization) {
-    return 'unknown'
+function headerEntries(
+  headers: HeaderMap
+): Array<[string, string | string[] | number | undefined]> {
+  if (!Array.isArray(headers)) {
+    return Object.entries(headers)
   }
 
-  return authorization.toLowerCase().startsWith('bearer sk-') ? 'api_key' : 'account'
+  const entries: Array<[string, string]> = []
+  for (let index = 0; index + 1 < headers.length; index += 2) {
+    entries.push([headers[index], headers[index + 1]])
+  }
+  return entries
 }
