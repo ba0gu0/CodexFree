@@ -1,11 +1,16 @@
 node_modules
 dist
 out
+.codex/
+.playwright-mcp/
 .DS_Store
 .eslintcache
 *.log*
 test/
-data/
+/data/
 *.sqlite
 *.sqlite-*
 *.har
+.claude/
+.vscode/
+.idea/

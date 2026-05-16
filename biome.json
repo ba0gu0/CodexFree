@@ -7,7 +7,15 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!node_modules", "!out", "!dist", "!src/renderer/src/paraglide"]
+    "includes": [
+      "**",
+      "!node_modules",
+      "!out",
+      "!dist",
+      "!src/renderer/src/paraglide",
+      "!src/renderer/src/components/ui",
+      "!src/renderer/src/hooks/use-media-query.ts"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -34,6 +42,11 @@
   "json": {
     "formatter": {
       "trailingCommas": "none"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
     }
   }
 }

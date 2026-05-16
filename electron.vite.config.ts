@@ -1,5 +1,4 @@
 import { resolve } from 'node:path'
-import { paraglideVitePlugin } from '@inlang/paraglide-js'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
@@ -13,14 +12,9 @@ export default defineConfig({
         '@renderer': resolve('src/renderer/src')
       }
     },
-    plugins: [
-      paraglideVitePlugin({
-        project: './project.inlang',
-        outdir: './src/renderer/src/paraglide',
-        strategy: ['globalVariable', 'baseLocale']
-      }),
-      react(),
-      tailwindcss()
-    ]
+    server: {
+      host: '127.0.0.1'
+    },
+    plugins: [react(), tailwindcss()]
   }
 })

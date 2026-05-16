@@ -1,0 +1,211 @@
+import { describe, expect, it } from 'vitest'
+import type {
+  AccountPoolSnapshot,
+  AccountUsageInput,
+  LogEventRow,
+  ManagedAccountRow,
+  ProtocolMessageRow
+} from '../proxy/ledger-types'
+import type { ProxyConfig, ProxyStatus } from '../proxy/types'
+import { type AdminLedger, DaemonAdminServer } from './admin'
+import { DaemonAdminClient } from './client'
+
+const proxyStatus: ProxyStatus = {
+  authPoolAccounts: 0,
+  authPoolAvailableAccounts: 0,
+  authPoolDisabledAccounts: 0,
+  authPoolEnabled: false,
+  authPoolExhaustedAccounts: 0,
+  endpoint: 'http://127.0.0.1:33333/backend-api',
+  openaiBaseUrl: 'http://127.0.0.1:33333/backend-api/codex',
+  openaiCompatibleEndpoint: 'http://127.0.0.1:33333/v1',
+  outboundMode: 'direct',
+  rawCaptureDir: '/tmp/codexfree-test',
+  rawCaptureEnabled: false,
+  running: true,
+  upstreamBaseUrl: 'https://chatgpt.com/backend-api/codex'
+}
+
+const proxyConfig: ProxyConfig = {
+  authPool: { directory: '/tmp/auth-pool', enabled: false },
+  listenHost: '127.0.0.1',
+  listenPort: 33333,
+  outboundProxy: { mode: 'direct', url: '' },
+  maxRequestBodyBytes: 10_485_760,
+  rawCaptureEnabled: false,
+  rawCaptureMaxBytes: 1024,
+  upstreamBaseUrl: 'https://chatgpt.com/backend-api/codex'
+}
+
+describe('daemon admin client', () => {
+  it('reads status, logs, and protocol messages through the admin API', async () => {
+    const server = new DaemonAdminServer({
+      host: '127.0.0.1',
+      ledger: fakeLedger(),
+      port: 0,
+      readConfig: () => proxyConfig,
+      service: fakeService(),
+      token: 'secret-token',
+      writeConfig: (config) => config
+    })
+    const status = await server.start()
+    const client = new DaemonAdminClient({ endpoint: status.endpoint, token: 'secret-token' })
+
+    try {
+      await expect(client.status()).resolves.toMatchObject({
+        proxy: { endpoint: 'http://127.0.0.1:33333/backend-api' }
+      })
+      await expect(client.start()).resolves.toMatchObject({
+        proxy: { endpoint: 'http://127.0.0.1:33333/backend-api' }
+      })
+      await expect(client.stop()).resolves.toMatchObject({
+        proxy: { endpoint: 'http://127.0.0.1:33333/backend-api' }
+      })
+      await expect(client.logEvents()).resolves.toMatchObject({ events: [] })
+      await expect(client.protocolMessages()).resolves.toMatchObject({ messages: [] })
+    } finally {
+      await server.stop()
+    }
+  })
+
+  it('writes account pool state through the admin API client', async () => {
+    const ledger = fakeLedger()
+    const server = new DaemonAdminServer({
+      host: '127.0.0.1',
+      ledger,
+      port: 0,
+      readConfig: () => proxyConfig,
+      service: fakeService(),
+      token: 'secret-token',
+      writeConfig: (config) => config
+    })
+    const status = await server.start()
+    const client = new DaemonAdminClient({ endpoint: status.endpoint, token: 'secret-token' })
+
+    try {
+      await expect(
+        client.syncAccounts([{ accountId: 'account-1', fingerprint: 'fp-1', label: 'user' }])
+      ).resolves.toMatchObject({ accounts: [{ accountId: 'account-1' }] })
+      await expect(
+        client.updateAccountUsage([
+          { accountId: 'account-1', planType: 'free', primaryUsedPercent: '100' }
+        ])
+      ).resolves.toMatchObject({
+        accounts: [{ accountId: 'account-1', primaryUsedPercent: '100' }]
+      })
+      await expect(client.resetExhaustedAccounts()).resolves.toMatchObject({
+        resetAccounts: 1
+      })
+      await expect(client.setAccountDisabled('account-1', true)).resolves.toMatchObject({
+        updatedAccounts: 1
+      })
+      await expect(client.deleteAccounts(['account-1'])).resolves.toMatchObject({
+        accounts: [],
+        deletedAccounts: 1
+      })
+    } finally {
+      await server.stop()
+    }
+  })
+
+  it('includes admin response bodies in request errors', async () => {
+    const server = new DaemonAdminServer({
+      host: '127.0.0.1',
+      ledger: fakeLedger(),
+      port: 0,
+      readConfig: () => proxyConfig,
+      service: fakeService(),
+      token: 'secret-token',
+      writeConfig: (config) => config
+    })
+    const status = await server.start()
+    const client = new DaemonAdminClient({ endpoint: status.endpoint, token: 'wrong-token' })
+
+    try {
+      await expect(client.status()).rejects.toThrow('admin_auth_required')
+    } finally {
+      await server.stop()
+    }
+  })
+})
+
+function fakeService() {
+  return {
+    rawCaptureDir: '/tmp/codexfree-test',
+    start: async () => proxyStatus,
+    status: () => proxyStatus,
+    stop: async () => undefined
+  }
+}
+
+function fakeLedger(): AdminLedger {
+  let accounts: ManagedAccountRow[] = []
+  return {
+    accounts: (): ManagedAccountRow[] => accounts,
+    clear: () => 0,
+    deleteAccounts: (accountIds: string[]) => {
+      const before = accounts.length
+      const deletedIds = new Set(accountIds)
+      accounts = accounts.filter((account) => !deletedIds.has(account.accountId))
+      return before - accounts.length
+    },
+    recent: () => [],
+    recentLogEvents: (): LogEventRow[] => [],
+    recentProtocolMessages: (): ProtocolMessageRow[] => [],
+    recordLogEvent: () => undefined,
+    resetExhaustedAccounts: () => {
+      const exhausted = accounts.filter((account) => account.status === 'exhausted').length
+      accounts = accounts.map((account) => ({
+        ...account,
+        exhaustedAt: null,
+        status: account.status === 'exhausted' ? 'available' : account.status
+      }))
+      return exhausted
+    },
+    setAccountDisabled: (accountId: string, disabled: boolean) => {
+      let updated = 0
+      accounts = accounts.map((account) => {
+        if (account.accountId !== accountId) {
+          return account
+        }
+        updated += 1
+        return { ...account, status: disabled ? 'disabled' : 'available' }
+      })
+      return updated
+    },
+    syncAccountPool: (snapshots: AccountPoolSnapshot[]) => {
+      accounts = snapshots.map(toAccountRow)
+    },
+    updateAccountUsage: (input: AccountUsageInput) => {
+      accounts = accounts.map((account) =>
+        account.accountId === input.accountId
+          ? {
+              ...account,
+              planType: input.planType ?? account.planType,
+              primaryUsedPercent: input.primaryUsedPercent ?? account.primaryUsedPercent,
+              status: input.primaryUsedPercent === '100' ? 'exhausted' : account.status
+            }
+          : account
+      )
+    }
+  }
+}
+
+function toAccountRow(account: AccountPoolSnapshot): ManagedAccountRow {
+  return {
+    accountId: account.accountId,
+    active: 0,
+    exhaustedAt: null,
+    fingerprint: account.fingerprint,
+    label: account.label,
+    lastUsageCheckedAt: null,
+    lastUsageError: null,
+    planType: null,
+    primaryUsedPercent: null,
+    quotaResetAt: null,
+    rateLimitResetsAt: null,
+    secondaryUsedPercent: null,
+    status: 'available',
+    updatedAt: 1
+  }
+}
