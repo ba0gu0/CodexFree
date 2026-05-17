@@ -146,16 +146,16 @@ export async function handleProxyHttpRequest(
 
   const mode = classification.mode
   const preserveOriginalAuth = isWhamRemotePath(request.url)
-  const useAccountRules =
-    classification.mode === 'account' && !isCodexCompactPath(request.url) && !preserveOriginalAuth
+  const useAccountRules = classification.mode === 'account' && !preserveOriginalAuth
   const routedAccount = preserveOriginalAuth
     ? undefined
     : await ctx.routeAccount(request, requestId, accountId, conversationKey)
   if (useAccountRules && ctx.config.authPool.enabled && !routedAccount) {
     const completedAt = new Date()
-    const terminalQuota = isCodexResponsesPath(request.url)
-      ? createTerminalQuotaPayload(ctx.ledger, accountId)
-      : undefined
+    const terminalQuota =
+      isCodexResponsesPath(request.url) || isCodexCompactPath(request.url)
+        ? createTerminalQuotaPayload(ctx.ledger, accountId)
+        : undefined
     const statusCode = terminalQuota ? 429 : 503
     const body =
       terminalQuota?.body ?? Buffer.from(JSON.stringify({ error: 'no_available_account' }))

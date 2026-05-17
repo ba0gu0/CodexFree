@@ -173,6 +173,83 @@ describe('transparent proxy terminal account routing states', () => {
     })
   })
 
+  it('keeps retrying compact quota responses until a usable account succeeds', async () => {
+    const authDirectory = mkdtempSync(join(tmpdir(), 'codexfree-auth-pool-'))
+    writeAuthFile(authDirectory, 'a.json', 'account-a', 'managed-a')
+    writeAuthFile(authDirectory, 'b.json', 'account-b', 'managed-b')
+    const forwardedAccounts: string[] = []
+    const exhaustedAccounts: string[] = []
+    const upstream = http.createServer((request, response) => {
+      const forwardedAccount = String(request.headers['chatgpt-account-id'])
+      forwardedAccounts.push(forwardedAccount)
+      if (forwardedAccount === 'account-a') {
+        response.writeHead(429, { 'content-type': 'application/json' })
+        response.end(
+          JSON.stringify({
+            type: 'error',
+            status_code: 429,
+            error: { type: 'usage_limit_reached' }
+          })
+        )
+        return
+      }
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ output: [{ type: 'message', content: 'compact-ok' }] }))
+    })
+    await listen(upstream)
+    upstreams.push(upstream)
+
+    const entries: RequestLedgerEntry[] = []
+    const ledger = {
+      accountUsageSummary: () => undefined,
+      activeAccountId: () => undefined,
+      accounts: () => [],
+      disabledAccountIds: () => [],
+      exhaustedAccountIds: () => exhaustedAccounts,
+      insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
+      markAccountQuotaExhausted: (accountId: string | undefined) => {
+        if (accountId) {
+          exhaustedAccounts.push(accountId)
+        }
+      },
+      markQuotaExhausted: () => undefined,
+      recordRoutingEvent: () => undefined,
+      recent: () => [],
+      setActiveAccount: () => 1,
+      syncAccountPool: () => undefined
+    } as unknown as ProxyLedger
+    const service = new TransparentProxyService(
+      { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
+      ledger,
+      log
+    )
+    services.push(service)
+    const endpoint = new URL((await service.start()).endpoint)
+
+    const response = await fetch(`${endpoint.origin}/backend-api/codex/responses/compact`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer placeholder-token',
+        'chatgpt-account-id': 'placeholder-account',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ model: 'gpt-5.5', input: [] })
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      output: [{ type: 'message', content: 'compact-ok' }]
+    })
+    expect(forwardedAccounts).toEqual(['account-a', 'account-b'])
+    expect(exhaustedAccounts).toEqual(['account-a'])
+    expect(entries[0]).toMatchObject({
+      accountId: 'account-b',
+      outcome: 'forwarded',
+      path: '/backend-api/codex/responses/compact',
+      statusCode: 200
+    })
+  })
+
   it('rejects managed http requests locally when no account is available', async () => {
     const authDirectory = mkdtempSync(join(tmpdir(), 'codexfree-auth-pool-'))
     let upstreamHits = 0

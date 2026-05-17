@@ -147,7 +147,7 @@ export function safeResponseWrite(response: http.ServerResponse, chunk: Buffer):
   try {
     response.write(chunk, (error?: Error | null) => {
       if (error) {
-        response.destroy(error)
+        response.destroy()
       }
     })
     return true
@@ -165,7 +165,7 @@ export function safeSocketWrite(socket: Duplex, chunk: Buffer | string): boolean
   try {
     socket.write(chunk, (error?: Error | null) => {
       if (error) {
-        socket.destroy(error)
+        socket.destroy()
       }
     })
     return true
