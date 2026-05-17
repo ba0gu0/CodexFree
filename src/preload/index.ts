@@ -6,6 +6,7 @@ import type {
   AuthImportResultDto,
   CleanExpiredAccountsDto,
   ClearProxyRecordsResultDto,
+  CodexConfigWriteResultDto,
   DaemonControlSaveInputDto,
   DaemonControlSaveResultDto,
   DaemonControlSettingsDto,
@@ -74,14 +75,24 @@ const api = {
     ipcRenderer.invoke('proxy:import-auth-files'),
   checkAccountUsage: (): Promise<AccountUsageCheckBatchDto> =>
     ipcRenderer.invoke('proxy:check-account-usage'),
+  checkSelectedAccountUsage: (accountIds: string[]): Promise<AccountUsageCheckBatchDto> =>
+    ipcRenderer.invoke('proxy:check-selected-account-usage', accountIds),
   exportAuthFiles: (): Promise<AuthExportResultDto> =>
     ipcRenderer.invoke('proxy:export-auth-files'),
   writePlaceholderAuth: (): Promise<PlaceholderAuthResultDto> =>
     ipcRenderer.invoke('proxy:write-placeholder-auth'),
+  writeCodexConfig: (): Promise<CodexConfigWriteResultDto> =>
+    ipcRenderer.invoke('proxy:write-codex-config'),
   resetExhaustedAccounts: (): Promise<ResetExhaustedAccountsDto> =>
     ipcRenderer.invoke('proxy:reset-exhausted-accounts'),
   setAccountDisabled: (accountId: string, disabled: boolean): Promise<SetAccountDisabledDto> =>
     ipcRenderer.invoke('proxy:set-account-disabled', accountId, disabled),
+  setAccountsDisabled: (accountIds: string[], disabled: boolean): Promise<SetAccountDisabledDto> =>
+    ipcRenderer.invoke('proxy:set-accounts-disabled', accountIds, disabled),
+  deleteAccounts: (
+    accountIds: string[]
+  ): Promise<{ accounts: ManagedAccountDto[]; deletedAccounts: number; status: ProxyStatusDto }> =>
+    ipcRenderer.invoke('proxy:delete-accounts', accountIds),
   cleanExpiredAccounts: (): Promise<CleanExpiredAccountsDto> =>
     ipcRenderer.invoke('proxy:clean-expired-accounts'),
   startProxy: (): Promise<ProxyStatusDto> => ipcRenderer.invoke('proxy:start'),

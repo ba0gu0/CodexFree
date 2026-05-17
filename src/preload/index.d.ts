@@ -5,6 +5,7 @@ import type {
   AuthImportResultDto,
   CleanExpiredAccountsDto,
   ClearProxyRecordsResultDto,
+  CodexConfigWriteResultDto,
   DaemonControlSaveInputDto,
   DaemonControlSaveResultDto,
   DaemonControlSettingsDto,
@@ -51,10 +52,21 @@ declare global {
       ) => Promise<DaemonControlSaveResultDto>
       importAuthFiles: () => Promise<AuthImportResultDto>
       checkAccountUsage: () => Promise<AccountUsageCheckBatchDto>
+      checkSelectedAccountUsage: (accountIds: string[]) => Promise<AccountUsageCheckBatchDto>
       exportAuthFiles: () => Promise<AuthExportResultDto>
       writePlaceholderAuth: () => Promise<PlaceholderAuthResultDto>
+      writeCodexConfig: () => Promise<CodexConfigWriteResultDto>
       resetExhaustedAccounts: () => Promise<ResetExhaustedAccountsDto>
       setAccountDisabled: (accountId: string, disabled: boolean) => Promise<SetAccountDisabledDto>
+      setAccountsDisabled: (
+        accountIds: string[],
+        disabled: boolean
+      ) => Promise<SetAccountDisabledDto>
+      deleteAccounts: (accountIds: string[]) => Promise<{
+        accounts: ManagedAccountDto[]
+        deletedAccounts: number
+        status: ProxyStatusDto
+      }>
       cleanExpiredAccounts: () => Promise<CleanExpiredAccountsDto>
       startProxy: () => Promise<ProxyStatusDto>
       stopProxy: () => Promise<ProxyStatusDto>

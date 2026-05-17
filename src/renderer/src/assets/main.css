@@ -3,8 +3,26 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --color-background: #ffffff;
-  --color-foreground: #111827;
+  --font-heading: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
   --animate-skeleton: skeleton 2s -1s infinite linear;
   --animate-caret-blink: 1s ease-out infinite caret-blink;
   --animate-toast-success-odd: toast-success-odd 0.32s cubic-bezier(0.5, 1, 0.89, 1);
@@ -99,34 +117,103 @@
 }
 
 @layer base {
+  *,
+  ::before,
+  ::after {
+    @apply border-border;
+  }
+
   html,
   body,
   #root {
     @apply h-full w-full;
+    overflow: hidden;
   }
 
   body {
     @apply m-0 bg-background text-foreground;
     font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
 }
 
 :root {
-  --destructive-foreground: var(--color-red-700);
-  --info: var(--color-blue-500);
-  --info-foreground: var(--color-blue-700);
-  --success: var(--color-emerald-500);
-  --success-foreground: var(--color-emerald-700);
-  --warning: var(--color-amber-500);
-  --warning-foreground: var(--color-amber-700);
+  --background: #f7f8fb;
+  --foreground: #111827;
+  --card: #ffffff;
+  --card-foreground: #111827;
+  --popover: #ffffff;
+  --popover-foreground: #111827;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #e7eefc;
+  --secondary-foreground: #172554;
+  --muted: #eef2f7;
+  --muted-foreground: #64748b;
+  --accent: #e8f0ff;
+  --accent-foreground: #1e3a8a;
+  --border: #dbe3ef;
+  --input: #dbe3ef;
+  --ring: #2563eb;
+  --destructive: #dc2626;
+  --destructive-foreground: #b91c1c;
+  --info: #2563eb;
+  --info-foreground: #1d4ed8;
+  --success: #059669;
+  --success-foreground: #047857;
+  --warning: #d97706;
+  --warning-foreground: #b45309;
 }
 
 .dark {
-  --destructive-foreground: var(--color-red-400);
-  --info: var(--color-blue-500);
-  --info-foreground: var(--color-blue-400);
-  --success: var(--color-emerald-500);
-  --success-foreground: var(--color-emerald-400);
-  --warning: var(--color-amber-500);
-  --warning-foreground: var(--color-amber-400);
+  color-scheme: dark;
+  --background: #121212;
+  --foreground: #f2ede5;
+  --card: #1d1d1d;
+  --card-foreground: #f2ede5;
+  --popover: #242424;
+  --popover-foreground: #f2ede5;
+  --primary: #ddd7cb;
+  --primary-foreground: #111111;
+  --secondary: #272727;
+  --secondary-foreground: #ddd7cb;
+  --muted: #222222;
+  --muted-foreground: #aaa498;
+  --accent: #2b2b2b;
+  --accent-foreground: #f2ede5;
+  --border: #333333;
+  --input: #2c2c2c;
+  --ring: #ddd7cb;
+  --destructive: #d76b6d;
+  --destructive-foreground: #ffb7b8;
+  --info: #a7b4c6;
+  --info-foreground: #ced7e5;
+  --success: #7fca97;
+  --success-foreground: #b7e8ca;
+  --warning: #d0a057;
+  --warning-foreground: #efd0a3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(*, *::before, *::after) {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    scroll-behavior: auto;
+    transition-duration: 0.01ms;
+  }
+}
+
+.app-drag-region {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag,
+.app-no-drag * {
+  -webkit-app-region: no-drag;
 }

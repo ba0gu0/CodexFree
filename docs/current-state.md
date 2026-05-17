@@ -28,21 +28,26 @@ Core behavior:
   account-mode upstream paths under `https://chatgpt.com/backend-api/codex`.
 - `/v1/*` is reserved for the future explicit API-key compatibility surface,
   not the documented account-login proxy config.
-- When `authPool.enabled` is true, the proxy replaces only upstream
-  `Authorization` and `chatgpt-account-id` from managed account files.
+- Account-pool routing is the normal forwarding mode. The proxy replaces only
+  upstream `Authorization` and `chatgpt-account-id` from managed account files.
 - The transparent MVP records redacted request metadata and can optionally write
   raw local debug captures into the system temp directory.
 - Raw capture now includes WebSocket frame JSONL files for upgraded
   `/backend-api/codex/responses` traffic.
-- Auth-pool takeover is explicit. Imported accounts do not automatically enable
-  routing replacement until the operator enables the pool and saves config.
+- `docs/proxy-traffic-analysis.md` now records the current GET/POST capture
+  inventory, token usage extraction sources, request/protocol ledger fields,
+  and UI usage recommendations. Use it as the cross-session reference for
+  request, usage, overview, and account page data-source optimization.
+- Auth-pool takeover is always on for account-mode proxying. Imported accounts
+  are loaded from the single app-managed directory; there is no UI or CLI switch
+  for disabling the pool.
 - The proxy now parses decoded upstream WebSocket text frames and marks matching
   `usage_limit_reached` requests as `quota_exhausted` in the request ledger.
-- Auth-pool routing now supports an explicit `authPool.enabled` config and a
-  single app-managed import directory. Users cannot point the runtime at an
-  arbitrary auth directory. When enabled, the proxy loads normalized imported
-  auth files, replaces only upstream `Authorization` and `chatgpt-account-id`,
-  binds accounts by conversation key, and switches the next request boundary
+- Auth-pool routing now uses a single app-managed import directory. Users cannot
+  point the runtime at an arbitrary auth directory. The proxy loads normalized
+  imported auth files, replaces only upstream `Authorization` and
+  `chatgpt-account-id`, binds accounts by conversation key, and switches the
+  next request boundary
   after a WSS quota event.
 - New WSS requests that immediately hit `usage_limit_reached` can be retried
   upstream without forwarding the quota frame to Codex. The client socket stays
@@ -76,6 +81,14 @@ Core behavior:
   export, 401 cleanup, per-account disable/enable, and exhaustion reset from
   the Electron management surface. Import, usage checks, and runtime routing all
   use the same app-managed auth-pool directory.
+- Imported account metadata now persists email in SQLite `proxy_accounts` and
+  backfills auth files when a usage check returns or decodes an email address.
+  Operator log rows persist a typed `event_type` so the UI can distinguish
+  normal requests, account switching, network issues, quota issues, auth issues,
+  and system mutations.
+- Electron startup now reads daemon management host, port, and admin token from
+  SQLite `proxy_settings`, tries the configured admin endpoint first, and only
+  spawns the daemon when that endpoint is not reachable.
 - In-memory conversation bindings are pruned after 24 hours so old sessions do
   not permanently reserve accounts.
 - Proxy forwarding does not refresh managed ChatGPT tokens. It only classifies
@@ -113,10 +126,34 @@ Core behavior:
   `better-sqlite3` are rebuilt for Electron.
 - Documentation modules: current docs are kept, ADR is enabled, independent task
   cards are not enabled.
-- Renderer is intentionally back at the initial shell stage while the app UI is
-  planned for a clean refactor. Existing Coss/shadcn component source may remain
-  under `components/ui/`, but page modules, derived-data helpers, and locale
-  copy tables are not considered complete until the next renderer slice lands.
+- Renderer has been refactored onto the V3 desktop shell with the new
+  top-level navigation, dashboard, account, proxy, request, and data-analysis
+  pages wired through the daemon/admin API. The dashboard overview has completed
+  the V3 detail pass: header order, three-column shell, status strip, proxy and
+  account-pool cards, recent activity table, and right inspector now follow the
+  `docs/CodexFree-v3.pen` overview mockup. The account, proxy, request, and
+  data-analysis pages now share the same desktop-console treatment with summary
+  strips, scan-friendly tables, contextual side panels, and masked/local-only
+  operational details. Daemon management settings live inside the Proxy page
+  rather than a separate settings page. Destructive local actions such as
+  request-ledger clearing and placeholder `auth.json` writing now require
+  confirmation dialogs. The selected UI language is synchronized into native
+  import/export dialogs and both language and theme preferences persist locally.
+  The desktop window opens at the same `1160x720` size as its minimum; the
+  overview shell is fixed-height at that size, keeps the V3 three-column
+  structure with proportional side rails, and confines Recent Activity scrolling
+  to the table body without horizontal scrolling or a fixed row slice.
+  The latest overview pass also removes the top-strip recent-event tile, changes
+  the system utility button into a `system -> dark -> light` theme cycle, shows
+  categorized recent events instead of alarm text, removes the account-health
+  progress bar, formats proxy config rows without wrapping at `=`, and uses
+  account email metadata instead of synthetic `codex:<account-id>` labels.
+  `/backend-api/wham/remote/*` rows are explicitly marked as the original Codex
+  account because that route preserves the user's configured upstream auth.
+  The latest remaining-page polish pass aligns Accounts, Proxy, Requests, and
+  Usage with the overview style: compact headers, semantic light/dark borders,
+  fixed-height desktop content, virtualized multi-row tables, and no duplicate
+  proxy-copy or related-context blocks on the Proxy page.
 
 ## Completed Initialization
 
@@ -132,8 +169,12 @@ Core behavior:
   update checking is enabled for future GitHub releases.
 - Added a metadata-only SQLite schema seed and Vitest coverage for auth-secret
   exclusion in account records.
-- Verified the initial Electron shell path earlier; current app UI should be
-  treated as initial mode until the renderer refactor is implemented.
+- Verified the Electron renderer after the V3 shell refactor. The desktop
+  window now loads the redesigned shell, switches between views, and exercises
+  live actions such as opening managed directories.
+- Completed the V3 dashboard overview detail pass against
+  `docs/CodexFree-v3.pen`, including the default desktop-window three-column
+  layout, clean tab switching, and design-matched dashboard column padding.
 - Added `proxy-agent` for outbound direct, HTTP, HTTPS, SOCKS4, and SOCKS5 proxy
   modes.
 - Added a transparent forwarding service with configurable listen host, listen
@@ -147,8 +188,8 @@ Core behavior:
 - Added an explicit raw-capture debug switch that writes four protocol-shaped
   `.http` packet files outside the repository under the app data
   `raw-captures` directory.
-- Proxy request bodies are capped by `maxRequestBodyBytes`; oversized bodies are
-  rejected locally with HTTP 413 before upstream forwarding.
+- Proxy request bodies are capped only when `maxRequestBodyBytes` is greater
+  than 0; the default value `0` means unlimited.
 - Added WebSocket frame capture for upgraded responses traffic, including
   `permessage-deflate` decoding for readable upstream error messages.
 - Added proxy IPC and daemon control surfaces for host, port, upstream,
@@ -178,10 +219,27 @@ Core behavior:
 ## Current Verification
 
 - `bun run lint`
+- `bun run typecheck:web`
+- `bun run typecheck:node`
 - `bun run typecheck`
 - `bun run test`
 - `bun run build`
 - `bun run build:unpack`
+- Manual Electron verification on the V3 shell:
+  - dashboard renders the three-column mockup layout in the default desktop
+    window;
+  - `账户` and `代理` tabs switch correctly;
+  - `代理`, `请求`, `用量`, and `系统` pages render the polished desktop
+    console layouts;
+  - request-ledger clearing and placeholder `auth.json` writing show
+    confirmation dialogs before dispatching the daemon action;
+  - the `1160x720` minimum Electron window keeps the dashboard chrome fixed,
+    with only the Recent Activity table scrolling vertically;
+  - Accounts, Proxy, Requests, and Usage were checked in the live Electron
+    window after the shared border/theme pass and now match the overview card
+    and table treatment in both light and dark modes;
+  - managed auth directory opening succeeds and returns an app notice;
+  - account metric cards no longer wrap the auth directory path vertically.
 - Transparent proxy integration test forwards request bodies and records
   redacted ledger metadata.
 - Manual local curl through `http://127.0.0.1:33333/backend-api/codex` reached
@@ -270,7 +328,7 @@ Core behavior:
   src/main/daemon/client.test.ts src/main/proxy/event-log.test.ts` and
   `bun run typecheck:node`.
 - Full project Vitest validation passed with the repository test runner:
-  `bun run test` reported 14 files and 48 tests passed. `service.test.ts`
+  `bun run test` reported 24 files and 89 tests passed. `service.test.ts`
   specifically passes under Vitest; direct `bun test` is not the supported
   runner for these Node raw socket/WebSocket upgrade tests.
 - Local daemon smoke passed on `127.0.0.1:45555/backend-api` and admin
@@ -327,7 +385,10 @@ Core behavior:
   per-account disable/delete actions.
 - Quota-exhausted response classification now has packet-level WebSocket frame
   evidence, automatic WSS parsing, persistent account state, and next-boundary
-  account replacement. UI import/export wiring is still pending.
+  account replacement.
+- Daemon control config is wired through the Proxy page. Operators can edit the
+  management host/port/token and enable or disable a macOS LaunchAgent from the
+  same control surface that owns proxy start/stop/restart.
 - API-key OpenAI-compatible forwarding conflicts with the current default
   account-only boundary. It should be added only as an explicit off-by-default
   mode with a separate protocol adapter.

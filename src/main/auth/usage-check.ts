@@ -32,14 +32,32 @@ interface UsageResponse {
 }
 
 export async function checkAuthDirectoryUsage(
-  directory: string
+  directory: string,
+  accountIds?: string[]
 ): Promise<AccountUsageCheckResult[]> {
   mkdirSync(directory, { recursive: true, mode: 0o700 })
+  const accountIdSet = accountIds && accountIds.length > 0 ? new Set(accountIds) : null
   const files = readdirSync(directory)
     .filter((name) => name.endsWith('.json'))
     .sort()
     .map((name) => join(directory, name))
     .filter((filePath) => statSync(filePath).isFile())
+    .filter((filePath) => {
+      if (!accountIdSet) {
+        return true
+      }
+      try {
+        const normalized = normalizeAuthFile(
+          JSON.parse(readFileSync(filePath, 'utf8')) as unknown,
+          {
+            fileName: filePath
+          }
+        )
+        return accountIdSet.has(normalized.accountId)
+      } catch {
+        return false
+      }
+    })
 
   return mapWithConcurrency(files, usageCheckConcurrency, async (filePath) => {
     try {

@@ -222,3 +222,8 @@ export interface PlaceholderAuthResultDto {
   backedUp: boolean
   backupPath: string | null
 }
+
+export interface CodexConfigWriteResultDto {
+  path: string
+  backupPath: string | null
+}

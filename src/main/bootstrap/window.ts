@@ -5,10 +5,10 @@ import icon from '../../../resources/icon.png?asset'
 
 export function createMainWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
-    width: 1600,
-    height: 960,
-    minWidth: 980,
-    minHeight: 588,
+    width: 1160,
+    height: 720,
+    minWidth: 1160,
+    minHeight: 720,
     show: false,
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 18, y: 18 },
@@ -67,7 +67,7 @@ function contentSecurityPolicy(): string {
   if (is.dev) {
     return [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-eval'",
+      "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data:",
       "connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*"

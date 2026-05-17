@@ -1,9 +1,11 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { platform } from 'node:process'
 
 const launchAgentLabel = 'com.baoguo.codexfree.daemon'
+const windowsServiceName = 'CodexFreeDaemon'
 
 export interface DaemonLaunchAgentOptions {
   commandPath: string
@@ -25,6 +27,16 @@ export function readDaemonLaunchAgentSettings(
   options: DaemonLaunchAgentOptions
 ): DaemonLaunchAgentSettings {
   const plistPath = launchAgentPlistPath()
+  if (platform === 'win32') {
+    return {
+      enabled: windowsServiceExists(),
+      label: windowsServiceName,
+      plistPath: windowsServiceName,
+      programPath: options.commandPath,
+      scriptPath: options.scriptPath,
+      supported: true
+    }
+  }
   return {
     enabled: Boolean(plistPath && existsSync(plistPath)),
     label: launchAgentLabel,
@@ -39,6 +51,11 @@ export function setDaemonLaunchAgentEnabled(
   options: DaemonLaunchAgentOptions,
   enabled: boolean
 ): DaemonLaunchAgentSettings {
+  if (platform === 'win32') {
+    setWindowsServiceEnabled(options, enabled)
+    return readDaemonLaunchAgentSettings(options)
+  }
+
   const plistPath = launchAgentPlistPath()
   if (!plistPath) {
     return readDaemonLaunchAgentSettings(options)
@@ -53,6 +70,54 @@ export function setDaemonLaunchAgentEnabled(
   }
 
   return readDaemonLaunchAgentSettings(options)
+}
+
+function windowsServiceExists(): boolean {
+  try {
+    execFileSync('sc.exe', ['query', windowsServiceName], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function setWindowsServiceEnabled(options: DaemonLaunchAgentOptions, enabled: boolean): void {
+  if (enabled) {
+    if (windowsServiceExists()) {
+      return
+    }
+    execFileSync('sc.exe', [
+      'create',
+      windowsServiceName,
+      `binPath= ${windowsServiceCommand(options)}`,
+      'start= auto',
+      'DisplayName= CodexFree Daemon'
+    ])
+    return
+  }
+
+  if (windowsServiceExists()) {
+    execFileSync('sc.exe', ['delete', windowsServiceName])
+  }
+}
+
+function windowsServiceCommand(options: DaemonLaunchAgentOptions): string {
+  const command = [
+    'cmd.exe',
+    '/d',
+    '/s',
+    '/c',
+    [
+      'set ELECTRON_RUN_AS_NODE=1',
+      'set NODE_NO_WARNINGS=1',
+      `${quoteWindowsArg(options.commandPath)} ${quoteWindowsArg(options.scriptPath)} --data-dir ${quoteWindowsArg(options.dataDir)}`
+    ].join('&& ')
+  ]
+  return command.map(quoteWindowsArg).join(' ')
+}
+
+function quoteWindowsArg(value: string): string {
+  return `"${value.replaceAll('"', '\\"')}"`
 }
 
 function launchAgentPlistPath(): string | null {

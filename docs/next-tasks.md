@@ -15,7 +15,7 @@
 | T8 | Draft | Add explicit API-key OpenAI-compatible adapter mode | T1b, T4 |
 | T9 | Done | Split proxy into standalone daemon controlled by app | T4, T5 |
 | T10 | In Progress | Make proxy logs operator-readable from real Docker Codex traffic | T4 |
-| T11 | In Progress | Continue desktop app console work against daemon/admin API | T6, T9 |
+| T11 | In Progress | Polish remaining page layouts and interactions against daemon/admin API | T6, T9 |
 
 ## Parallel Work Lines
 
@@ -65,6 +65,10 @@ Immediate tasks:
    are replayed to a replacement upstream account, while incremental turns close
    the client WSS only when another account exists for Codex to reconnect onto.
    If the pool has no replacement account, final quota is forwarded.
+9. Done: current packet and relay-analysis findings are documented in
+   `docs/proxy-traffic-analysis.md`. Future UI work should use that document as
+   the data-source reference before adding new request, usage, overview, or
+   account fields.
 
 Verification:
 
@@ -94,14 +98,22 @@ Immediate tasks:
    does not import the SQLite ledger or embedded proxy service. Runtime startup
    ensures the daemon is reachable, and status, restart, config-save, import
    sync, usage updates, reset, and account disable/delete actions go through the
-   daemon admin API.
+   daemon admin API. Startup now reads the configured daemon management
+   host/port and admin token from SQLite `proxy_settings`, probes that endpoint
+   first, and spawns a daemon only when the endpoint is unreachable.
 2. Show startup/config helper values:
    - `chatgpt_base_url = "http://127.0.0.1:<port>/backend-api"`;
    - `openai_base_url = "http://127.0.0.1:<port>/backend-api/codex"`.
-3. Show active account label/email, quota, reset time, available count,
-   exhausted count, and recent account switch event.
+3. Done for overview: show account email where known, quota, reset time,
+   available count, exhausted count, categorized recent events, and copyable
+   proxy config rows without wrapping around `=`.
 4. Keep account import, batch usage checks, enable/disable/reset, and request
    ledger screens usable while the daemon evolves.
+5. Done: expose management host/port/token in the Proxy page and add a macOS
+   LaunchAgent toggle so boot startup has a clear service owner.
+6. Use `docs/proxy-traffic-analysis.md` as the UI data-source contract for the
+   next Requests and Usage page optimization pass, especially token source,
+   cached-token display, request purpose filtering, and quota fields.
 
 Verification:
 
@@ -111,26 +123,58 @@ Verification:
 - manual app launch;
 - app can inspect/control an already-running daemon.
 
-Renderer initial-mode state:
+Renderer refactor state:
 
 - Coss-first and shadcn-fallback component policy remains the target.
 - `src/renderer/src/components/ui/` may contain source-owned component building
   blocks, but it is not the app UI implementation.
-- `src/renderer/src/App.tsx` is currently an initial shell placeholder.
-- Dashboard, Accounts, Proxy, Requests, Usage, and Settings need to be rebuilt
-  as a separate renderer refactor slice.
-- `docs/CodexFree-v2.pen`, `docs/CodexFree-v3.pen`, and preview images are
-  references, not evidence that the renderer is implemented.
+- `src/renderer/src/App.tsx` now owns the V3 shell and page routing.
+- Dashboard, Accounts, Proxy, Requests, and Usage are implemented and
+  connected. Dashboard, Accounts, Proxy, Requests, and Usage now share
+  the V3 desktop-console information architecture; future work should focus on
+  narrow interaction polish and missing backend-backed fields rather than
+  another broad shell rewrite. Destructive local actions now use confirmation
+  dialogs before clearing records or writing placeholder `auth.json`. The
+  selected UI language is synchronized into native import/export dialogs, while
+  language and theme choices persist locally. Daemon management configuration is
+  part of the Proxy page, not a separate settings page. The
+  overview opens at and is constrained for the `1160x720` minimum desktop
+  window: no top-level page scroll, proportional three-column app structure, and
+  an internally scrolling Recent Activity table with no horizontal scrollbar or
+  fixed row slice. The remaining-page polish pass aligns Accounts, Proxy,
+  Requests, and Usage with the overview through compact headers, semantic
+  light/dark borders, virtualized data tables, and a cleaner Proxy page without
+  duplicate copy/context blocks. The current overview detail pass removes the
+  top recent-event summary, turns the utility system button into a theme cycle,
+  removes the account-health progress bar, classifies recent logs by event type,
+  marks `/backend-api/wham/remote/*` as the original Codex account, and uses
+  email metadata instead of synthetic account ids.
+- `docs/CodexFree-v2.pen`, `docs/CodexFree-v3.pen`, and preview images remain
+  design references rather than proof by themselves.
 
 Current verification:
 
 - `bun run lint`;
+- `bun run typecheck:web`;
+- `bun run typecheck:node`;
 - `bun run typecheck`;
-- `bun run build`.
+- `bun run build`;
 - `bun run build:unpack`.
-- Renderer functional verification is pending the planned UI refactor.
+- Electron shell verification on the current refactor:
+  - dashboard overview matches the V3 desktop mockup details in the default
+    desktop window;
+  - account, proxy, request, and usage navigation works;
+  - proxy, request, and usage pages render the current polished
+    console layouts in the live Electron window;
+  - accounts, proxy, requests, and usage match the overview card/table visual
+    language in both light and dark modes;
+  - request clearing and placeholder `auth.json` writing open confirmation
+    dialogs and can be canceled without dispatching the destructive action;
+  - at the minimum `1160x720` window, the overview keeps the shell fixed and
+    only the Recent Activity table scrolls vertically;
+  - managed directory open action succeeds.
 - Current daemon/proxy core verification:
-  - `bun run test` passed 14 test files and 48 tests;
+  - `bun run test` passed 24 test files and 89 tests;
   - `bun run typecheck:node` passed;
   - `bun run daemon -- --help` passed;
   - local daemon smoke confirmed log events are persisted by default and printed
@@ -244,7 +288,7 @@ Current T4 verification: `bun run lint:fix`, `bun run test`,
 Immediate next step: update account availability and implement next-boundary
 auth replacement without changing request bodies or replaying the failed turn.
 
-Implemented T4 account-pool slice: `authPool.enabled` loads normalized auth
+Implemented T4 account-pool slice: account-pool routing loads normalized auth
 files from the app-managed import directory into an in-memory router. The user
 cannot select a custom runtime auth directory. The router binds each
 conversation key to a selected account, replaces only upstream `Authorization`

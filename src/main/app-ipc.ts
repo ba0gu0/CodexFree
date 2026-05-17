@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, readdirSync, readFileSync, unlinkSync } from 
 import { join } from 'node:path'
 import { app, dialog, ipcMain, shell } from 'electron'
 import { importAuthFilesToDirectory } from './auth/import'
-import { writePlaceholderAuthFile } from './auth/placeholder'
+import { writeCodexConfigFile, writePlaceholderAuthFile } from './auth/placeholder'
 import { checkAuthDirectoryUsage } from './auth/usage-check'
 import { readRawCaptureDetail } from './proxy/raw-capture'
 import type { ProxyConfig } from './proxy/types'
@@ -108,6 +108,12 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     const { accounts } = await runtime.daemonClient.updateAccountUsage(results)
     return { results, accounts }
   })
+  ipcMain.handle('proxy:check-selected-account-usage', async (_, accountIds: string[]) => {
+    const results = await checkAuthDirectoryUsage(runtime.importedAuthPoolPath, accountIds)
+    await runtime.ensureDaemon()
+    const { accounts } = await runtime.daemonClient.updateAccountUsage(results)
+    return { results, accounts }
+  })
   ipcMain.handle('proxy:export-auth-files', async () => {
     const dialogCopy = currentDialogCopy()
     const selection = await dialog.showOpenDialog({
@@ -135,6 +141,13 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     return { exported }
   })
   ipcMain.handle('proxy:write-placeholder-auth', () => writePlaceholderAuthFile())
+  ipcMain.handle('proxy:write-codex-config', async () => {
+    const status = await runtime.proxyStatus()
+    return writeCodexConfigFile({
+      chatgptBaseUrl: status.endpoint,
+      openaiBaseUrl: status.openaiBaseUrl
+    })
+  })
   ipcMain.handle('proxy:reset-exhausted-accounts', async () => {
     await runtime.ensureDaemon()
     const { accounts, resetAccounts } = await runtime.daemonClient.resetExhaustedAccounts()
@@ -149,6 +162,39 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     )
     const status = await runtime.restartProxy()
     return { updatedAccounts, accounts, status }
+  })
+  ipcMain.handle(
+    'proxy:set-accounts-disabled',
+    async (_, accountIds: string[], disabled: boolean) => {
+      await runtime.ensureDaemon()
+      let accounts = (await runtime.daemonClient.accounts()).accounts
+      let updatedAccounts = 0
+      for (const accountId of accountIds) {
+        const result = await runtime.daemonClient.setAccountDisabled(accountId, disabled)
+        accounts = result.accounts
+        updatedAccounts += result.updatedAccounts
+      }
+      const status = await runtime.restartProxy()
+      return { updatedAccounts, accounts, status }
+    }
+  )
+  ipcMain.handle('proxy:delete-accounts', async (_, accountIds: string[]) => {
+    await runtime.ensureDaemon()
+    const deleted = await runtime.daemonClient.deleteAccounts(accountIds)
+    if (existsSync(runtime.importedAuthPoolPath)) {
+      for (const entry of readdirSync(runtime.importedAuthPoolPath, { withFileTypes: true })) {
+        if (!entry.isFile()) {
+          continue
+        }
+        const filePath = join(runtime.importedAuthPoolPath, entry.name)
+        const fileAccountId = readAuthAccountId(filePath)
+        if (fileAccountId && accountIds.includes(fileAccountId)) {
+          unlinkSync(filePath)
+        }
+      }
+    }
+    const status = await runtime.restartProxy()
+    return { ...deleted, status }
   })
   ipcMain.handle('proxy:clean-expired-accounts', async () => {
     await runtime.ensureDaemon()
