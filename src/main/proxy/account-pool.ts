@@ -21,8 +21,10 @@ export interface AccountPoolStatus {
 
 export interface AccountPoolSnapshot {
   accountId: string
+  email?: string
   fingerprint: string
   label: string
+  sourceFormat: NormalizedAuthFile['format']
 }
 
 export interface AccountRouteRequest {
@@ -90,8 +92,10 @@ export class AccountPool {
   snapshot(): AccountPoolSnapshot[] {
     return this.accounts.map((account) => ({
       accountId: account.accountId,
+      email: account.email,
       fingerprint: account.fingerprint,
-      label: account.label
+      label: account.label,
+      sourceFormat: account.format
     }))
   }
 

@@ -3,6 +3,12 @@ import type Database from 'better-sqlite3'
 export function initializeLedgerSchema(sqlite: Database.Database): void {
   sqlite.pragma('journal_mode = WAL')
   sqlite.exec(`
+    DROP TABLE IF EXISTS app_settings;
+    CREATE TABLE IF NOT EXISTS proxy_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS proxy_requests (
       id TEXT PRIMARY KEY,
       account_id TEXT,
@@ -25,6 +31,36 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
       response_headers_json TEXT,
       request_body_sample TEXT,
       response_body_sample TEXT,
+      request_purpose TEXT,
+      request_content_type TEXT,
+      response_content_type TEXT,
+      request_model TEXT,
+      response_model TEXT,
+      response_plan_type TEXT,
+      response_primary_used_percent TEXT,
+      response_rate_limit_reset_at INTEGER,
+      response_active_limit TEXT,
+      response_item_count INTEGER,
+      request_input_item_count INTEGER,
+      request_body_encoding TEXT,
+      rpc_method TEXT,
+      rpc_id TEXT,
+      analytics_event_types TEXT,
+      input_tokens INTEGER,
+      cached_input_tokens INTEGER,
+      output_tokens INTEGER,
+      reasoning_tokens INTEGER,
+      total_tokens INTEGER,
+      token_usage_source TEXT,
+      user_agent TEXT,
+      originator TEXT,
+      codex_session_id TEXT,
+      codex_thread_id TEXT,
+      codex_turn_id TEXT,
+      codex_turn_started_at INTEGER,
+      codex_version TEXT,
+      codex_runtime_os TEXT,
+      codex_runtime_arch TEXT,
       raw_capture_path TEXT,
       error_message TEXT,
       conversation_key TEXT,
@@ -36,7 +72,9 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
     CREATE TABLE IF NOT EXISTS proxy_accounts (
       account_id TEXT PRIMARY KEY,
       label TEXT NOT NULL,
+      email TEXT,
       fingerprint TEXT NOT NULL,
+      source_format TEXT,
       status TEXT NOT NULL,
       exhausted_at INTEGER,
       quota_reset_at INTEGER,
@@ -78,6 +116,20 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
       direction TEXT NOT NULL,
       kind TEXT NOT NULL,
       text TEXT NOT NULL,
+      protocol_type TEXT,
+      sequence_number INTEGER,
+      response_id TEXT,
+      model TEXT,
+      previous_response_id TEXT,
+      input_item_count INTEGER,
+      tool_count INTEGER,
+      input_tokens INTEGER,
+      cached_input_tokens INTEGER,
+      output_tokens INTEGER,
+      reasoning_tokens INTEGER,
+      total_tokens INTEGER,
+      payload_bytes INTEGER,
+      truncated INTEGER,
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS proxy_protocol_messages_request_idx
@@ -87,6 +139,7 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
     CREATE TABLE IF NOT EXISTS proxy_log_events (
       id TEXT PRIMARY KEY,
       level TEXT NOT NULL,
+      event_type TEXT,
       message TEXT NOT NULL,
       detail_json TEXT,
       request_id TEXT,
@@ -100,6 +153,8 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
       ON proxy_log_events(created_at);
   `)
   ensureColumns(sqlite, 'proxy_accounts', [
+    ['source_format', 'ALTER TABLE proxy_accounts ADD COLUMN source_format TEXT'],
+    ['email', 'ALTER TABLE proxy_accounts ADD COLUMN email TEXT'],
     ['plan_type', 'ALTER TABLE proxy_accounts ADD COLUMN plan_type TEXT'],
     ['primary_used_percent', 'ALTER TABLE proxy_accounts ADD COLUMN primary_used_percent TEXT'],
     ['secondary_used_percent', 'ALTER TABLE proxy_accounts ADD COLUMN secondary_used_percent TEXT'],
@@ -115,15 +170,80 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
     ['request_headers_json', 'ALTER TABLE proxy_requests ADD COLUMN request_headers_json TEXT'],
     ['response_headers_json', 'ALTER TABLE proxy_requests ADD COLUMN response_headers_json TEXT'],
     ['request_body_sample', 'ALTER TABLE proxy_requests ADD COLUMN request_body_sample TEXT'],
-    ['response_body_sample', 'ALTER TABLE proxy_requests ADD COLUMN response_body_sample TEXT']
+    ['response_body_sample', 'ALTER TABLE proxy_requests ADD COLUMN response_body_sample TEXT'],
+    ['request_purpose', 'ALTER TABLE proxy_requests ADD COLUMN request_purpose TEXT'],
+    ['request_content_type', 'ALTER TABLE proxy_requests ADD COLUMN request_content_type TEXT'],
+    ['response_content_type', 'ALTER TABLE proxy_requests ADD COLUMN response_content_type TEXT'],
+    ['request_model', 'ALTER TABLE proxy_requests ADD COLUMN request_model TEXT'],
+    ['response_model', 'ALTER TABLE proxy_requests ADD COLUMN response_model TEXT'],
+    ['response_plan_type', 'ALTER TABLE proxy_requests ADD COLUMN response_plan_type TEXT'],
+    [
+      'response_primary_used_percent',
+      'ALTER TABLE proxy_requests ADD COLUMN response_primary_used_percent TEXT'
+    ],
+    [
+      'response_rate_limit_reset_at',
+      'ALTER TABLE proxy_requests ADD COLUMN response_rate_limit_reset_at INTEGER'
+    ],
+    ['response_active_limit', 'ALTER TABLE proxy_requests ADD COLUMN response_active_limit TEXT'],
+    ['response_item_count', 'ALTER TABLE proxy_requests ADD COLUMN response_item_count INTEGER'],
+    [
+      'request_input_item_count',
+      'ALTER TABLE proxy_requests ADD COLUMN request_input_item_count INTEGER'
+    ],
+    ['request_body_encoding', 'ALTER TABLE proxy_requests ADD COLUMN request_body_encoding TEXT'],
+    ['rpc_method', 'ALTER TABLE proxy_requests ADD COLUMN rpc_method TEXT'],
+    ['rpc_id', 'ALTER TABLE proxy_requests ADD COLUMN rpc_id TEXT'],
+    ['analytics_event_types', 'ALTER TABLE proxy_requests ADD COLUMN analytics_event_types TEXT'],
+    ['input_tokens', 'ALTER TABLE proxy_requests ADD COLUMN input_tokens INTEGER'],
+    ['cached_input_tokens', 'ALTER TABLE proxy_requests ADD COLUMN cached_input_tokens INTEGER'],
+    ['output_tokens', 'ALTER TABLE proxy_requests ADD COLUMN output_tokens INTEGER'],
+    ['reasoning_tokens', 'ALTER TABLE proxy_requests ADD COLUMN reasoning_tokens INTEGER'],
+    ['total_tokens', 'ALTER TABLE proxy_requests ADD COLUMN total_tokens INTEGER'],
+    ['token_usage_source', 'ALTER TABLE proxy_requests ADD COLUMN token_usage_source TEXT'],
+    ['user_agent', 'ALTER TABLE proxy_requests ADD COLUMN user_agent TEXT'],
+    ['originator', 'ALTER TABLE proxy_requests ADD COLUMN originator TEXT'],
+    ['codex_session_id', 'ALTER TABLE proxy_requests ADD COLUMN codex_session_id TEXT'],
+    ['codex_thread_id', 'ALTER TABLE proxy_requests ADD COLUMN codex_thread_id TEXT'],
+    ['codex_turn_id', 'ALTER TABLE proxy_requests ADD COLUMN codex_turn_id TEXT'],
+    [
+      'codex_turn_started_at',
+      'ALTER TABLE proxy_requests ADD COLUMN codex_turn_started_at INTEGER'
+    ],
+    ['codex_version', 'ALTER TABLE proxy_requests ADD COLUMN codex_version TEXT'],
+    ['codex_runtime_os', 'ALTER TABLE proxy_requests ADD COLUMN codex_runtime_os TEXT'],
+    ['codex_runtime_arch', 'ALTER TABLE proxy_requests ADD COLUMN codex_runtime_arch TEXT']
   ])
   ensureColumns(sqlite, 'proxy_log_events', [
+    ['event_type', 'ALTER TABLE proxy_log_events ADD COLUMN event_type TEXT'],
     ['detail_json', 'ALTER TABLE proxy_log_events ADD COLUMN detail_json TEXT'],
     ['request_id', 'ALTER TABLE proxy_log_events ADD COLUMN request_id TEXT'],
     ['account_id', 'ALTER TABLE proxy_log_events ADD COLUMN account_id TEXT'],
     ['conversation_key', 'ALTER TABLE proxy_log_events ADD COLUMN conversation_key TEXT'],
     ['path', 'ALTER TABLE proxy_log_events ADD COLUMN path TEXT'],
     ['method', 'ALTER TABLE proxy_log_events ADD COLUMN method TEXT']
+  ])
+  ensureColumns(sqlite, 'proxy_protocol_messages', [
+    ['protocol_type', 'ALTER TABLE proxy_protocol_messages ADD COLUMN protocol_type TEXT'],
+    ['sequence_number', 'ALTER TABLE proxy_protocol_messages ADD COLUMN sequence_number INTEGER'],
+    ['response_id', 'ALTER TABLE proxy_protocol_messages ADD COLUMN response_id TEXT'],
+    ['model', 'ALTER TABLE proxy_protocol_messages ADD COLUMN model TEXT'],
+    [
+      'previous_response_id',
+      'ALTER TABLE proxy_protocol_messages ADD COLUMN previous_response_id TEXT'
+    ],
+    ['input_item_count', 'ALTER TABLE proxy_protocol_messages ADD COLUMN input_item_count INTEGER'],
+    ['tool_count', 'ALTER TABLE proxy_protocol_messages ADD COLUMN tool_count INTEGER'],
+    ['input_tokens', 'ALTER TABLE proxy_protocol_messages ADD COLUMN input_tokens INTEGER'],
+    [
+      'cached_input_tokens',
+      'ALTER TABLE proxy_protocol_messages ADD COLUMN cached_input_tokens INTEGER'
+    ],
+    ['output_tokens', 'ALTER TABLE proxy_protocol_messages ADD COLUMN output_tokens INTEGER'],
+    ['reasoning_tokens', 'ALTER TABLE proxy_protocol_messages ADD COLUMN reasoning_tokens INTEGER'],
+    ['total_tokens', 'ALTER TABLE proxy_protocol_messages ADD COLUMN total_tokens INTEGER'],
+    ['payload_bytes', 'ALTER TABLE proxy_protocol_messages ADD COLUMN payload_bytes INTEGER'],
+    ['truncated', 'ALTER TABLE proxy_protocol_messages ADD COLUMN truncated INTEGER']
   ])
 }
 
@@ -146,7 +266,13 @@ function ensureColumns(
 }
 
 function assertSafeTableName(table: string): void {
-  const allowedTables = new Set(['proxy_accounts', 'proxy_requests', 'proxy_log_events'])
+  const allowedTables = new Set([
+    'proxy_accounts',
+    'proxy_requests',
+    'proxy_log_events',
+    'proxy_protocol_messages',
+    'proxy_settings'
+  ])
   if (!allowedTables.has(table)) {
     throw new Error(`Unsupported migration table: ${table}`)
   }

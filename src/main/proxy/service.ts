@@ -155,6 +155,8 @@ export class TransparentProxyService {
 
     const accountPoolStatus = this.accountPool.status(this.config.authPool.enabled)
     const origin = `http://${host}:${port}`
+    const cpuUsage = process.cpuUsage()
+    const memoryUsage = process.memoryUsage()
     return {
       running: this.server?.listening ?? false,
       endpoint: `${origin}/backend-api`,
@@ -169,6 +171,13 @@ export class TransparentProxyService {
       authPoolDisabledAccounts: accountPoolStatus.disabledAccounts,
       rawCaptureEnabled: this.config.rawCaptureEnabled,
       rawCaptureDir: this.rawCaptureDir,
+      runtime: {
+        activeWebSocketSessions: this.upgradedSockets.size,
+        cpuSystemMicros: cpuUsage.system,
+        cpuUserMicros: cpuUsage.user,
+        memoryRssBytes: memoryUsage.rss,
+        uptimeSeconds: process.uptime()
+      },
       lastError: this.lastError
     }
   }

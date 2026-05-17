@@ -6,7 +6,8 @@ import {
   proxyProtocolMessages,
   proxyQuotaEvents,
   proxyRequests,
-  proxyRoutingEvents
+  proxyRoutingEvents,
+  proxySettings
 } from './schema'
 
 describe('database schema', () => {
@@ -38,6 +39,8 @@ describe('database schema', () => {
         .all() as { name: string }[]
 
       expect(rows.map((row) => row.name)).toContain('proxy_accounts')
+      expect(rows.map((row) => row.name)).not.toContain('app_settings')
+      expect(rows.map((row) => row.name)).toContain('proxy_settings')
       expect(rows.map((row) => row.name)).toContain('proxy_requests')
       expect(rows.map((row) => row.name)).toContain('proxy_routing_events')
       expect(rows.map((row) => row.name)).toContain('proxy_quota_events')
@@ -51,11 +54,12 @@ describe('database schema', () => {
   it('keeps drizzle table declarations aligned with runtime ledger tables', () => {
     expect([
       proxyAccounts,
+      proxySettings,
       proxyRequests,
       proxyRoutingEvents,
       proxyQuotaEvents,
       proxyProtocolMessages,
       proxyLogEvents
-    ]).toHaveLength(6)
+    ]).toHaveLength(7)
   })
 })

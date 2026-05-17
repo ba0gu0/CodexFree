@@ -44,6 +44,18 @@ export function clearLedgerTables(sqlite: Database.Database): number {
   })()
 }
 
+export function compactLedgerStorage(sqlite: Database.Database): void {
+  try {
+    sqlite.pragma('wal_checkpoint(TRUNCATE)')
+    sqlite.exec('VACUUM')
+    sqlite.pragma('wal_checkpoint(TRUNCATE)')
+  } catch (error) {
+    throw new Error('Failed to compact SQLite ledger storage after clearing records', {
+      cause: error
+    })
+  }
+}
+
 export function pruneLedgerTables(sqlite: Database.Database, olderThan: Date): number {
   const cutoff = olderThan.getTime()
   return sqlite.transaction(() => {

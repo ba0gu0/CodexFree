@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { classifyProxyRequest } from './classification'
+import { analyzeHttpTraffic } from './http-analysis'
 import { safeJson, summarizeBuffer } from './json-utils'
 import { isWhamRemotePath } from './path-utils'
 import { formatQuotaLedgerMessage, type QuotaExhaustionEvent } from './quota'
@@ -29,6 +30,12 @@ export async function handleProxyUpgrade(
     ctx.config.rawCaptureMaxBytes
   )
   rawCapture?.writeRequest(request.method ?? 'GET', request.url ?? '/', request.headers, head)
+  const requestAnalysis = analyzeHttpTraffic({
+    method: request.method,
+    path: request.url,
+    requestBody: head,
+    requestHeaders: request.headers
+  })
   const authHeader = firstHeaderValue(request.headers.authorization)
   const cookieHeader = firstHeaderValue(request.headers.cookie)
   const accountId = firstHeaderValue(request.headers['chatgpt-account-id'])
@@ -215,6 +222,7 @@ export async function handleProxyUpgrade(
   )
   const completedAt = new Date()
   ctx.ledger.insert({
+    ...requestAnalysis,
     id: requestId,
     accountId: routedAccountId,
     conversationKey,
@@ -290,6 +298,14 @@ function finishUpgradeWithTerminalQuota(
     body: summarizeBuffer(input.terminalBody)
   })
   ctx.ledger.insert({
+    ...analyzeHttpTraffic({
+      method: input.request.method,
+      path: input.request.url,
+      requestBody: input.head,
+      requestHeaders: input.request.headers,
+      responseBody: input.terminalBody,
+      responseHeaders: headers
+    }),
     id: input.requestId,
     accountId: input.terminalAccountId ?? input.accountId,
     conversationKey: input.conversationKey,
@@ -356,6 +372,14 @@ function rejectUpgrade(ctx: ProxyHandlerContext, input: RejectUpgradeInput): voi
     body: summarizeBuffer(body)
   })
   const entry: RequestLedgerEntry = {
+    ...analyzeHttpTraffic({
+      method: input.request.method,
+      path: input.request.url,
+      requestBody: input.head,
+      requestHeaders: input.request.headers,
+      responseBody: body,
+      responseHeaders: { 'content-type': 'application/json' }
+    }),
     id: input.requestId,
     accountId: input.accountId,
     conversationKey: input.conversationKey,

@@ -1,9 +1,9 @@
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { exit, stderr, stdout } from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { readManagedProxyConfig } from './config'
+import { readManagedProxyConfig, writeProxyConfig } from './config'
 import { ProxyLedger } from './ledger'
 import { TransparentProxyService } from './service'
 import type { ProxyConfig, ProxyStatus } from './types'
@@ -13,16 +13,17 @@ const defaultCliPort = 33333
 interface ProxyCliOptions {
   host?: string
   port?: number
-  configPath?: string
   dataDir?: string
+  databasePath?: string
   authPoolDir?: string
+  maxRequestBodyBytes?: number
+  rawCaptureMaxBytes?: number
   rawCaptureEnabled?: boolean
 }
 
 interface ProxyCliPaths {
   dataDir: string
   databasePath: string
-  configPath: string
   authPoolDir: string
   rawCaptureDir: string
 }
@@ -51,13 +52,18 @@ export function parseProxyCliArgs(args: string[]): ProxyCliOptions {
       index += 1
       continue
     }
-    if (arg === '--config') {
-      options.configPath = readRequiredValue(args, index, arg)
+    if (arg === '--max-request-body-bytes') {
+      options.maxRequestBodyBytes = parseByteLimit(readRequiredValue(args, index, arg), arg)
       index += 1
       continue
     }
     if (arg === '--data-dir') {
       options.dataDir = readRequiredValue(args, index, arg)
+      index += 1
+      continue
+    }
+    if (arg === '--database') {
+      options.databasePath = readRequiredValue(args, index, arg)
       index += 1
       continue
     }
@@ -74,6 +80,11 @@ export function parseProxyCliArgs(args: string[]): ProxyCliOptions {
       options.rawCaptureEnabled = false
       continue
     }
+    if (arg === '--raw-capture-max-bytes') {
+      options.rawCaptureMaxBytes = parseByteLimit(readRequiredValue(args, index, arg), arg)
+      index += 1
+      continue
+    }
     if (arg.startsWith('--host=')) {
       options.host = arg.slice('--host='.length)
       continue
@@ -82,16 +93,30 @@ export function parseProxyCliArgs(args: string[]): ProxyCliOptions {
       options.port = parsePort(arg.slice('--port='.length))
       continue
     }
-    if (arg.startsWith('--config=')) {
-      options.configPath = arg.slice('--config='.length)
+    if (arg.startsWith('--max-request-body-bytes=')) {
+      options.maxRequestBodyBytes = parseByteLimit(
+        arg.slice('--max-request-body-bytes='.length),
+        '--max-request-body-bytes'
+      )
       continue
     }
     if (arg.startsWith('--data-dir=')) {
       options.dataDir = arg.slice('--data-dir='.length)
       continue
     }
+    if (arg.startsWith('--database=')) {
+      options.databasePath = arg.slice('--database='.length)
+      continue
+    }
     if (arg.startsWith('--auth-pool-dir=')) {
       options.authPoolDir = arg.slice('--auth-pool-dir='.length)
+      continue
+    }
+    if (arg.startsWith('--raw-capture-max-bytes=')) {
+      options.rawCaptureMaxBytes = parseByteLimit(
+        arg.slice('--raw-capture-max-bytes='.length),
+        '--raw-capture-max-bytes'
+      )
       continue
     }
 
@@ -102,23 +127,25 @@ export function parseProxyCliArgs(args: string[]): ProxyCliOptions {
 }
 
 export function resolveProxyCliPaths(options: ProxyCliOptions): ProxyCliPaths {
-  const dataDir = options.dataDir ?? defaultDataDir()
+  const dataDir =
+    options.dataDir ?? (options.databasePath ? dirname(options.databasePath) : defaultDataDir())
   return {
     dataDir,
-    databasePath: join(dataDir, 'codexfree.sqlite'),
-    configPath: options.configPath ?? join(dataDir, 'proxy-config.json'),
+    databasePath: options.databasePath ?? join(dataDir, 'codexfree.sqlite'),
     authPoolDir: options.authPoolDir ?? join(dataDir, 'auth-pool'),
     rawCaptureDir: join(dataDir, 'raw-captures')
   }
 }
 
 export function buildProxyCliConfig(options: ProxyCliOptions, paths: ProxyCliPaths): ProxyConfig {
-  const savedConfig = readManagedProxyConfig(paths.configPath, paths.authPoolDir)
+  const savedConfig = readManagedProxyConfig(paths.databasePath, paths.authPoolDir)
   return {
     ...savedConfig,
     listenHost: options.host ?? savedConfig.listenHost,
     listenPort: options.port ?? savedConfig.listenPort,
-    rawCaptureEnabled: options.rawCaptureEnabled ?? savedConfig.rawCaptureEnabled
+    maxRequestBodyBytes: options.maxRequestBodyBytes ?? savedConfig.maxRequestBodyBytes,
+    rawCaptureEnabled: options.rawCaptureEnabled ?? savedConfig.rawCaptureEnabled,
+    rawCaptureMaxBytes: options.rawCaptureMaxBytes ?? savedConfig.rawCaptureMaxBytes
   }
 }
 
@@ -137,7 +164,7 @@ export async function runProxyCli(args: string[]): Promise<void> {
   const paths = resolveProxyCliPaths(options)
   mkdirSync(paths.authPoolDir, { recursive: true, mode: 0o700 })
 
-  const config = buildProxyCliConfig(options, paths)
+  const config = applyProxyCliConfigOptions(options, paths)
   const ledger = new ProxyLedger(paths.databasePath)
   const service = new TransparentProxyService(config, ledger, logger, paths.rawCaptureDir)
   const status = await service.start()
@@ -185,6 +212,32 @@ function parsePort(value: string): number {
     throw new Error(`Invalid port: ${value}`)
   }
   return port
+}
+
+function parseByteLimit(value: string, option: string): number {
+  const bytes = Number.parseInt(value, 10)
+  if (!Number.isInteger(bytes) || bytes < 0) {
+    throw new Error(`${option} must be a non-negative integer`)
+  }
+  return bytes
+}
+
+function applyProxyCliConfigOptions(options: ProxyCliOptions, paths: ProxyCliPaths): ProxyConfig {
+  const config = buildProxyCliConfig(options, paths)
+  if (!hasExplicitProxyConfigOptions(options)) {
+    return config
+  }
+  return writeProxyConfig(paths.databasePath, config, paths.authPoolDir)
+}
+
+function hasExplicitProxyConfigOptions(options: ProxyCliOptions): boolean {
+  return (
+    options.host !== undefined ||
+    options.port !== undefined ||
+    options.maxRequestBodyBytes !== undefined ||
+    options.rawCaptureEnabled !== undefined ||
+    options.rawCaptureMaxBytes !== undefined
+  )
 }
 
 function printStarted(status: ProxyStatus, paths: ProxyCliPaths): void {
@@ -396,11 +449,13 @@ function formatProxyCliHelp(): string {
     'Options:',
     '  --host <host>              Listen host. Defaults to saved config host.',
     `  --port <port>              Listen port. Defaults to ${defaultCliPort}.`,
-    '  --config <path>            Proxy config path.',
-    '  --data-dir <path>          Data directory for config, ledger, and auth pool.',
+    '  --max-request-body-bytes <n> Request body cap. 0 means unlimited.',
+    '  --data-dir <path>          Data directory for ledger, settings, and auth pool.',
+    '  --database <path>          SQLite database path. Overrides --data-dir database.',
     '  --auth-pool-dir <path>     Managed auth-pool directory.',
     '  --raw-capture              Enable debug packet and WebSocket frame files.',
     '  --no-raw-capture           Disable debug packet files. This is the CLI default.',
+    '  --raw-capture-max-bytes <n> Raw capture cap. 0 means unlimited.',
     '  --help                     Show this help.',
     ''
   ].join('\n')

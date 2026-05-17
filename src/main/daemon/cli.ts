@@ -7,24 +7,24 @@ import { ProxyLedger } from '../proxy/ledger'
 import { TransparentProxyService } from '../proxy/service'
 import type { ProxyConfig, ProxyStatus } from '../proxy/types'
 import { DaemonAdminServer, type DaemonAdminStatus } from './admin'
+import { readDaemonControlConfigWithStatus, updateDaemonControlConfig } from './control-config'
 import { resolveDaemonPaths } from './paths'
-import { readOrCreateAdminToken } from './token'
 
 const defaultProxyPort = 33333
-const defaultAdminHost = '127.0.0.1'
 const defaultAdminPort = 44445
 
 interface DaemonCliOptions {
   adminHost?: string
   adminPort?: number
   adminToken?: string
-  adminTokenPath?: string
   authPoolDir?: string
-  configPath?: string
+  databasePath?: string
   dataDir?: string
   debug?: boolean
   host?: string
+  maxRequestBodyBytes?: number
   port?: number
+  rawCaptureMaxBytes?: number
   rawCaptureEnabled?: boolean
 }
 
@@ -33,29 +33,30 @@ export async function runDaemonCli(args: string[]): Promise<void> {
   const paths = resolveDaemonPaths(options)
   mkdirSync(paths.authPoolDir, { recursive: true, mode: 0o700 })
 
+  const startupConfig = applyDaemonCliProxyOptions(options, paths)
   const readConfig = (): ProxyConfig => buildDaemonCliConfig(options, paths)
   const writeConfig = (config: ProxyConfig): ProxyConfig =>
-    writeProxyConfig(paths.configPath, config, paths.authPoolDir)
-  const token = options.adminToken ?? readOrCreateAdminToken(paths.adminTokenPath)
+    writeProxyConfig(paths.databasePath, config, paths.authPoolDir)
+  const control = applyDaemonCliControlOptions(options, paths.databasePath)
   const ledger = new ProxyLedger(paths.databasePath)
   const service = new TransparentProxyService(
-    readConfig(),
+    startupConfig,
     ledger,
     createProxyLogger(ledger, { debug: options.debug ?? false, prefix: 'daemon' }),
     paths.rawCaptureDir
   )
-  const proxyStatus = await service.start(readConfig())
+  const proxyStatus = await service.start(startupConfig)
   const admin = new DaemonAdminServer({
-    host: options.adminHost ?? defaultAdminHost,
+    host: control.config.adminHost,
     ledger,
-    port: options.adminPort ?? defaultAdminPort,
+    port: control.config.adminPort,
     readConfig,
     service,
-    token,
+    token: control.config.adminToken,
     writeConfig
   })
   const adminStatus = await admin.start()
-  printStarted(proxyStatus, adminStatus, paths.adminTokenPath)
+  printStarted(proxyStatus, adminStatus, paths.databasePath, control.generatedAdminToken)
 
   const stop = async (signal: string) => {
     stdout.write(`\nReceived ${signal}; stopping CodexFree daemon...\n`)
@@ -79,12 +80,14 @@ export function buildDaemonCliConfig(
   options: DaemonCliOptions,
   paths: ReturnType<typeof resolveDaemonPaths>
 ): ProxyConfig {
-  const saved = readManagedProxyConfig(paths.configPath, paths.authPoolDir)
+  const saved = readManagedProxyConfig(paths.databasePath, paths.authPoolDir)
   return {
     ...saved,
     listenHost: options.host ?? saved.listenHost,
     listenPort: options.port ?? saved.listenPort,
-    rawCaptureEnabled: options.rawCaptureEnabled ?? saved.rawCaptureEnabled
+    maxRequestBodyBytes: options.maxRequestBodyBytes ?? saved.maxRequestBodyBytes,
+    rawCaptureEnabled: options.rawCaptureEnabled ?? saved.rawCaptureEnabled,
+    rawCaptureMaxBytes: options.rawCaptureMaxBytes ?? saved.rawCaptureMaxBytes
   }
 }
 
@@ -152,6 +155,14 @@ function applyOption(options: DaemonCliOptions, name: string, value: string): vo
     options.port = parsePort(value)
     return
   }
+  if (name === 'max-request-body-bytes') {
+    options.maxRequestBodyBytes = parseByteLimit(value, name)
+    return
+  }
+  if (name === 'raw-capture-max-bytes') {
+    options.rawCaptureMaxBytes = parseByteLimit(value, name)
+    return
+  }
   if (name === 'admin-host') {
     options.adminHost = value
     return
@@ -164,16 +175,12 @@ function applyOption(options: DaemonCliOptions, name: string, value: string): vo
     options.adminToken = value
     return
   }
-  if (name === 'admin-token-path') {
-    options.adminTokenPath = value
-    return
-  }
-  if (name === 'config') {
-    options.configPath = value
-    return
-  }
   if (name === 'data-dir') {
     options.dataDir = value
+    return
+  }
+  if (name === 'database') {
+    options.databasePath = value
     return
   }
   if (name === 'auth-pool-dir') {
@@ -191,10 +198,19 @@ function parsePort(value: string): number {
   return port
 }
 
+function parseByteLimit(value: string, name: string): number {
+  const bytes = Number.parseInt(value, 10)
+  if (!Number.isInteger(bytes) || bytes < 0) {
+    throw new Error(`Invalid ${name}: ${value}`)
+  }
+  return bytes
+}
+
 function printStarted(
   proxyStatus: ProxyStatus,
   adminStatus: DaemonAdminStatus,
-  tokenPath: string
+  databasePath: string,
+  generatedAdminToken: boolean
 ): void {
   stdout.write(
     [
@@ -202,9 +218,55 @@ function printStarted(
       `Codex config chatgpt_base_url = "${proxyStatus.endpoint}"`,
       `Codex config openai_base_url = "${proxyStatus.openaiBaseUrl}"`,
       `Admin API: ${adminStatus.endpoint}`,
-      `Admin token file: ${tokenPath}`,
+      `Database: ${databasePath}`,
+      ...(generatedAdminToken ? ['Admin token generated and saved in database.'] : []),
       ''
     ].join('\n')
+  )
+}
+
+function applyDaemonCliControlOptions(
+  options: DaemonCliOptions,
+  databasePath: string
+): ReturnType<typeof readDaemonControlConfigWithStatus> {
+  const current = readDaemonControlConfigWithStatus(databasePath)
+  if (
+    options.adminHost === undefined &&
+    options.adminPort === undefined &&
+    options.adminToken === undefined
+  ) {
+    return current
+  }
+
+  const updated = updateDaemonControlConfig(databasePath, {
+    adminHost: options.adminHost ?? current.config.adminHost,
+    adminPort: options.adminPort ?? current.config.adminPort,
+    adminToken: options.adminToken ?? current.config.adminToken
+  })
+  return {
+    config: updated.config,
+    generatedAdminToken: current.generatedAdminToken && options.adminToken === undefined
+  }
+}
+
+function applyDaemonCliProxyOptions(
+  options: DaemonCliOptions,
+  paths: ReturnType<typeof resolveDaemonPaths>
+): ProxyConfig {
+  const config = buildDaemonCliConfig(options, paths)
+  if (!hasExplicitProxyConfigOptions(options)) {
+    return config
+  }
+  return writeProxyConfig(paths.databasePath, config, paths.authPoolDir)
+}
+
+function hasExplicitProxyConfigOptions(options: DaemonCliOptions): boolean {
+  return (
+    options.host !== undefined ||
+    options.port !== undefined ||
+    options.maxRequestBodyBytes !== undefined ||
+    options.rawCaptureEnabled !== undefined ||
+    options.rawCaptureMaxBytes !== undefined
   )
 }
 
@@ -217,16 +279,17 @@ function formatDaemonCliHelp(): string {
     'Options:',
     '  --host <host>                 Proxy listen host.',
     `  --port <port>                 Proxy listen port. Defaults to ${defaultProxyPort}.`,
+    '  --max-request-body-bytes <n>  Request body cap. 0 means unlimited.',
     '  --admin-host <host>           Admin API host. Defaults to 127.0.0.1.',
     `  --admin-port <port>           Admin API port. Defaults to ${defaultAdminPort}.`,
-    '  --admin-token <token>         Admin API bearer token.',
-    '  --admin-token-path <path>     Admin token file path.',
-    '  --config <path>               Proxy config path.',
-    '  --data-dir <path>             Data directory for config, ledger, token, and auth pool.',
+    '  --admin-token <token>         Admin API bearer token. Saves to database.',
+    '  --data-dir <path>             Data directory for ledger, settings, and auth pool.',
+    '  --database <path>             SQLite database path. Overrides --data-dir database.',
     '  --debug                       Print readable log events from the SQLite log ledger.',
     '  --auth-pool-dir <path>        Managed auth-pool directory.',
     '  --raw-capture                 Enable debug packet and WebSocket frame files.',
     '  --no-raw-capture              Disable debug packet files. This is the CLI default.',
+    '  --raw-capture-max-bytes <n>   Raw capture cap. 0 means unlimited.',
     '  --help                        Show this help.',
     ''
   ].join('\n')

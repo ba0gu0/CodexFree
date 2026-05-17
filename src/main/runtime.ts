@@ -2,19 +2,44 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { app } from 'electron'
 import { DaemonAdminClient } from './daemon/client'
+import {
+  type DaemonControlConfig,
+  type DaemonControlUpdateInput,
+  daemonAdminEndpoint,
+  readDaemonControlConfig,
+  readDaemonControlSettings,
+  updateDaemonControlConfig
+} from './daemon/control-config'
+import {
+  type DaemonLaunchAgentSettings,
+  readDaemonLaunchAgentSettings,
+  setDaemonLaunchAgentEnabled
+} from './daemon/launch-agent'
 import { resolveDaemonPaths } from './daemon/paths'
-import { readOrCreateAdminToken } from './daemon/token'
 import { readManagedProxyConfig, writeProxyConfig } from './proxy/config'
 import type { ProxyConfig, ProxyStatus } from './proxy/types'
 
+export interface DaemonControlView {
+  adminHost: string
+  adminPort: number
+  launchAgent: DaemonLaunchAgentSettings
+}
+
+export interface DaemonControlSaveInput extends DaemonControlUpdateInput {
+  launchAgentEnabled?: boolean
+}
+
 export interface MainRuntime {
-  configPath: string
   daemonClient: DaemonAdminClient
   ensureDaemon: () => Promise<void>
   importedAuthPoolPath: string
+  readDaemonControlSettings: () => DaemonControlView
   proxyStatus: () => Promise<ProxyStatus>
   rawCaptureDir: () => Promise<string>
   readRuntimeConfig: () => ProxyConfig
+  saveDaemonControlSettings: (
+    input: DaemonControlSaveInput
+  ) => Promise<{ proxy?: ProxyStatus; restarted: boolean; settings: DaemonControlView }>
   restartProxy: () => Promise<ProxyStatus>
   saveProxyConfig: (config: ProxyConfig) => Promise<{ config: ProxyConfig; status: ProxyStatus }>
   startDaemonProxy: () => Promise<ProxyStatus>
@@ -23,12 +48,9 @@ export interface MainRuntime {
 
 export function createMainRuntime(): MainRuntime {
   const paths = resolveDaemonPaths({ dataDir: app.getPath('userData') })
-  const configPath = paths.configPath
   const importedAuthPoolPath = paths.authPoolDir
-  const daemonClient = new DaemonAdminClient({
-    endpoint: 'http://127.0.0.1:44445/admin',
-    token: readOrCreateAdminToken(paths.adminTokenPath)
-  })
+  let daemonControl = readDaemonControlConfig(paths.databasePath)
+  let daemonClient = createDaemonClient(daemonControl)
   let daemonProcess: ChildProcess | undefined
   let ensureDaemonPromise: Promise<void> | undefined
   app.once('before-quit', () => {
@@ -36,7 +58,11 @@ export function createMainRuntime(): MainRuntime {
   })
 
   const readRuntimeConfig = (): ProxyConfig =>
-    readManagedProxyConfig(configPath, importedAuthPoolPath)
+    readManagedProxyConfig(paths.databasePath, importedAuthPoolPath)
+  const readDaemonControl = (): DaemonControlView => ({
+    ...readDaemonControlSettings(paths.databasePath),
+    launchAgent: readDaemonLaunchAgentSettings(launchAgentOptions())
+  })
   const ensureDaemon = async (): Promise<void> => {
     if (ensureDaemonPromise) {
       return ensureDaemonPromise
@@ -84,15 +110,55 @@ export function createMainRuntime(): MainRuntime {
     return { config: updated.config, status: updated.proxy }
   }
   const rawCaptureDir = async (): Promise<string> => (await proxyStatus()).rawCaptureDir
+  const saveDaemonControlSettings = async (
+    input: DaemonControlSaveInput
+  ): Promise<{ proxy?: ProxyStatus; restarted: boolean; settings: DaemonControlView }> => {
+    const wasReachable = await daemonReachable()
+    const previousDaemonProcess = daemonProcess
+    const update = updateDaemonControlConfig(paths.databasePath, input)
+    daemonControl = update.config
+    daemonClient = createDaemonClient(daemonControl)
+    ensureDaemonPromise = undefined
+
+    const launchAgent =
+      typeof input.launchAgentEnabled === 'boolean'
+        ? setDaemonLaunchAgentEnabled(launchAgentOptions(), input.launchAgentEnabled)
+        : readDaemonLaunchAgentSettings(launchAgentOptions())
+
+    if (update.changed && previousDaemonProcess && isChildProcessRunning(previousDaemonProcess)) {
+      await stopOwnedDaemon(previousDaemonProcess)
+      if (daemonProcess === previousDaemonProcess) {
+        daemonProcess = undefined
+      }
+    }
+
+    const shouldReconnect = update.changed && (wasReachable || Boolean(previousDaemonProcess))
+    if (!shouldReconnect) {
+      return {
+        restarted: false,
+        settings: { ...update.settings, launchAgent }
+      }
+    }
+
+    await ensureDaemon()
+    return {
+      proxy: (await daemonClient.status()).proxy,
+      restarted: true,
+      settings: { ...update.settings, launchAgent }
+    }
+  }
 
   return {
-    configPath,
-    daemonClient,
+    get daemonClient() {
+      return daemonClient
+    },
     ensureDaemon,
     importedAuthPoolPath,
+    readDaemonControlSettings: readDaemonControl,
     proxyStatus,
     rawCaptureDir,
     readRuntimeConfig,
+    saveDaemonControlSettings,
     restartProxy,
     saveProxyConfig,
     startDaemonProxy,
@@ -100,7 +166,7 @@ export function createMainRuntime(): MainRuntime {
   }
 
   function writeManagedConfig(config: ProxyConfig): ProxyConfig {
-    return writeProxyConfig(configPath, config, importedAuthPoolPath)
+    return writeProxyConfig(paths.databasePath, config, importedAuthPoolPath)
   }
 
   async function daemonReachable(): Promise<boolean> {
@@ -120,6 +186,22 @@ export function createMainRuntime(): MainRuntime {
     }
     throw new Error('CodexFree daemon did not start within 10 seconds')
   }
+
+  function launchAgentOptions() {
+    return {
+      commandPath: process.execPath,
+      dataDir: paths.dataDir,
+      scriptPath: daemonScriptPath(),
+      workingDirectory: app.isPackaged ? app.getAppPath() : process.cwd()
+    }
+  }
+}
+
+function createDaemonClient(control: DaemonControlConfig): DaemonAdminClient {
+  return new DaemonAdminClient({
+    endpoint: daemonAdminEndpoint(control),
+    token: control.adminToken
+  })
 }
 
 function spawnDaemon(dataDir: string): ChildProcess {
@@ -143,5 +225,36 @@ function daemonScriptPath(): string {
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
+  })
+}
+
+function isChildProcessRunning(child: ChildProcess): boolean {
+  return !child.killed && child.exitCode === null && child.signalCode === null
+}
+
+async function stopOwnedDaemon(child: ChildProcess): Promise<void> {
+  child.kill()
+  const exited = await waitForProcessExit(child, 5_000)
+  if (!exited && isChildProcessRunning(child)) {
+    child.kill('SIGKILL')
+    await waitForProcessExit(child, 2_000)
+  }
+}
+
+function waitForProcessExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (!isChildProcessRunning(child)) {
+    return Promise.resolve(true)
+  }
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.off('exit', onExit)
+      resolve(false)
+    }, timeoutMs)
+    const onExit = (): void => {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    child.once('exit', onExit)
   })
 }

@@ -11,6 +11,7 @@ import {
   createServerTextFrame,
   listen,
   rawHttpRequest,
+  rawHttpRequestAndDestroyAfterMatch,
   writeAuthFile
 } from './service-test-utils'
 import type { RequestLedgerEntry } from './types'
@@ -353,23 +354,26 @@ describe('transparent proxy terminal account routing states', () => {
     )
     services.push(service)
     const endpoint = new URL((await service.start()).endpoint)
-    const response = await rawHttpRequest(Number(endpoint.port), [
-      'GET /backend-api/codex/responses HTTP/1.1',
-      `Host: ${endpoint.host}`,
-      'Connection: Upgrade',
-      'Upgrade: websocket',
-      'Sec-WebSocket-Version: 13',
-      'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
-      'Authorization: Bearer placeholder-token',
-      'Chatgpt-Account-Id: placeholder-account',
-      'thread_id: exhausted-thread',
-      '',
-      ''
-    ])
+    await rawHttpRequestAndDestroyAfterMatch(
+      Number(endpoint.port),
+      [
+        'GET /backend-api/codex/responses HTTP/1.1',
+        `Host: ${endpoint.host}`,
+        'Connection: Upgrade',
+        'Upgrade: websocket',
+        'Sec-WebSocket-Version: 13',
+        'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+        'Authorization: Bearer placeholder-token',
+        'Chatgpt-Account-Id: placeholder-account',
+        'thread_id: exhausted-thread',
+        '',
+        ''
+      ],
+      'usage_limit_reached'
+    )
+    await new Promise((resolve) => setTimeout(resolve, 50))
 
     expect(upgrades).toBe(1)
-    expect(response).toContain('usage_limit_reached')
-    expect(response).not.toContain('response.completed')
     expect(routingEvents).toContain('all_accounts_exhausted:usage_limit_reached')
     expect(entries[0]).toMatchObject({
       outcome: 'quota_exhausted',

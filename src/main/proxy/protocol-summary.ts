@@ -1,6 +1,7 @@
 import {
   arrayField,
   isRecord,
+  numberField,
   parseJsonRecord,
   recordField,
   stringField,
@@ -9,10 +10,24 @@ import {
 import type { CapturedWebSocketFrame } from './websocket-capture'
 
 export interface WebSocketSummary {
+  cachedInputTokens?: number
+  inputItemCount?: number
+  inputTokens?: number
   itemId?: string
   kind: string
+  model?: string
+  outputTokens?: number
+  payloadBytes?: number
+  previousResponseId?: string
+  protocolType?: string
+  reasoningTokens?: number
+  responseId?: string
+  sequenceNumber?: number
   text: string
   tool?: WebSocketToolUpdate
+  toolCount?: number
+  totalTokens?: number
+  truncated?: boolean
 }
 
 export interface WebSocketToolUpdate {
@@ -49,16 +64,59 @@ export function summarizeWebSocketFrame(
   }
 
   const type = stringField(payload, 'type') ?? 'message'
+  const base = summaryBase(frame, payload, type)
   if (type.endsWith('.delta') || type.endsWith('.in_progress')) {
     return undefined
   }
   if (frame.direction === 'codex-to-upstream' && type === 'response.create') {
     const message = extractUserText(payload)
     const model = stringField(payload, 'model')
+    const input = arrayField(payload, 'input')
+    const previousResponseId = stringField(payload, 'previous_response_id')
+    const toolCount = arrayField(payload, 'tools')?.length
+    const reasoning = recordField(payload, 'reasoning')
+    const effort = stringField(reasoning, 'effort')
     const text = message ? `用户请求: ${message}` : `发起模型请求: ${model ?? 'unknown'}`
     return {
+      ...base,
+      inputItemCount: input?.length,
       kind: 'user',
-      text: truncateForLog(text)
+      model,
+      previousResponseId,
+      text: truncateForLog(text),
+      toolCount,
+      ...(effort ? { protocolType: `${type}:reasoning=${effort}` } : {})
+    }
+  }
+
+  if (type === 'response.completed') {
+    const response = recordField(payload, 'response')
+    const usage = recordField(response, 'usage')
+    const responseId = stringField(response, 'id')
+    const status = stringField(response, 'status')
+    const model = stringField(response, 'model')
+    return {
+      ...base,
+      cachedInputTokens: numberField(recordField(usage, 'input_tokens_details'), 'cached_tokens'),
+      inputTokens: numberField(usage, 'input_tokens'),
+      kind: 'usage',
+      model,
+      outputTokens: numberField(usage, 'output_tokens'),
+      reasoningTokens: numberField(recordField(usage, 'output_tokens_details'), 'reasoning_tokens'),
+      responseId,
+      text: tokenUsageText(status, usage),
+      totalTokens: numberField(usage, 'total_tokens')
+    }
+  }
+
+  if (type === 'codex.rate_limits') {
+    const plan = stringField(payload, 'plan_type') ?? 'unknown'
+    const credits = recordField(payload, 'credits')
+    const balance = stringField(credits, 'balance') ?? numberField(credits, 'balance')
+    return {
+      ...base,
+      kind: 'rate_limit',
+      text: truncateForLog(`额度状态: plan=${plan} credits=${balance ?? 'unknown'}`)
     }
   }
 
@@ -67,6 +125,7 @@ export function summarizeWebSocketFrame(
   const itemId = item ? stringField(item, 'id') : stringField(payload, 'item_id')
   if (type === 'item.completed' && itemType === 'agent_message') {
     return {
+      ...base,
       itemId,
       kind: 'assistant',
       text: truncateForLog(`AI 回复: ${stringField(item, 'text') ?? ''}`)
@@ -74,16 +133,24 @@ export function summarizeWebSocketFrame(
   }
   if (type === 'response.output_text.done') {
     return {
+      ...base,
       itemId: stringField(payload, 'output_index') ?? itemId,
       kind: 'assistant',
       text: truncateForLog(`AI 回复: ${stringField(payload, 'text') ?? ''}`)
     }
   }
   if (type === 'response.output_item.added' && itemType?.includes('call')) {
-    return { itemId, kind: 'tool', text: '', tool: toolUpdateFromItem('started', item, itemType) }
+    return {
+      ...base,
+      itemId,
+      kind: 'tool',
+      text: '',
+      tool: toolUpdateFromItem('started', item, itemType)
+    }
   }
   if (type.endsWith('function_call_arguments.done')) {
     return {
+      ...base,
       itemId,
       kind: 'tool',
       text: '',
@@ -92,6 +159,7 @@ export function summarizeWebSocketFrame(
   }
   if (type.endsWith('custom_tool_call_input.done')) {
     return {
+      ...base,
       itemId,
       kind: 'tool',
       text: '',
@@ -102,14 +170,61 @@ export function summarizeWebSocketFrame(
     (type === 'response.output_item.done' || type === 'response.output_item.completed') &&
     itemType?.includes('call')
   ) {
-    return { itemId, kind: 'tool', text: '', tool: toolUpdateFromItem('completed', item, itemType) }
+    return {
+      ...base,
+      itemId,
+      kind: 'tool',
+      text: '',
+      tool: toolUpdateFromItem('completed', item, itemType)
+    }
   }
   if (type === 'error') {
     const error = recordField(payload, 'error')
-    return { kind: 'error', text: truncateForLog(`错误: ${stringField(error, 'type') ?? type}`) }
+    const errorType = stringField(error, 'type') ?? type
+    const message = stringField(error, 'message') ?? stringField(payload, 'message')
+    return {
+      ...base,
+      kind: 'error',
+      text: truncateForLog(`错误: ${errorType}${message ? ` ${message}` : ''}`)
+    }
   }
 
   return undefined
+}
+
+function summaryBase(
+  frame: CapturedWebSocketFrame,
+  payload: Record<string, unknown>,
+  type: string
+): Partial<WebSocketSummary> {
+  return {
+    payloadBytes: frame.payloadBytes,
+    protocolType: type,
+    sequenceNumber: numberField(payload, 'sequence_number'),
+    truncated: frame.truncated
+  }
+}
+
+function tokenUsageText(
+  status: string | undefined,
+  usage: Record<string, unknown> | undefined
+): string {
+  const inputTokens = numberField(usage, 'input_tokens')
+  const cachedTokens = numberField(recordField(usage, 'input_tokens_details'), 'cached_tokens')
+  const outputTokens = numberField(usage, 'output_tokens')
+  const reasoningTokens = numberField(
+    recordField(usage, 'output_tokens_details'),
+    'reasoning_tokens'
+  )
+  const totalTokens = numberField(usage, 'total_tokens')
+  return [
+    `Token统计: status=${status ?? 'unknown'}`,
+    `input=${inputTokens ?? 'unknown'}`,
+    `cached=${cachedTokens ?? 'unknown'}`,
+    `output=${outputTokens ?? 'unknown'}`,
+    `reasoning=${reasoningTokens ?? 'unknown'}`,
+    `total=${totalTokens ?? 'unknown'}`
+  ].join(' ')
 }
 
 function toolUpdateFromItem(

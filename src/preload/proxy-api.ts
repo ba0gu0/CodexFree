@@ -32,20 +32,68 @@ export interface ProxyStatusDto {
   rawCaptureEnabled: boolean
   rawCaptureDir: string
   lastError?: string
+  runtime?: ProxyRuntimeStatusDto
+}
+
+export interface ProxyRuntimeStatusDto {
+  activeWebSocketSessions: number
+  cpuSystemMicros: number
+  cpuUserMicros: number
+  memoryRssBytes: number
+  uptimeSeconds: number
+}
+
+export interface DaemonLaunchAgentSettingsDto {
+  enabled: boolean
+  label: string
+  plistPath: string | null
+  programPath: string
+  scriptPath: string
+  supported: boolean
+}
+
+export interface DaemonControlSettingsDto {
+  adminHost: string
+  adminPort: number
+  launchAgent: DaemonLaunchAgentSettingsDto
+}
+
+export interface DaemonControlSaveInputDto {
+  adminHost: string
+  adminPort: number
+  adminToken?: string
+  launchAgentEnabled?: boolean
+}
+
+export interface DaemonControlSaveResultDto {
+  proxy?: ProxyStatusDto
+  restarted: boolean
+  settings: DaemonControlSettingsDto
 }
 
 export interface RecentRequestDto {
   id: string
+  accountId: string | null
+  conversationKey: string | null
   method: string
+  mode: string
   path: string
   outcome: string
   statusCode: number | null
   durationMs: number
+  requestBytes: number
+  responseBytes: number
   streaming: number
   upstreamHost: string
   outboundMode: string
   rawCapturePath: string | null
+  errorMessage: string | null
   startedAt: number
+}
+
+export interface ActivityPageDto<T> {
+  hasMore: boolean
+  items: T[]
 }
 
 export interface ProxyLogEventDto {
@@ -53,6 +101,7 @@ export interface ProxyLogEventDto {
   conversationKey: string | null
   createdAt: number
   detailJson: string | null
+  eventType: string | null
   id: string
   level: string
   message: string
@@ -88,7 +137,9 @@ export interface RawCaptureDetailDto {
 export interface ManagedAccountDto {
   accountId: string
   label: string
+  email: string | null
   fingerprint: string
+  sourceFormat: string | null
   status: string
   exhaustedAt: number | null
   quotaResetAt: number | null
@@ -108,8 +159,10 @@ export interface AuthImportResultDto {
   directory: string
   accounts: {
     accountId: string
+    email?: string
     fingerprint: string
     label: string
+    sourceFormat: string
     fileName: string
   }[]
   errors: {
@@ -121,6 +174,7 @@ export interface AuthImportResultDto {
 export interface AccountUsageCheckResultDto {
   accountId: string
   label: string
+  email?: string
   ok: boolean
   statusCode?: number
   planType?: string
@@ -161,4 +215,10 @@ export interface SetAccountDisabledDto {
 export interface ClearProxyRecordsResultDto {
   deletedRequests: number
   deletedCaptureEntries: number
+}
+
+export interface PlaceholderAuthResultDto {
+  path: string
+  backedUp: boolean
+  backupPath: string | null
 }

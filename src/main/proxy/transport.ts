@@ -200,7 +200,13 @@ interface PipeUpgradedSocketsOptions {
   writeUpgradeResponse: boolean
 }
 
-type WebSocketPipePhase = 'probing' | 'open' | 'retrying' | 'closing' | 'closed'
+type WebSocketPipePhase =
+  | 'probing'
+  | 'open'
+  | 'retrying'
+  | 'terminal_quota_forwarded'
+  | 'closing'
+  | 'closed'
 
 function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
   let settled = false
@@ -312,6 +318,9 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
     }
   }
   function onUpstreamError(): void {
+    if (phase === 'terminal_quota_forwarded') {
+      return
+    }
     closeDownstream()
   }
   function onDownstreamError(): void {
@@ -319,14 +328,11 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
   }
   function forwardTerminalQuotaEvent(event: QuotaExhaustionEvent): void {
     options.onQuotaExhausted?.(event)
-    phase = 'closing'
+    phase = 'terminal_quota_forwarded'
     options.onLifecycle?.({ type: 'terminal_quota_forwarded' })
     for (const buffered of upstreamBuffer.splice(0)) {
       safeSocketWrite(options.downstreamSocket, buffered)
     }
-    options.upstreamSocket.destroy()
-    options.downstreamSocket.end()
-    settle()
   }
 
   const upstreamFrames = createWebSocketFrameRecorder(
@@ -389,6 +395,9 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
     }
   }
   function onUpstreamData(chunk: Buffer): void {
+    if (phase === 'terminal_quota_forwarded') {
+      return
+    }
     upstreamBuffer.push(Buffer.from(chunk))
     const directQuotaEvent = parseQuotaEventFromWebSocketChunk(chunk)
     if (directQuotaEvent) {
@@ -411,6 +420,9 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
     flushIfReady()
   }
   function onDownstreamData(chunk: Buffer): void {
+    if (phase === 'terminal_quota_forwarded') {
+      return
+    }
     forwardDownstreamChunk(chunk, true)
   }
   function forwardDownstreamChunk(chunk: Buffer, recordForReplay: boolean): void {
@@ -437,6 +449,13 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
   }
   function onUpstreamClose(): void {
     options.onLifecycle?.({ type: 'upstream_closed' })
+    if (phase === 'terminal_quota_forwarded') {
+      if (options.downstreamSocket.writable && !options.downstreamSocket.destroyed) {
+        options.downstreamSocket.end()
+      }
+      settle()
+      return
+    }
     if (phase === 'retrying' || phase === 'closing' || phase === 'closed') {
       return
     }

@@ -1,6 +1,6 @@
 import { stderr, stdout } from 'node:process'
 import type { ProxyLedger } from './ledger'
-import type { LogEventLevel } from './ledger-types'
+import type { LogEventLevel, LogEventType } from './ledger-types'
 
 export interface ProxyLoggerOptions {
   debug: boolean
@@ -26,6 +26,7 @@ export function createProxyLogger(
     ledger.recordLogEvent(
       {
         level,
+        eventType: classifyLogEvent(level, message, data),
         message,
         detail: data,
         requestId: meta.requestId,
@@ -44,6 +45,49 @@ export function createProxyLogger(
     const target = level === 'error' ? stderr : stdout
     target.write(`[${options.prefix}:${level}] ${formatProxyLog(message, data)}\n`)
   }
+}
+
+function classifyLogEvent(level: LogEventLevel, message: string, data: unknown): LogEventType {
+  const record = asRecord(data)
+  const normalized = `${message} ${recordString(record, 'phase') ?? ''} ${
+    recordString(record, 'errorMessage') ?? ''
+  }`.toLowerCase()
+  if (
+    normalized.includes('quota') ||
+    normalized.includes('usage_limit_reached') ||
+    normalized.includes('exhaust')
+  ) {
+    return 'quota'
+  }
+  if (normalized.includes('switch') || normalized.includes('active account selected')) {
+    return 'account_switch'
+  }
+  if (
+    normalized.includes('auth failed') ||
+    normalized.includes('unauthorized') ||
+    normalized.includes('token') ||
+    numberValue(record, 'statusCode') === 401
+  ) {
+    return 'auth'
+  }
+  if (
+    normalized.includes('timeout') ||
+    normalized.includes('econn') ||
+    normalized.includes('socket') ||
+    normalized.includes('network') ||
+    normalized.includes('fetch failed') ||
+    level === 'error'
+  ) {
+    return 'network'
+  }
+  if (
+    message === 'Transparent proxy started' ||
+    message === 'Daemon admin API started' ||
+    message === 'Admin API mutation'
+  ) {
+    return 'system'
+  }
+  return 'request'
 }
 
 function extractLogMeta(data: unknown): {
@@ -115,7 +159,27 @@ function formatProxyLog(message: string, data: unknown): string {
     const body = recordString(record, 'body')
     return [
       `转发HTTP请求: ${method} ${path}`,
-      `(${describeEndpoint(path)})`,
+      `(${describeEndpoint(path, method)})`,
+      `purpose=${recordString(record, 'requestPurpose') ?? 'unknown'}`,
+      recordString(record, 'requestModel')
+        ? `model=${recordString(record, 'requestModel')}`
+        : undefined,
+      recordString(record, 'requestBodyEncoding')
+        ? `encoding=${recordString(record, 'requestBodyEncoding')}`
+        : undefined,
+      recordString(record, 'requestInputItemCount')
+        ? `inputItems=${recordString(record, 'requestInputItemCount')}`
+        : undefined,
+      recordString(record, 'rpcMethod') ? `rpc=${recordString(record, 'rpcMethod')}` : undefined,
+      recordString(record, 'analyticsEventTypes')
+        ? `events=${recordString(record, 'analyticsEventTypes')}`
+        : undefined,
+      recordString(record, 'codexThreadId')
+        ? `thread=${recordString(record, 'codexThreadId')}`
+        : undefined,
+      recordString(record, 'codexTurnId')
+        ? `turn=${recordString(record, 'codexTurnId')}`
+        : undefined,
       `-> ${recordString(record, 'targetHost') ?? 'unknown'}`,
       accountText(record),
       body ? `body="${body}"` : undefined
@@ -124,13 +188,43 @@ function formatProxyLog(message: string, data: unknown): string {
       .join(' ')
   }
   if (message === 'HTTP result') {
+    const method = recordString(record, 'method') ?? 'GET'
     const path = recordString(record, 'path') ?? '/'
     const body = recordString(record, 'body')
     const error = recordString(record, 'errorMessage')
     const statusCode = numberValue(record, 'statusCode') ?? recordString(record, 'statusCode')
     return [
       `HTTP响应: ${statusCode ?? 'unknown'} ${path}`,
-      `(${describeEndpoint(path)})`,
+      `(${describeEndpoint(path, method)})`,
+      `purpose=${recordString(record, 'requestPurpose') ?? 'unknown'}`,
+      recordString(record, 'requestModel')
+        ? `requestModel=${recordString(record, 'requestModel')}`
+        : undefined,
+      recordString(record, 'responseModel')
+        ? `responseModel=${recordString(record, 'responseModel')}`
+        : undefined,
+      recordString(record, 'responsePlanType')
+        ? `plan=${recordString(record, 'responsePlanType')}`
+        : undefined,
+      recordString(record, 'responsePrimaryUsedPercent')
+        ? `used=${recordString(record, 'responsePrimaryUsedPercent')}`
+        : undefined,
+      recordString(record, 'responseRateLimitResetAt')
+        ? `reset=${recordString(record, 'responseRateLimitResetAt')}`
+        : undefined,
+      recordString(record, 'responseItemCount')
+        ? `items=${recordString(record, 'responseItemCount')}`
+        : undefined,
+      tokenText(record),
+      recordString(record, 'tokenUsageSource')
+        ? `tokenSource=${recordString(record, 'tokenUsageSource')}`
+        : undefined,
+      recordString(record, 'codexThreadId')
+        ? `thread=${recordString(record, 'codexThreadId')}`
+        : undefined,
+      recordString(record, 'codexTurnId')
+        ? `turn=${recordString(record, 'codexTurnId')}`
+        : undefined,
       `${numberValue(record, 'durationMs') ?? 0}ms`,
       `${numberValue(record, 'bytes') ?? 0}B`,
       error ? `error="${error}"` : undefined,
@@ -199,22 +293,51 @@ function formatWebSocketMessage(record: Record<string, unknown> | undefined): st
   const text = recordString(record, 'text') ?? ''
   const account = accountText(record)
   const path = recordString(record, 'path') ?? '/'
+  const fields = [
+    `event=wss_message`,
+    `direction=${direction}`,
+    `kind=${kind}`,
+    `type=${recordString(record, 'protocolType') ?? 'unknown'}`,
+    `seq=${recordString(record, 'sequenceNumber') ?? 'unknown'}`,
+    `path=${path}`,
+    account,
+    tokenText(record),
+    `payloadBytes=${recordString(record, 'payloadBytes') ?? 'unknown'}`,
+    `truncated=${booleanText(record?.truncated)}`,
+    recordString(record, 'model') ? `model=${recordString(record, 'model')}` : undefined,
+    recordString(record, 'responseId')
+      ? `response=${recordString(record, 'responseId')}`
+      : undefined,
+    recordString(record, 'previousResponseId')
+      ? `previous=${recordString(record, 'previousResponseId')}`
+      : undefined,
+    recordString(record, 'inputItemCount')
+      ? `inputItems=${recordString(record, 'inputItemCount')}`
+      : undefined,
+    recordString(record, 'toolCount') ? `tools=${recordString(record, 'toolCount')}` : undefined,
+    text ? `text="${text}"` : undefined
+  ]
+    .filter(Boolean)
+    .join(' ')
+  if (kind === 'usage' || kind === 'rate_limit') {
+    return fields
+  }
   if (direction === 'codex-to-upstream' && kind === 'user') {
-    return `WSS用户请求: ${path} ${account} ${text}`
+    return fields
   }
   if (direction === 'upstream-to-codex' && kind === 'assistant') {
-    return `WSS AI 回复: ${path} ${account} ${text}`
+    return fields
   }
   if (direction === 'upstream-to-codex' && kind === 'tool') {
-    return `WSS工具事件: ${path} ${account} ${text}`
+    return fields
   }
   if (direction === 'upstream-to-codex' && kind === 'error') {
-    return `WSS上游错误: ${path} ${account} ${text}`
+    return fields
   }
   if (direction === 'upstream-to-codex' && kind === 'heartbeat') {
-    return `WSS心跳: ${path} ${account} ${text}`
+    return fields
   }
-  return `WSS消息: ${path} ${account} ${kind} ${text}`
+  return fields
 }
 
 function accountText(record: Record<string, unknown> | undefined): string {
@@ -236,7 +359,21 @@ function usageText(record: Record<string, unknown> | undefined): string {
   return plan ? `plan=${plan} used=${used} reset=${reset}` : `used=${used} reset=${reset}`
 }
 
-function describeEndpoint(path: string): string {
+function tokenText(record: Record<string, unknown> | undefined): string {
+  const input = recordString(record, 'inputTokens')
+  const cached = recordString(record, 'cachedInputTokens')
+  const output = recordString(record, 'outputTokens')
+  const reasoning = recordString(record, 'reasoningTokens')
+  const total = recordString(record, 'totalTokens')
+  if (!input && !cached && !output && !reasoning && !total) {
+    return 'tokens=none'
+  }
+  return `tokens=input:${input ?? '-'},cached:${cached ?? '-'},output:${output ?? '-'},reasoning:${
+    reasoning ?? '-'
+  },total:${total ?? '-'}`
+}
+
+function describeEndpoint(path: string, method?: string): string {
   if (path.includes('/codex/responses/compact') || path.includes('/v1/responses/compact')) {
     return '上下文压缩'
   }
@@ -245,7 +382,9 @@ function describeEndpoint(path: string): string {
   if (path.includes('/plugins/')) return '插件目录'
   if (path.includes('/wham/usage')) return '账户额度查询'
   if (path.includes('/wham/apps')) return '应用列表'
-  if (path.includes('/responses')) return '主聊天WSS'
+  if (path.includes('/responses')) {
+    return method === 'POST' ? '主聊天HTTP响应' : '主聊天接口'
+  }
   if (path.includes('/models')) return '模型列表'
   return '上游接口'
 }

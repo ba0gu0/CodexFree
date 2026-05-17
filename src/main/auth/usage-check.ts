@@ -1,9 +1,10 @@
-import { mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { normalizeAuthFile } from './normalize'
 
 export interface AccountUsageCheckResult {
   accountId: string
+  email?: string
   label: string
   ok: boolean
   statusCode?: number
@@ -18,8 +19,11 @@ export interface AccountUsageCheckResult {
 const usageCheckConcurrency = 5
 
 interface UsageResponse {
+  account?: unknown
+  email?: unknown
   plan_type?: unknown
   primary_used_percent?: unknown
+  user?: unknown
   secondary_used_percent?: unknown
   rate_limit?: unknown
   resets_at?: unknown
@@ -42,7 +46,7 @@ export async function checkAuthDirectoryUsage(
       const normalized = normalizeAuthFile(JSON.parse(readFileSync(filePath, 'utf8')) as unknown, {
         fileName: filePath
       })
-      return checkAccountUsage(normalized)
+      return checkAccountUsage(normalized, filePath)
     } catch (error) {
       return {
         accountId: filePath,
@@ -73,7 +77,10 @@ async function mapWithConcurrency<T, R>(
   return results
 }
 
-async function checkAccountUsage(normalized: ReturnType<typeof normalizeAuthFile>) {
+async function checkAccountUsage(
+  normalized: ReturnType<typeof normalizeAuthFile>,
+  filePath: string
+) {
   try {
     const response = await fetch('https://chatgpt.com/backend-api/wham/usage', {
       headers: {
@@ -87,8 +94,16 @@ async function checkAccountUsage(normalized: ReturnType<typeof normalizeAuthFile
       return toErrorResult(normalized, response.status, `usage check failed: ${response.status}`)
     }
 
+    const email = emailFromUsageResponse(body) ?? normalized.email
+    if (email && email !== normalized.email) {
+      writeFileSync(filePath, `${JSON.stringify(toStoredAuth(normalized, email), null, 2)}\n`, {
+        mode: 0o600
+      })
+    }
+
     return {
       accountId: normalized.accountId,
+      email,
       label: normalized.label,
       ok: true,
       statusCode: response.status,
@@ -118,11 +133,28 @@ function toErrorResult(
 ): AccountUsageCheckResult {
   return {
     accountId: normalized.accountId,
+    email: normalized.email,
     label: normalized.label,
     ok: false,
     statusCode,
     lastRefresh: normalized.lastRefresh,
     error
+  }
+}
+
+function emailFromUsageResponse(body: UsageResponse | undefined): string | undefined {
+  return (
+    stringValue(body?.email) ??
+    stringValue(recordValue(body?.user, 'email')) ??
+    stringValue(recordValue(body?.account, 'email'))
+  )
+}
+
+function toStoredAuth(normalized: ReturnType<typeof normalizeAuthFile>, email: string): unknown {
+  return {
+    ...normalized.codexAuth,
+    disabled: normalized.disabled,
+    email
   }
 }
 

@@ -1,6 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
-import { stderr } from 'node:process'
+import Database from 'better-sqlite3'
 import * as v from 'valibot'
 import type { ProxyConfig } from './types'
 
@@ -34,35 +32,12 @@ export const defaultProxyConfig: ProxyConfig = {
     url: ''
   },
   authPool: {
-    enabled: false,
+    enabled: true,
     directory: ''
   },
-  maxRequestBodyBytes: 10_485_760,
+  maxRequestBodyBytes: 0,
   rawCaptureEnabled: false,
   rawCaptureMaxBytes: 0
-}
-
-export function readProxyConfig(configPath: string): ProxyConfig {
-  try {
-    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as unknown
-    const saved = typeof parsed === 'object' && parsed !== null ? parsed : {}
-    return v.parse(proxyConfigSchema, { ...defaultProxyConfig, ...saved })
-  } catch (error) {
-    if (!isMissingConfigFile(error)) {
-      const message = error instanceof Error ? error.message : String(error)
-      stderr.write(`[codexfree] proxy config read failed, using defaults: ${message}\n`)
-    }
-    return defaultProxyConfig
-  }
-}
-
-function isMissingConfigFile(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === 'ENOENT'
-  )
 }
 
 export function withManagedAuthPoolDirectory(
@@ -72,21 +47,28 @@ export function withManagedAuthPoolDirectory(
   return {
     ...config,
     authPool: {
-      enabled: config.authPool.enabled,
+      enabled: true,
       directory: managedAuthPoolDirectory
     }
   }
 }
 
 export function readManagedProxyConfig(
-  configPath: string,
+  databasePath: string,
   managedAuthPoolDirectory: string
 ): ProxyConfig {
-  return withManagedAuthPoolDirectory(readProxyConfig(configPath), managedAuthPoolDirectory)
+  const sqlite = new Database(databasePath)
+  try {
+    ensureProxySettingsTable(sqlite)
+    const saved = readProxyConfigValue(sqlite)
+    return withManagedAuthPoolDirectory(saved, managedAuthPoolDirectory)
+  } finally {
+    sqlite.close()
+  }
 }
 
 export function writeProxyConfig(
-  configPath: string,
+  databasePath: string,
   config: ProxyConfig,
   managedAuthPoolDirectory = config.authPool.directory
 ): ProxyConfig {
@@ -94,7 +76,52 @@ export function writeProxyConfig(
     proxyConfigSchema,
     withManagedAuthPoolDirectory(config, managedAuthPoolDirectory)
   )
-  mkdirSync(dirname(configPath), { recursive: true })
-  writeFileSync(configPath, `${JSON.stringify(parsed, null, 2)}\n`, { mode: 0o600 })
+  const sqlite = new Database(databasePath)
+  try {
+    ensureProxySettingsTable(sqlite)
+    upsertSetting(sqlite, 'proxy.config', JSON.stringify(parsed))
+  } finally {
+    sqlite.close()
+  }
   return parsed
+}
+
+function readProxyConfigValue(sqlite: Database.Database): ProxyConfig {
+  const row = sqlite
+    .prepare('SELECT value FROM proxy_settings WHERE key = ?')
+    .get('proxy.config') as { value: string } | undefined
+  if (!row) {
+    return defaultProxyConfig
+  }
+  const parsed = JSON.parse(row.value) as unknown
+  const saved = typeof parsed === 'object' && parsed !== null ? parsed : {}
+  return v.parse(proxyConfigSchema, { ...defaultProxyConfig, ...saved })
+}
+
+function ensureProxySettingsTable(sqlite: Database.Database): void {
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS proxy_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `)
+}
+
+function upsertSetting(sqlite: Database.Database, key: string, value: string): void {
+  sqlite
+    .prepare(
+      `
+        INSERT INTO proxy_settings (key, value, updated_at)
+        VALUES (@key, @value, @updatedAt)
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = excluded.updated_at
+      `
+    )
+    .run({
+      key,
+      updatedAt: Date.now(),
+      value
+    })
 }

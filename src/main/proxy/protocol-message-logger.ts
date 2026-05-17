@@ -55,8 +55,22 @@ export class ProtocolMessageLogger {
       path,
       accountId,
       direction: frame.direction,
+      cachedInputTokens: summary.cachedInputTokens,
       kind: summary.kind,
-      text: summary.text
+      inputItemCount: summary.inputItemCount,
+      inputTokens: summary.inputTokens,
+      model: summary.model,
+      outputTokens: summary.outputTokens,
+      payloadBytes: summary.payloadBytes,
+      previousResponseId: summary.previousResponseId,
+      protocolType: summary.protocolType,
+      reasoningTokens: summary.reasoningTokens,
+      responseId: summary.responseId,
+      sequenceNumber: summary.sequenceNumber,
+      text: summary.text,
+      toolCount: summary.toolCount,
+      totalTokens: summary.totalTokens,
+      truncated: summary.truncated
     })
     this.ledger.recordProtocolMessage({
       requestId,
@@ -64,8 +78,22 @@ export class ProtocolMessageLogger {
       accountId,
       conversationKey,
       direction: frame.direction,
+      cachedInputTokens: summary.cachedInputTokens,
+      inputItemCount: summary.inputItemCount,
+      inputTokens: summary.inputTokens,
       kind: summary.kind,
-      text: summary.text
+      model: summary.model,
+      outputTokens: summary.outputTokens,
+      payloadBytes: summary.payloadBytes,
+      previousResponseId: summary.previousResponseId,
+      protocolType: summary.protocolType,
+      reasoningTokens: summary.reasoningTokens,
+      responseId: summary.responseId,
+      sequenceNumber: summary.sequenceNumber,
+      text: summary.text,
+      toolCount: summary.toolCount,
+      totalTokens: summary.totalTokens,
+      truncated: summary.truncated
     })
   }
 

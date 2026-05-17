@@ -11,6 +11,7 @@ import type {
 } from '../proxy/ledger-types'
 import { clearRawCaptures } from '../proxy/raw-capture'
 import type {
+  ActivityPage,
   ProxyAccountSwitchResult,
   ProxyConfig,
   ProxyStatus,
@@ -178,6 +179,8 @@ export class DaemonAdminServer {
       for (const result of body.results ?? []) {
         this.options.ledger.updateAccountUsage({
           accountId: result.accountId,
+          email: result.email,
+          label: result.label,
           lastUsageError: result.error ?? result.lastUsageError,
           planType: result.planType,
           primaryUsedPercent: result.primaryUsedPercent,
@@ -234,18 +237,21 @@ export class DaemonAdminServer {
       return
     }
     if (request.method === 'GET' && url.pathname === '/admin/requests') {
-      const limit = Number.parseInt(url.searchParams.get('limit') ?? '20', 10)
-      writeJson(response, 200, { requests: this.options.ledger.recent(limit) })
+      const limit = normalizeListLimit(url.searchParams.get('limit'), 20)
+      const page = pageFromRows(this.options.ledger.recent(limit + 1), limit)
+      writeJson(response, 200, { hasMore: page.hasMore, requests: page.items })
       return
     }
     if (request.method === 'GET' && url.pathname === '/admin/log-events') {
-      const limit = Number.parseInt(url.searchParams.get('limit') ?? '50', 10)
-      writeJson(response, 200, { events: this.options.ledger.recentLogEvents(limit) })
+      const limit = normalizeListLimit(url.searchParams.get('limit'), 50)
+      const page = pageFromRows(this.options.ledger.recentLogEvents(limit + 1), limit)
+      writeJson(response, 200, { events: page.items, hasMore: page.hasMore })
       return
     }
     if (request.method === 'GET' && url.pathname === '/admin/protocol-messages') {
-      const limit = Number.parseInt(url.searchParams.get('limit') ?? '50', 10)
-      writeJson(response, 200, { messages: this.options.ledger.recentProtocolMessages(limit) })
+      const limit = normalizeListLimit(url.searchParams.get('limit'), 50)
+      const page = pageFromRows(this.options.ledger.recentProtocolMessages(limit + 1), limit)
+      writeJson(response, 200, { hasMore: page.hasMore, messages: page.items })
       return
     }
     if (request.method === 'POST' && url.pathname === '/admin/clear-records') {
@@ -265,6 +271,7 @@ export class DaemonAdminServer {
   private auditMutation(method: string, path: string, detail?: unknown): void {
     this.options.ledger.recordLogEvent({
       detail,
+      eventType: 'system',
       level: 'info',
       message: 'Admin API mutation',
       method,
@@ -304,6 +311,21 @@ function displayHost(address: AddressInfo): string {
 function writeJson(response: ServerResponse, statusCode: number, payload: unknown): void {
   response.writeHead(statusCode, { 'content-type': 'application/json' })
   response.end(JSON.stringify(payload))
+}
+
+function normalizeListLimit(value: string | null, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10)
+  if (!Number.isFinite(parsed)) {
+    return fallback
+  }
+  return Math.max(1, Math.min(1_000, parsed))
+}
+
+function pageFromRows<T>(rows: T[], limit: number): ActivityPage<T> {
+  return {
+    hasMore: rows.length > limit,
+    items: rows.slice(0, limit)
+  }
 }
 
 function readJsonBody(request: IncomingMessage): Promise<unknown> {

@@ -95,7 +95,7 @@ export function readRequestBody(request: IncomingMessage, maxBytes: number): Pro
         return
       }
       bytes += chunk.byteLength
-      if (bytes > maxBytes) {
+      if (maxBytes > 0 && bytes > maxBytes) {
         rejected = true
         reject(new RequestBodyTooLargeError(maxBytes))
         return

@@ -9,12 +9,14 @@ export interface WebSocketFrameRecorder {
 }
 
 export interface CapturedWebSocketFrame {
+  decodeError?: string
   direction: WebSocketFrameDirection
   opcode: string
   opcodeValue: number
+  payloadBytes?: number
   rawFrame?: Buffer
   payloadText?: string
-  decodeError?: string
+  truncated?: boolean
 }
 
 export interface WebSocketFrameRecorderOptions {
@@ -232,12 +234,14 @@ function appendFrame(
   }
   try {
     options.onFrame?.({
+      decodeError: payload.decodeError,
       direction,
       opcode: entry.opcode,
       opcodeValue: entry.opcodeValue,
+      payloadBytes: entry.payloadBytes,
       rawFrame: frame.rawFrame,
       payloadText,
-      decodeError: payload.decodeError
+      truncated: entry.truncated
     })
   } catch {
     // Quota observers must not break WebSocket forwarding.

@@ -113,15 +113,15 @@ export class DaemonAdminClient {
     })
   }
 
-  requests(limit = 20): Promise<{ requests: RecentRequest[] }> {
+  requests(limit = 20): Promise<{ hasMore: boolean; requests: RecentRequest[] }> {
     return this.getJson(`/requests?limit=${limit}`)
   }
 
-  logEvents(limit = 50): Promise<{ events: LogEventRow[] }> {
+  logEvents(limit = 50): Promise<{ events: LogEventRow[]; hasMore: boolean }> {
     return this.getJson(`/log-events?limit=${limit}`)
   }
 
-  protocolMessages(limit = 50): Promise<{ messages: ProtocolMessageRow[] }> {
+  protocolMessages(limit = 50): Promise<{ hasMore: boolean; messages: ProtocolMessageRow[] }> {
     return this.getJson(`/protocol-messages?limit=${limit}`)
   }
 

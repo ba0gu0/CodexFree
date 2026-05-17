@@ -8,8 +8,10 @@ export interface AuthImportResult {
   directory: string
   accounts: {
     accountId: string
+    email?: string
     fingerprint: string
     label: string
+    sourceFormat: NormalizedAuthFile['format']
     fileName: string
   }[]
   errors: {
@@ -42,8 +44,10 @@ export function importAuthFilesToDirectory(
       })
       accounts.push({
         accountId: normalized.accountId,
+        email: normalized.email,
         fingerprint: normalized.fingerprint,
         label: normalized.label,
+        sourceFormat: normalized.format,
         fileName
       })
     } catch (error) {

@@ -14,7 +14,7 @@ const proxyStatus: ProxyStatus = {
   authPoolAccounts: 0,
   authPoolAvailableAccounts: 0,
   authPoolDisabledAccounts: 0,
-  authPoolEnabled: false,
+  authPoolEnabled: true,
   authPoolExhaustedAccounts: 0,
   endpoint: 'http://127.0.0.1:33333/backend-api',
   openaiBaseUrl: 'http://127.0.0.1:33333/backend-api/codex',
@@ -27,13 +27,13 @@ const proxyStatus: ProxyStatus = {
 }
 
 const proxyConfig: ProxyConfig = {
-  authPool: { directory: '/tmp/auth-pool', enabled: false },
+  authPool: { directory: '/tmp/auth-pool', enabled: true },
   listenHost: '127.0.0.1',
   listenPort: 33333,
   outboundProxy: { mode: 'direct', url: '' },
-  maxRequestBodyBytes: 10_485_760,
+  maxRequestBodyBytes: 0,
   rawCaptureEnabled: false,
-  rawCaptureMaxBytes: 1024,
+  rawCaptureMaxBytes: 0,
   upstreamBaseUrl: 'https://chatgpt.com/backend-api/codex'
 }
 
@@ -135,6 +135,7 @@ describe('daemon admin server', () => {
           conversationKey: null,
           createdAt: 1,
           detailJson: '{"path":"/backend-api/codex/models"}',
+          eventType: 'request',
           id: 'log-1',
           level: 'info',
           message: 'HTTP forward',
@@ -172,14 +173,28 @@ describe('daemon admin server', () => {
         [
           {
             accountId: 'account-1',
+            cachedInputTokens: null,
             conversationKey: 'thread-1',
             createdAt: 1,
             direction: 'upstream-to-codex',
             id: 'msg-1',
+            inputItemCount: null,
+            inputTokens: null,
             kind: 'assistant',
+            model: null,
+            outputTokens: null,
             path: '/backend-api/codex/responses',
+            payloadBytes: null,
+            previousResponseId: null,
+            protocolType: null,
+            reasoningTokens: null,
             requestId: 'request-1',
-            text: 'AI 回复: ok'
+            responseId: null,
+            sequenceNumber: null,
+            text: 'AI 回复: ok',
+            toolCount: null,
+            totalTokens: null,
+            truncated: null
           }
         ]
       ),
@@ -254,7 +269,9 @@ describe('daemon admin server', () => {
 
   it('updates account lifecycle state through admin write endpoints', async () => {
     const ledger = fakeLedger()
-    ledger.syncAccountPool([{ accountId: 'account-1', fingerprint: 'fp-1', label: 'user' }])
+    ledger.syncAccountPool([
+      { accountId: 'account-1', fingerprint: 'fp-1', label: 'user', sourceFormat: 'codex' }
+    ])
     ledger.updateAccountUsage({ accountId: 'account-1', primaryUsedPercent: '100' })
     const server = new DaemonAdminServer({
       host: '127.0.0.1',
@@ -388,6 +405,7 @@ function fakeLedger(events: LogEventRow[] = [], messages: ProtocolMessageRow[] =
         conversationKey: event.conversationKey ?? null,
         createdAt: Date.now(),
         detailJson: event.detail === undefined ? null : JSON.stringify(event.detail),
+        eventType: event.eventType ?? null,
         id: `log-${events.length + 1}`,
         level: event.level,
         message: event.message,
@@ -461,6 +479,7 @@ function toAccountRow(account: AccountPoolSnapshot): ManagedAccountRow {
   return {
     accountId: account.accountId,
     active: 0,
+    email: account.email ?? null,
     exhaustedAt: null,
     fingerprint: account.fingerprint,
     label: account.label,
@@ -471,6 +490,7 @@ function toAccountRow(account: AccountPoolSnapshot): ManagedAccountRow {
     quotaResetAt: null,
     rateLimitResetsAt: null,
     secondaryUsedPercent: null,
+    sourceFormat: account.sourceFormat,
     status: 'available',
     updatedAt: 1
   }

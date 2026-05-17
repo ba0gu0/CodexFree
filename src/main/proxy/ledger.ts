@@ -17,6 +17,7 @@ import type {
 } from './ledger-types'
 import {
   clearLedgerTables,
+  compactLedgerStorage,
   pruneLedgerTables,
   randomLedgerId,
   serializeLogDetail
@@ -42,15 +43,29 @@ export class ProxyLedger {
           request_bytes, response_bytes, streaming, upstream_host, outbound_mode,
           auth_header_present, cookie_header_present, auth_fingerprint,
           cookie_fingerprint, request_headers_json, response_headers_json,
-          request_body_sample, response_body_sample, raw_capture_path,
-          error_message, conversation_key,
+          request_body_sample, response_body_sample, request_purpose, request_content_type,
+          response_content_type, request_model, response_model, response_plan_type,
+          response_primary_used_percent, response_rate_limit_reset_at, response_active_limit,
+          response_item_count, request_input_item_count, request_body_encoding, rpc_method,
+          rpc_id, analytics_event_types, input_tokens, cached_input_tokens, output_tokens,
+          reasoning_tokens, total_tokens, token_usage_source, user_agent, originator,
+          codex_session_id, codex_thread_id, codex_turn_id, codex_turn_started_at,
+          codex_version, codex_runtime_os, codex_runtime_arch, raw_capture_path, error_message,
+          conversation_key,
           started_at, completed_at
         ) VALUES (
           @id, @accountId, @method, @path, @mode, @outcome, @statusCode,
           @durationMs, @requestBytes, @responseBytes, @streaming, @upstreamHost,
           @outboundMode, @authHeaderPresent, @cookieHeaderPresent,
           @authFingerprint, @cookieFingerprint, @requestHeadersJson, @responseHeadersJson,
-          @requestBodySample, @responseBodySample, @rawCapturePath, @errorMessage,
+          @requestBodySample, @responseBodySample, @requestPurpose, @requestContentType,
+          @responseContentType, @requestModel, @responseModel, @responsePlanType,
+          @responsePrimaryUsedPercent, @responseRateLimitResetAt, @responseActiveLimit,
+          @responseItemCount, @requestInputItemCount, @requestBodyEncoding, @rpcMethod,
+          @rpcId, @analyticsEventTypes, @inputTokens, @cachedInputTokens, @outputTokens,
+          @reasoningTokens, @totalTokens, @tokenUsageSource, @userAgent, @originator,
+          @codexSessionId, @codexThreadId, @codexTurnId, @codexTurnStartedAt, @codexVersion,
+          @codexRuntimeOs, @codexRuntimeArch, @rawCapturePath, @errorMessage,
           @conversationKey, @startedAt, @completedAt
         )
       `)
@@ -67,6 +82,36 @@ export class ProxyLedger {
         responseHeadersJson: entry.responseHeadersJson ?? null,
         requestBodySample: entry.requestBodySample ?? null,
         responseBodySample: entry.responseBodySample ?? null,
+        requestPurpose: entry.requestPurpose ?? null,
+        requestContentType: entry.requestContentType ?? null,
+        responseContentType: entry.responseContentType ?? null,
+        requestModel: entry.requestModel ?? null,
+        responseModel: entry.responseModel ?? null,
+        responsePlanType: entry.responsePlanType ?? null,
+        responsePrimaryUsedPercent: entry.responsePrimaryUsedPercent ?? null,
+        responseRateLimitResetAt: entry.responseRateLimitResetAt ?? null,
+        responseActiveLimit: entry.responseActiveLimit ?? null,
+        responseItemCount: entry.responseItemCount ?? null,
+        requestInputItemCount: entry.requestInputItemCount ?? null,
+        requestBodyEncoding: entry.requestBodyEncoding ?? null,
+        rpcMethod: entry.rpcMethod ?? null,
+        rpcId: entry.rpcId ?? null,
+        analyticsEventTypes: entry.analyticsEventTypes ?? null,
+        inputTokens: entry.inputTokens ?? null,
+        cachedInputTokens: entry.cachedInputTokens ?? null,
+        outputTokens: entry.outputTokens ?? null,
+        reasoningTokens: entry.reasoningTokens ?? null,
+        totalTokens: entry.totalTokens ?? null,
+        tokenUsageSource: entry.tokenUsageSource ?? null,
+        userAgent: entry.userAgent ?? null,
+        originator: entry.originator ?? null,
+        codexSessionId: entry.codexSessionId ?? null,
+        codexThreadId: entry.codexThreadId ?? null,
+        codexTurnId: entry.codexTurnId ?? null,
+        codexTurnStartedAt: entry.codexTurnStartedAt ?? null,
+        codexVersion: entry.codexVersion ?? null,
+        codexRuntimeOs: entry.codexRuntimeOs ?? null,
+        codexRuntimeArch: entry.codexRuntimeArch ?? null,
         rawCapturePath: entry.rawCapturePath ?? null,
         errorMessage: entry.errorMessage ?? null,
         conversationKey: entry.conversationKey ?? null,
@@ -80,18 +125,44 @@ export class ProxyLedger {
       .prepare(`
         SELECT
           id,
+          account_id AS accountId,
+          conversation_key AS conversationKey,
           method,
+          mode,
           path,
           outcome,
           status_code AS statusCode,
           duration_ms AS durationMs,
+          request_bytes AS requestBytes,
+          response_bytes AS responseBytes,
+          request_purpose AS requestPurpose,
+          request_model AS requestModel,
+          response_model AS responseModel,
+          response_plan_type AS responsePlanType,
+          response_primary_used_percent AS responsePrimaryUsedPercent,
+          response_rate_limit_reset_at AS responseRateLimitResetAt,
+          response_active_limit AS responseActiveLimit,
+          response_item_count AS responseItemCount,
+          request_input_item_count AS requestInputItemCount,
+          rpc_method AS rpcMethod,
+          analytics_event_types AS analyticsEventTypes,
+          input_tokens AS inputTokens,
+          cached_input_tokens AS cachedInputTokens,
+          output_tokens AS outputTokens,
+          reasoning_tokens AS reasoningTokens,
+          total_tokens AS totalTokens,
+          token_usage_source AS tokenUsageSource,
+          codex_thread_id AS codexThreadId,
+          codex_turn_id AS codexTurnId,
+          codex_version AS codexVersion,
           streaming,
           upstream_host AS upstreamHost,
           outbound_mode AS outboundMode,
           raw_capture_path AS rawCapturePath,
+          error_message AS errorMessage,
           started_at AS startedAt
         FROM proxy_requests
-        ORDER BY started_at DESC
+        ORDER BY started_at DESC, completed_at DESC, id DESC
         LIMIT ?
       `)
       .all(limit) as RecentRequest[]
@@ -119,17 +190,25 @@ export class ProxyLedger {
     const transaction = this.sqlite.transaction((items: AccountPoolSnapshot[]) => {
       const statement = this.sqlite.prepare(`
         INSERT INTO proxy_accounts (
-          account_id, label, fingerprint, status, exhausted_at, quota_reset_at, updated_at
+          account_id, label, email, fingerprint, source_format, status, exhausted_at,
+          quota_reset_at, updated_at
         ) VALUES (
-          @accountId, @label, @fingerprint, 'available', NULL, NULL, @updatedAt
+          @accountId, @label, @email, @fingerprint, @sourceFormat, 'available', NULL, NULL,
+          @updatedAt
         )
         ON CONFLICT(account_id) DO UPDATE SET
-          label = excluded.label,
+          label = CASE
+            WHEN excluded.email IS NOT NULL THEN excluded.label
+            WHEN proxy_accounts.email IS NULL THEN excluded.label
+            ELSE proxy_accounts.label
+          END,
+          email = COALESCE(excluded.email, proxy_accounts.email),
           fingerprint = excluded.fingerprint,
+          source_format = excluded.source_format,
           updated_at = excluded.updated_at
       `)
       for (const account of items) {
-        statement.run({ ...account, updatedAt: now })
+        statement.run({ ...account, email: account.email ?? null, updatedAt: now })
       }
       const accountIds = new Set(items.map((account) => account.accountId))
       const existingRows = this.sqlite
@@ -167,7 +246,9 @@ export class ProxyLedger {
         SELECT
           account_id AS accountId,
           label,
+          email,
           fingerprint,
+          source_format AS sourceFormat,
           status,
           exhausted_at AS exhaustedAt,
           quota_reset_at AS quotaResetAt,
@@ -317,10 +398,15 @@ export class ProxyLedger {
     this.sqlite
       .prepare(`
         INSERT INTO proxy_protocol_messages (
-          id, request_id, path, account_id, conversation_key, direction, kind, text, created_at
+          id, request_id, path, account_id, conversation_key, direction, kind, text,
+          protocol_type, sequence_number, response_id, model, previous_response_id,
+          input_item_count, tool_count, input_tokens, cached_input_tokens, output_tokens,
+          reasoning_tokens, total_tokens, payload_bytes, truncated, created_at
         ) VALUES (
           @id, @requestId, @path, @accountId, @conversationKey, @direction, @kind, @text,
-          @createdAt
+          @protocolType, @sequenceNumber, @responseId, @model, @previousResponseId,
+          @inputItemCount, @toolCount, @inputTokens, @cachedInputTokens, @outputTokens,
+          @reasoningTokens, @totalTokens, @payloadBytes, @truncated, @createdAt
         )
       `)
       .run({
@@ -332,6 +418,20 @@ export class ProxyLedger {
         direction: input.direction,
         kind: input.kind,
         text: input.text,
+        protocolType: input.protocolType ?? null,
+        sequenceNumber: input.sequenceNumber ?? null,
+        responseId: input.responseId ?? null,
+        model: input.model ?? null,
+        previousResponseId: input.previousResponseId ?? null,
+        inputItemCount: input.inputItemCount ?? null,
+        toolCount: input.toolCount ?? null,
+        inputTokens: input.inputTokens ?? null,
+        cachedInputTokens: input.cachedInputTokens ?? null,
+        outputTokens: input.outputTokens ?? null,
+        reasoningTokens: input.reasoningTokens ?? null,
+        totalTokens: input.totalTokens ?? null,
+        payloadBytes: input.payloadBytes ?? null,
+        truncated: input.truncated === undefined ? null : input.truncated ? 1 : 0,
         createdAt: createdAt.getTime()
       })
   }
@@ -348,9 +448,23 @@ export class ProxyLedger {
           direction,
           kind,
           text,
+          protocol_type AS protocolType,
+          sequence_number AS sequenceNumber,
+          response_id AS responseId,
+          model,
+          previous_response_id AS previousResponseId,
+          input_item_count AS inputItemCount,
+          tool_count AS toolCount,
+          input_tokens AS inputTokens,
+          cached_input_tokens AS cachedInputTokens,
+          output_tokens AS outputTokens,
+          reasoning_tokens AS reasoningTokens,
+          total_tokens AS totalTokens,
+          payload_bytes AS payloadBytes,
+          truncated,
           created_at AS createdAt
         FROM proxy_protocol_messages
-        ORDER BY created_at DESC
+        ORDER BY created_at DESC, id DESC
         LIMIT ?
       `)
       .all(limit) as ProtocolMessageRow[]
@@ -360,16 +474,17 @@ export class ProxyLedger {
     this.sqlite
       .prepare(`
         INSERT INTO proxy_log_events (
-          id, level, message, detail_json, request_id, account_id, conversation_key, path,
-          method, created_at
+          id, level, event_type, message, detail_json, request_id, account_id,
+          conversation_key, path, method, created_at
         ) VALUES (
-          @id, @level, @message, @detailJson, @requestId, @accountId, @conversationKey,
-          @path, @method, @createdAt
+          @id, @level, @eventType, @message, @detailJson, @requestId, @accountId,
+          @conversationKey, @path, @method, @createdAt
         )
       `)
       .run({
         id: randomLedgerId('log'),
         level: input.level,
+        eventType: input.eventType ?? null,
         message: input.message,
         detailJson: serializeLogDetail(input.detail),
         requestId: input.requestId ?? null,
@@ -387,6 +502,7 @@ export class ProxyLedger {
         SELECT
           id,
           level,
+          event_type AS eventType,
           message,
           detail_json AS detailJson,
           request_id AS requestId,
@@ -396,7 +512,7 @@ export class ProxyLedger {
           method,
           created_at AS createdAt
         FROM proxy_log_events
-        ORDER BY created_at DESC
+        ORDER BY created_at DESC, id DESC
         LIMIT ?
       `)
       .all(limit) as LogEventRow[]
@@ -425,7 +541,9 @@ export class ProxyLedger {
   }
 
   clear(): number {
-    return clearLedgerTables(this.sqlite)
+    const deletedRequests = clearLedgerTables(this.sqlite)
+    compactLedgerStorage(this.sqlite)
+    return deletedRequests
   }
 
   pruneOldRecords(retentionMs = ProxyLedger.defaultRetentionMs, now = new Date()): number {

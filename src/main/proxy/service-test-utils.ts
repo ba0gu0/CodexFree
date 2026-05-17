@@ -22,9 +22,9 @@ export function createConfig(upstream: http.Server): ProxyConfig {
       enabled: false,
       directory: ''
     },
-    maxRequestBodyBytes: 10_485_760,
+    maxRequestBodyBytes: 0,
     rawCaptureEnabled: true,
-    rawCaptureMaxBytes: 1024
+    rawCaptureMaxBytes: 0
   }
 }
 

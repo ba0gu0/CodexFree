@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { classifyProxyRequest } from './classification'
+import { analyzeHttpTraffic } from './http-analysis'
 import {
   shouldRewriteClientJsonResponse,
   transformHttpResponseForClient
@@ -44,6 +45,14 @@ export async function handleProxyHttpRequest(
       maxBytes: error.maxBytes
     })
     ctx.ledger.insert({
+      ...analyzeHttpTraffic({
+        method: request.method,
+        path: request.url,
+        requestBody: Buffer.alloc(0),
+        requestHeaders: request.headers,
+        responseBody: body,
+        responseHeaders: { 'content-type': 'application/json' }
+      }),
       id: requestId,
       method: request.method ?? 'GET',
       path: request.url ?? '/',
@@ -82,6 +91,12 @@ export async function handleProxyHttpRequest(
     request.headers,
     requestBody
   )
+  const requestAnalysis = analyzeHttpTraffic({
+    method: request.method,
+    path: request.url,
+    requestBody,
+    requestHeaders: request.headers
+  })
 
   const authHeader = firstHeaderValue(request.headers.authorization)
   const cookieHeader = firstHeaderValue(request.headers.cookie)
@@ -114,6 +129,14 @@ export async function handleProxyHttpRequest(
       body: summarizeBuffer(body)
     })
     ctx.ledger.insert({
+      ...analyzeHttpTraffic({
+        method: request.method,
+        path: request.url,
+        requestBody,
+        requestHeaders: request.headers,
+        responseBody: body,
+        responseHeaders: { 'content-type': 'application/json' }
+      }),
       id: requestId,
       accountId,
       conversationKey,
@@ -174,6 +197,14 @@ export async function handleProxyHttpRequest(
       body: summarizeBuffer(body)
     })
     ctx.ledger.insert({
+      ...analyzeHttpTraffic({
+        method: request.method,
+        path: request.url,
+        requestBody,
+        requestHeaders: request.headers,
+        responseBody: body,
+        responseHeaders: { 'content-type': 'application/json' }
+      }),
       id: requestId,
       accountId: terminalQuota?.accountId ?? accountId,
       conversationKey,
@@ -211,6 +242,14 @@ export async function handleProxyHttpRequest(
     id: requestId,
     method: request.method,
     path: request.url,
+    requestPurpose: requestAnalysis.requestPurpose,
+    requestModel: requestAnalysis.requestModel,
+    requestBodyEncoding: requestAnalysis.requestBodyEncoding,
+    requestInputItemCount: requestAnalysis.requestInputItemCount,
+    rpcMethod: requestAnalysis.rpcMethod,
+    analyticsEventTypes: requestAnalysis.analyticsEventTypes,
+    codexThreadId: requestAnalysis.codexThreadId,
+    codexTurnId: requestAnalysis.codexTurnId,
     targetHost: targetUrl.host,
     outboundMode,
     accountId: routedAccountId,
@@ -345,12 +384,35 @@ export async function handleProxyHttpRequest(
   const clientResult = useAccountRules
     ? transformHttpResponseForClient(request.url, accountId, upstreamResult)
     : upstreamResult
+  const trafficAnalysis = analyzeHttpTraffic({
+    method: request.method,
+    path: request.url,
+    requestBody,
+    requestHeaders: request.headers,
+    responseBody: clientResult.deferredBody ?? clientResult.responseSample,
+    responseHeaders: clientResult.responseHeaders
+  })
   ctx.writeDeferredHttpResponse(response, clientResult)
   const completedAt = new Date()
   ctx.log.info('HTTP result', {
     id: requestId,
     method: request.method,
     path: request.url,
+    requestPurpose: trafficAnalysis.requestPurpose,
+    requestModel: trafficAnalysis.requestModel,
+    responseModel: trafficAnalysis.responseModel,
+    responsePlanType: trafficAnalysis.responsePlanType,
+    responsePrimaryUsedPercent: trafficAnalysis.responsePrimaryUsedPercent,
+    responseRateLimitResetAt: trafficAnalysis.responseRateLimitResetAt,
+    responseItemCount: trafficAnalysis.responseItemCount,
+    inputTokens: trafficAnalysis.inputTokens,
+    cachedInputTokens: trafficAnalysis.cachedInputTokens,
+    outputTokens: trafficAnalysis.outputTokens,
+    reasoningTokens: trafficAnalysis.reasoningTokens,
+    totalTokens: trafficAnalysis.totalTokens,
+    tokenUsageSource: trafficAnalysis.tokenUsageSource,
+    codexThreadId: trafficAnalysis.codexThreadId,
+    codexTurnId: trafficAnalysis.codexTurnId,
     statusCode: clientResult.statusCode,
     durationMs: completedAt.getTime() - startedAt.getTime(),
     bytes: clientResult.responseBytes,
@@ -361,6 +423,7 @@ export async function handleProxyHttpRequest(
     usage: ctx.accountUsageText(routedAccountId)
   })
   ctx.ledger.insert({
+    ...trafficAnalysis,
     id: requestId,
     accountId: routedAccountId,
     conversationKey,

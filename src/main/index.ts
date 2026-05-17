@@ -17,8 +17,8 @@ app.whenReady().then(() => {
 
   registerMainProcessHandlers(runtime)
   logger.info('CodexFree main process ready')
-  runtime.startDaemonProxy().catch((error: unknown) => {
-    logger.error('CodexFree daemon proxy failed during startup', {
+  runtime.ensureDaemon().catch((error: unknown) => {
+    logger.error('CodexFree daemon failed during startup', {
       error: error instanceof Error ? error.message : String(error)
     })
   })

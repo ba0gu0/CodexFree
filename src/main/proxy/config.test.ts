@@ -1,18 +1,19 @@
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
 import { defaultProxyConfig, readManagedProxyConfig, writeProxyConfig } from './config'
 
 describe('proxy config', () => {
   it('forces the app-managed auth pool directory when reading and writing', () => {
     const root = mkdtempSync(join(tmpdir(), 'codexfree-config-'))
-    const configPath = join(root, 'proxy-config.json')
+    const databasePath = join(root, 'codexfree.sqlite')
     const managedDirectory = join(root, 'auth-pool')
     const legacyDirectory = join(root, 'legacy-auth-pool')
 
     const saved = writeProxyConfig(
-      configPath,
+      databasePath,
       {
         ...defaultProxyConfig,
         authPool: {
@@ -24,9 +25,17 @@ describe('proxy config', () => {
     )
 
     expect(saved.authPool).toEqual({ enabled: true, directory: managedDirectory })
-    expect(JSON.parse(readFileSync(configPath, 'utf8')).authPool.directory).toBe(managedDirectory)
+    const sqlite = new Database(databasePath, { readonly: true })
+    try {
+      const row = sqlite
+        .prepare('SELECT value FROM proxy_settings WHERE key = ?')
+        .get('proxy.config') as { value: string }
+      expect(JSON.parse(row.value).authPool.directory).toBe(managedDirectory)
+    } finally {
+      sqlite.close()
+    }
 
-    const loaded = readManagedProxyConfig(configPath, managedDirectory)
+    const loaded = readManagedProxyConfig(databasePath, managedDirectory)
     expect(loaded.authPool).toEqual({ enabled: true, directory: managedDirectory })
   })
 })

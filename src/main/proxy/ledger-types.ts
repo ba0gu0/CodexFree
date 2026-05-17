@@ -11,6 +11,7 @@ export type RoutingEventType =
   | 'quota_exhausted'
   | 'all_accounts_exhausted'
 export type LogEventLevel = 'info' | 'warn' | 'error'
+export type LogEventType = 'request' | 'account_switch' | 'network' | 'quota' | 'auth' | 'system'
 
 export interface RoutingEventInput {
   requestId: string
@@ -22,6 +23,8 @@ export interface RoutingEventInput {
 
 export interface AccountUsageInput {
   accountId: string
+  email?: string
+  label?: string
   planType?: string
   primaryUsedPercent?: string
   secondaryUsedPercent?: string
@@ -32,7 +35,9 @@ export interface AccountUsageInput {
 export interface ManagedAccountRow {
   accountId: string
   label: string
+  email: string | null
   fingerprint: string
+  sourceFormat: AccountPoolSnapshot['sourceFormat'] | null
   status: AccountStatus
   exhaustedAt: number | null
   quotaResetAt: number | null
@@ -53,29 +58,58 @@ export interface AccountUsageSummary {
 }
 
 export interface ProtocolMessageInput {
+  cachedInputTokens?: number
   requestId: string
   path: string
   accountId?: string
   conversationKey?: string
   direction: string
+  inputItemCount?: number
+  inputTokens?: number
   kind: string
+  model?: string
+  outputTokens?: number
+  payloadBytes?: number
+  previousResponseId?: string
+  protocolType?: string
+  reasoningTokens?: number
+  responseId?: string
+  sequenceNumber?: number
   text: string
+  toolCount?: number
+  totalTokens?: number
+  truncated?: boolean
 }
 
 export interface ProtocolMessageRow {
   accountId: string | null
+  cachedInputTokens: number | null
   conversationKey: string | null
   createdAt: number
   direction: string
   id: string
+  inputItemCount: number | null
+  inputTokens: number | null
   kind: string
+  model: string | null
+  outputTokens: number | null
   path: string
+  payloadBytes: number | null
+  previousResponseId: string | null
+  protocolType: string | null
+  reasoningTokens: number | null
   requestId: string
+  responseId: string | null
+  sequenceNumber: number | null
   text: string
+  toolCount: number | null
+  totalTokens: number | null
+  truncated: number | null
 }
 
 export interface LogEventInput {
   level: LogEventLevel
+  eventType?: LogEventType
   message: string
   detail?: unknown
   requestId?: string
@@ -90,6 +124,7 @@ export interface LogEventRow {
   conversationKey: string | null
   createdAt: number
   detailJson: string | null
+  eventType: LogEventType | null
   id: string
   level: LogEventLevel
   message: string

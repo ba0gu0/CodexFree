@@ -62,7 +62,7 @@ export function normalizeAuthFile(
   const codexAuth = isNativeCodexAuth(record)
     ? normalizeNativeCodexAuth(record)
     : normalizeFlatAuthRecord(flatRecord)
-  const email = stringOrUndefined(flatRecord.email)
+  const email = stringOrUndefined(flatRecord.email) ?? emailFromJwtPayload(codexAuth)
   const disabled = Boolean(flatRecord.disabled)
   const expiresAt = stringOrUndefined(flatRecord.expired)
   const label = email ?? `${format}:${codexAuth.tokens.account_id}`
@@ -153,6 +153,36 @@ function requiredString(value: unknown, field: string): string {
 
 function stringOrUndefined(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value : undefined
+}
+
+function emailFromJwtPayload(auth: CodexChatGptAuth): string | undefined {
+  return jwtEmail(auth.tokens.id_token) ?? jwtEmail(auth.tokens.access_token)
+}
+
+function jwtEmail(token: string): string | undefined {
+  const [, payload] = token.split('.')
+  if (!payload) {
+    return undefined
+  }
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as unknown
+    const record = typeof parsed === 'object' && parsed !== null ? parsed : undefined
+    if (!record || Array.isArray(record)) {
+      return undefined
+    }
+    const direct = stringOrUndefined((record as Record<string, unknown>).email)
+    const profile = (record as Record<string, unknown>)['https://api.openai.com/profile']
+    return direct ?? stringOrUndefined(recordValue(profile, 'email'))
+  } catch {
+    return undefined
+  }
+}
+
+function recordValue(value: unknown, key: string): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined
+  }
+  return (value as Record<string, unknown>)[key]
 }
 
 function authFingerprint(auth: CodexChatGptAuth): string {

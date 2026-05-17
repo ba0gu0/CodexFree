@@ -1,8 +1,15 @@
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
+export const proxySettings = sqliteTable('proxy_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+})
+
 export const proxyAccounts = sqliteTable('proxy_accounts', {
   accountId: text('account_id').primaryKey(),
   label: text('label').notNull(),
+  email: text('email'),
   fingerprint: text('fingerprint').notNull(),
   status: text('status', { enum: ['available', 'exhausted', 'disabled'] }).notNull(),
   exhaustedAt: integer('exhausted_at', { mode: 'timestamp_ms' }),
@@ -87,6 +94,7 @@ export const proxyProtocolMessages = sqliteTable('proxy_protocol_messages', {
 export const proxyLogEvents = sqliteTable('proxy_log_events', {
   id: text('id').primaryKey(),
   level: text('level').notNull(),
+  eventType: text('event_type'),
   message: text('message').notNull(),
   detailJson: text('detail_json'),
   requestId: text('request_id'),

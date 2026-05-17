@@ -14,7 +14,7 @@ const proxyStatus: ProxyStatus = {
   authPoolAccounts: 0,
   authPoolAvailableAccounts: 0,
   authPoolDisabledAccounts: 0,
-  authPoolEnabled: false,
+  authPoolEnabled: true,
   authPoolExhaustedAccounts: 0,
   endpoint: 'http://127.0.0.1:33333/backend-api',
   openaiBaseUrl: 'http://127.0.0.1:33333/backend-api/codex',
@@ -27,13 +27,13 @@ const proxyStatus: ProxyStatus = {
 }
 
 const proxyConfig: ProxyConfig = {
-  authPool: { directory: '/tmp/auth-pool', enabled: false },
+  authPool: { directory: '/tmp/auth-pool', enabled: true },
   listenHost: '127.0.0.1',
   listenPort: 33333,
   outboundProxy: { mode: 'direct', url: '' },
-  maxRequestBodyBytes: 10_485_760,
+  maxRequestBodyBytes: 0,
   rawCaptureEnabled: false,
-  rawCaptureMaxBytes: 1024,
+  rawCaptureMaxBytes: 0,
   upstreamBaseUrl: 'https://chatgpt.com/backend-api/codex'
 }
 
@@ -84,7 +84,9 @@ describe('daemon admin client', () => {
 
     try {
       await expect(
-        client.syncAccounts([{ accountId: 'account-1', fingerprint: 'fp-1', label: 'user' }])
+        client.syncAccounts([
+          { accountId: 'account-1', fingerprint: 'fp-1', label: 'user', sourceFormat: 'codex' }
+        ])
       ).resolves.toMatchObject({ accounts: [{ accountId: 'account-1' }] })
       await expect(
         client.updateAccountUsage([
@@ -200,6 +202,7 @@ function toAccountRow(account: AccountPoolSnapshot): ManagedAccountRow {
   return {
     accountId: account.accountId,
     active: 0,
+    email: account.email ?? null,
     exhaustedAt: null,
     fingerprint: account.fingerprint,
     label: account.label,
@@ -210,6 +213,7 @@ function toAccountRow(account: AccountPoolSnapshot): ManagedAccountRow {
     quotaResetAt: null,
     rateLimitResetsAt: null,
     secondaryUsedPercent: null,
+    sourceFormat: account.sourceFormat,
     status: 'available',
     updatedAt: 1
   }

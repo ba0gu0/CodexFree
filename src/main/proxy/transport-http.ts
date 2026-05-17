@@ -37,17 +37,26 @@ export function forwardHttpRequest(
     const upstreamRequest = client.request(options, (upstreamResponse) => {
       const headers = upstreamResponse.headers
       const contentType = firstHeaderValue(headers['content-type'])
-      const streaming = contentType?.includes('text/event-stream') ?? false
+      let streaming = contentType?.includes('text/event-stream') ?? false
       let responseBytes = 0
       const responseChunks: Buffer[] = []
       let responseSample: Buffer<ArrayBufferLike> = Buffer.alloc(0)
+      let responseHeadersWritten = false
 
       if (!deferResponse || streaming) {
         response.writeHead(upstreamResponse.statusCode ?? 502, headers)
+        responseHeadersWritten = true
       }
       upstreamResponse.on('data', (chunk: Buffer) => {
         responseBytes += chunk.byteLength
         responseSample = appendSample(responseSample, chunk, maxPayloadBytes)
+        if (deferResponse && !streaming && looksLikeServerSentEvent(chunk)) {
+          streaming = true
+          if (!responseHeadersWritten) {
+            response.writeHead(upstreamResponse.statusCode ?? 502, headers)
+            responseHeadersWritten = true
+          }
+        }
         if (deferResponse && !streaming) {
           responseChunks.push(Buffer.from(chunk))
           return
@@ -99,4 +108,9 @@ export function forwardHttpRequest(
     })
     upstreamRequest.end(requestBody)
   })
+}
+
+function looksLikeServerSentEvent(chunk: Buffer): boolean {
+  const text = chunk.subarray(0, Math.min(chunk.byteLength, 64)).toString('utf8').trimStart()
+  return text.startsWith('event:') || text.startsWith('data:')
 }

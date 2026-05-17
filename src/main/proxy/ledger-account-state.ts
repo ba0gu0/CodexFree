@@ -91,7 +91,12 @@ export function updateAccountUsageInLedger(
   sqlite
     .prepare(`
       UPDATE proxy_accounts
-      SET plan_type = @planType,
+      SET label = CASE
+            WHEN @email IS NOT NULL THEN @label
+            ELSE label
+          END,
+          email = COALESCE(@email, email),
+          plan_type = @planType,
           primary_used_percent = @primaryUsedPercent,
           secondary_used_percent = @secondaryUsedPercent,
           rate_limit_resets_at = @rateLimitResetsAt,
@@ -117,6 +122,8 @@ export function updateAccountUsageInLedger(
     `)
     .run({
       accountId: input.accountId,
+      email: input.email ?? null,
+      label: input.email ?? input.label ?? null,
       planType: input.planType ?? null,
       primaryUsedPercent,
       secondaryUsedPercent: input.secondaryUsedPercent ?? null,

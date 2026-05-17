@@ -1,28 +1,70 @@
 import { copyFileSync, existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, dialog, ipcMain } from 'electron'
+import { app, dialog, ipcMain, shell } from 'electron'
 import { importAuthFilesToDirectory } from './auth/import'
+import { writePlaceholderAuthFile } from './auth/placeholder'
 import { checkAuthDirectoryUsage } from './auth/usage-check'
 import { readRawCaptureDetail } from './proxy/raw-capture'
 import type { ProxyConfig } from './proxy/types'
-import type { MainRuntime } from './runtime'
+import type { DaemonControlSaveInput, MainRuntime } from './runtime'
+
+const CONSOLE_ACTIVITY_DEFAULT_LIMIT = 160
+const CONSOLE_ACTIVITY_MAX_LIMIT = 1_000
+
+type AppLocale = 'zh-CN' | 'en'
+
+interface DialogCopy {
+  exportTitle: string
+  importTitle: string
+  jsonFilterName: string
+}
+
+const dialogCopyByLocale: Record<AppLocale, DialogCopy> = {
+  'zh-CN': {
+    exportTitle: '导出已导入的 Codex 账户授权文件',
+    importTitle: '导入 Codex 账户授权文件',
+    jsonFilterName: 'JSON 文件'
+  },
+  en: {
+    exportTitle: 'Export imported Codex account auth files',
+    importTitle: 'Import Codex account auth files',
+    jsonFilterName: 'JSON files'
+  }
+}
 
 export function registerMainProcessHandlers(runtime: MainRuntime): void {
+  let appLocale: AppLocale = 'zh-CN'
+  const currentDialogCopy = (): DialogCopy => dialogCopyByLocale[appLocale]
+
   ipcMain.handle('app:version', () => app.getVersion())
+  ipcMain.handle('app:set-locale', (_, locale: unknown) => {
+    appLocale = resolveAppLocale(locale)
+  })
   ipcMain.handle('proxy:config', () => runtime.readRuntimeConfig())
   ipcMain.handle('proxy:status', () => runtime.proxyStatus())
+  ipcMain.handle('proxy:daemon-control-settings', () => runtime.readDaemonControlSettings())
   ipcMain.handle('proxy:managed-auth-directory', () => runtime.importedAuthPoolPath)
-  ipcMain.handle('proxy:recent-requests', async () => {
+  ipcMain.handle('app:open-managed-auth-directory', () =>
+    openPathOrThrow(runtime.importedAuthPoolPath)
+  )
+  ipcMain.handle('app:open-raw-capture-directory', async () =>
+    openPathOrThrow(await runtime.rawCaptureDir())
+  )
+  ipcMain.handle('app:open-work-directory', () => openPathOrThrow(process.cwd()))
+  ipcMain.handle('proxy:recent-requests', async (_, limit: unknown) => {
     await runtime.ensureDaemon()
-    return (await runtime.daemonClient.requests()).requests
+    const page = await runtime.daemonClient.requests(normalizeActivityLimit(limit))
+    return { hasMore: page.hasMore, items: page.requests }
   })
-  ipcMain.handle('proxy:log-events', async () => {
+  ipcMain.handle('proxy:log-events', async (_, limit: unknown) => {
     await runtime.ensureDaemon()
-    return (await runtime.daemonClient.logEvents()).events
+    const page = await runtime.daemonClient.logEvents(normalizeActivityLimit(limit))
+    return { hasMore: page.hasMore, items: page.events }
   })
-  ipcMain.handle('proxy:protocol-messages', async () => {
+  ipcMain.handle('proxy:protocol-messages', async (_, limit: unknown) => {
     await runtime.ensureDaemon()
-    return (await runtime.daemonClient.protocolMessages()).messages
+    const page = await runtime.daemonClient.protocolMessages(normalizeActivityLimit(limit))
+    return { hasMore: page.hasMore, items: page.messages }
   })
   ipcMain.handle('proxy:accounts', async () => {
     await runtime.ensureDaemon()
@@ -36,10 +78,11 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     return runtime.daemonClient.clearRecords()
   })
   ipcMain.handle('proxy:import-auth-files', async () => {
+    const dialogCopy = currentDialogCopy()
     const selection = await dialog.showOpenDialog({
-      title: 'Import Codex account auth files',
+      title: dialogCopy.importTitle,
       properties: ['openFile', 'openDirectory', 'multiSelections'],
-      filters: [{ name: 'JSON', extensions: ['json'] }]
+      filters: [{ name: dialogCopy.jsonFilterName, extensions: ['json'] }]
     })
     if (selection.canceled) {
       return {
@@ -54,6 +97,9 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     const result = importAuthFilesToDirectory(selection.filePaths, runtime.importedAuthPoolPath)
     await runtime.restartProxy()
     await runtime.daemonClient.syncAccounts(result.accounts)
+    const usageResults = await checkAuthDirectoryUsage(runtime.importedAuthPoolPath)
+    await runtime.daemonClient.updateAccountUsage(usageResults)
+    await runtime.restartProxy()
     return result
   })
   ipcMain.handle('proxy:check-account-usage', async () => {
@@ -63,8 +109,9 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     return { results, accounts }
   })
   ipcMain.handle('proxy:export-auth-files', async () => {
+    const dialogCopy = currentDialogCopy()
     const selection = await dialog.showOpenDialog({
-      title: 'Export imported Codex account auth files',
+      title: dialogCopy.exportTitle,
       properties: ['openDirectory', 'createDirectory']
     })
     if (selection.canceled || selection.filePaths[0] === undefined) {
@@ -87,6 +134,7 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
 
     return { exported }
   })
+  ipcMain.handle('proxy:write-placeholder-auth', () => writePlaceholderAuthFile())
   ipcMain.handle('proxy:reset-exhausted-accounts', async () => {
     await runtime.ensureDaemon()
     const { accounts, resetAccounts } = await runtime.daemonClient.resetExhaustedAccounts()
@@ -129,9 +177,30 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
   ipcMain.handle('proxy:save-config', async (_, config: ProxyConfig) => {
     return runtime.saveProxyConfig(config)
   })
+  ipcMain.handle('proxy:save-daemon-control-settings', async (_, input: DaemonControlSaveInput) => {
+    return runtime.saveDaemonControlSettings(input)
+  })
   ipcMain.handle('proxy:start', async () => runtime.startDaemonProxy())
   ipcMain.handle('proxy:stop', async () => runtime.stopProxy())
   ipcMain.handle('proxy:restart', async () => runtime.restartProxy())
+}
+
+function normalizeActivityLimit(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return CONSOLE_ACTIVITY_DEFAULT_LIMIT
+  }
+  return Math.max(1, Math.min(CONSOLE_ACTIVITY_MAX_LIMIT, Math.floor(value)))
+}
+
+function resolveAppLocale(value: unknown): AppLocale {
+  return typeof value === 'string' && value.toLowerCase().startsWith('en') ? 'en' : 'zh-CN'
+}
+
+async function openPathOrThrow(path: string): Promise<void> {
+  const error = await shell.openPath(path)
+  if (error) {
+    throw new Error(`Failed to open local path "${path}": ${error}`)
+  }
 }
 
 function readAuthAccountId(path: string): string | undefined {

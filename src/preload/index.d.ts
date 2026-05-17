@@ -1,11 +1,15 @@
-import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
   AccountUsageCheckBatchDto,
+  ActivityPageDto,
   AuthExportResultDto,
   AuthImportResultDto,
   CleanExpiredAccountsDto,
   ClearProxyRecordsResultDto,
+  DaemonControlSaveInputDto,
+  DaemonControlSaveResultDto,
+  DaemonControlSettingsDto,
   ManagedAccountDto,
+  PlaceholderAuthResultDto,
   ProtocolMessageDto,
   ProxyConfigDto,
   ProxyLogEventDto,
@@ -18,24 +22,37 @@ import type {
 
 declare global {
   interface Window {
-    electron: ElectronAPI
+    electron: {
+      ipcRenderer: {
+        invoke: <T>(channel: string, ...args: unknown[]) => Promise<T>
+      }
+    }
     api: {
       getVersion: () => Promise<string>
+      setLocale: (locale: string) => Promise<void>
       getProxyConfig: () => Promise<ProxyConfigDto>
       getProxyStatus: () => Promise<ProxyStatusDto>
+      getDaemonControlSettings: () => Promise<DaemonControlSettingsDto>
       getManagedAuthDirectory: () => Promise<string>
-      getRecentRequests: () => Promise<RecentRequestDto[]>
+      openManagedAuthDirectory: () => Promise<void>
+      openRawCaptureDirectory: () => Promise<void>
+      openWorkDirectory: () => Promise<void>
+      getRecentRequests: (limit?: number) => Promise<ActivityPageDto<RecentRequestDto>>
       getManagedAccounts: () => Promise<ManagedAccountDto[]>
-      getProxyLogEvents: () => Promise<ProxyLogEventDto[]>
-      getProtocolMessages: () => Promise<ProtocolMessageDto[]>
+      getProxyLogEvents: (limit?: number) => Promise<ActivityPageDto<ProxyLogEventDto>>
+      getProtocolMessages: (limit?: number) => Promise<ActivityPageDto<ProtocolMessageDto>>
       getRawCapture: (requestId: string) => Promise<RawCaptureDetailDto | undefined>
       clearProxyRecords: () => Promise<ClearProxyRecordsResultDto>
       saveProxyConfig: (
         config: ProxyConfigDto
       ) => Promise<{ config: ProxyConfigDto; status: ProxyStatusDto }>
+      saveDaemonControlSettings: (
+        input: DaemonControlSaveInputDto
+      ) => Promise<DaemonControlSaveResultDto>
       importAuthFiles: () => Promise<AuthImportResultDto>
       checkAccountUsage: () => Promise<AccountUsageCheckBatchDto>
       exportAuthFiles: () => Promise<AuthExportResultDto>
+      writePlaceholderAuth: () => Promise<PlaceholderAuthResultDto>
       resetExhaustedAccounts: () => Promise<ResetExhaustedAccountsDto>
       setAccountDisabled: (accountId: string, disabled: boolean) => Promise<SetAccountDisabledDto>
       cleanExpiredAccounts: () => Promise<CleanExpiredAccountsDto>

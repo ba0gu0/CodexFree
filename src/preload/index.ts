@@ -1,12 +1,16 @@
-import { electronAPI } from '@electron-toolkit/preload'
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AccountUsageCheckBatchDto,
+  ActivityPageDto,
   AuthExportResultDto,
   AuthImportResultDto,
   CleanExpiredAccountsDto,
   ClearProxyRecordsResultDto,
+  DaemonControlSaveInputDto,
+  DaemonControlSaveResultDto,
+  DaemonControlSettingsDto,
   ManagedAccountDto,
+  PlaceholderAuthResultDto,
   ProtocolMessageDto,
   ProxyConfigDto,
   ProxyLogEventDto,
@@ -17,60 +21,105 @@ import type {
   SetAccountDisabledDto
 } from './proxy-api'
 
+const electronBridge = {
+  ipcRenderer: {
+    invoke: <T>(channel: string, ...args: unknown[]): Promise<T> =>
+      ipcRenderer.invoke(channel, ...args)
+  }
+}
+
 const api = {
-  getVersion: (): Promise<string> => electronAPI.ipcRenderer.invoke('app:version'),
-  getProxyConfig: (): Promise<ProxyConfigDto> => electronAPI.ipcRenderer.invoke('proxy:config'),
-  getProxyStatus: (): Promise<ProxyStatusDto> => electronAPI.ipcRenderer.invoke('proxy:status'),
+  getVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+  setLocale: async (locale: string): Promise<void> => {
+    try {
+      await ipcRenderer.invoke('app:set-locale', locale)
+    } catch (error) {
+      if (isMissingLocaleHandlerError(error)) {
+        return
+      }
+      throw new Error(`Failed to synchronize locale with the main process: ${String(error)}`)
+    }
+  },
+  getProxyConfig: (): Promise<ProxyConfigDto> => ipcRenderer.invoke('proxy:config'),
+  getProxyStatus: (): Promise<ProxyStatusDto> => ipcRenderer.invoke('proxy:status'),
+  getDaemonControlSettings: (): Promise<DaemonControlSettingsDto> =>
+    ipcRenderer.invoke('proxy:daemon-control-settings'),
   getManagedAuthDirectory: (): Promise<string> =>
-    electronAPI.ipcRenderer.invoke('proxy:managed-auth-directory'),
-  getRecentRequests: (): Promise<RecentRequestDto[]> =>
-    electronAPI.ipcRenderer.invoke('proxy:recent-requests'),
-  getManagedAccounts: (): Promise<ManagedAccountDto[]> =>
-    electronAPI.ipcRenderer.invoke('proxy:accounts'),
-  getProxyLogEvents: (): Promise<ProxyLogEventDto[]> =>
-    electronAPI.ipcRenderer.invoke('proxy:log-events'),
-  getProtocolMessages: (): Promise<ProtocolMessageDto[]> =>
-    electronAPI.ipcRenderer.invoke('proxy:protocol-messages'),
+    ipcRenderer.invoke('proxy:managed-auth-directory'),
+  openManagedAuthDirectory: (): Promise<void> =>
+    ipcRenderer.invoke('app:open-managed-auth-directory'),
+  openRawCaptureDirectory: (): Promise<void> =>
+    ipcRenderer.invoke('app:open-raw-capture-directory'),
+  openWorkDirectory: (): Promise<void> => ipcRenderer.invoke('app:open-work-directory'),
+  getRecentRequests: (limit?: number): Promise<ActivityPageDto<RecentRequestDto>> =>
+    ipcRenderer.invoke('proxy:recent-requests', limit),
+  getManagedAccounts: (): Promise<ManagedAccountDto[]> => ipcRenderer.invoke('proxy:accounts'),
+  getProxyLogEvents: (limit?: number): Promise<ActivityPageDto<ProxyLogEventDto>> =>
+    ipcRenderer.invoke('proxy:log-events', limit),
+  getProtocolMessages: (limit?: number): Promise<ActivityPageDto<ProtocolMessageDto>> =>
+    ipcRenderer.invoke('proxy:protocol-messages', limit),
   getRawCapture: (requestId: string): Promise<RawCaptureDetailDto | undefined> =>
-    electronAPI.ipcRenderer.invoke('proxy:raw-capture', requestId),
+    ipcRenderer.invoke('proxy:raw-capture', requestId),
   clearProxyRecords: (): Promise<ClearProxyRecordsResultDto> =>
-    electronAPI.ipcRenderer.invoke('proxy:clear-records'),
+    ipcRenderer.invoke('proxy:clear-records'),
   saveProxyConfig: (
     config: ProxyConfigDto
   ): Promise<{ config: ProxyConfigDto; status: ProxyStatusDto }> =>
-    electronAPI.ipcRenderer.invoke('proxy:save-config', config),
+    ipcRenderer.invoke('proxy:save-config', config),
+  saveDaemonControlSettings: (
+    input: DaemonControlSaveInputDto
+  ): Promise<DaemonControlSaveResultDto> =>
+    ipcRenderer.invoke('proxy:save-daemon-control-settings', input),
   importAuthFiles: (): Promise<AuthImportResultDto> =>
-    electronAPI.ipcRenderer.invoke('proxy:import-auth-files'),
+    ipcRenderer.invoke('proxy:import-auth-files'),
   checkAccountUsage: (): Promise<AccountUsageCheckBatchDto> =>
-    electronAPI.ipcRenderer.invoke('proxy:check-account-usage'),
+    ipcRenderer.invoke('proxy:check-account-usage'),
   exportAuthFiles: (): Promise<AuthExportResultDto> =>
-    electronAPI.ipcRenderer.invoke('proxy:export-auth-files'),
+    ipcRenderer.invoke('proxy:export-auth-files'),
+  writePlaceholderAuth: (): Promise<PlaceholderAuthResultDto> =>
+    ipcRenderer.invoke('proxy:write-placeholder-auth'),
   resetExhaustedAccounts: (): Promise<ResetExhaustedAccountsDto> =>
-    electronAPI.ipcRenderer.invoke('proxy:reset-exhausted-accounts'),
+    ipcRenderer.invoke('proxy:reset-exhausted-accounts'),
   setAccountDisabled: (accountId: string, disabled: boolean): Promise<SetAccountDisabledDto> =>
-    electronAPI.ipcRenderer.invoke('proxy:set-account-disabled', accountId, disabled),
+    ipcRenderer.invoke('proxy:set-account-disabled', accountId, disabled),
   cleanExpiredAccounts: (): Promise<CleanExpiredAccountsDto> =>
-    electronAPI.ipcRenderer.invoke('proxy:clean-expired-accounts'),
-  startProxy: (): Promise<ProxyStatusDto> => electronAPI.ipcRenderer.invoke('proxy:start'),
-  stopProxy: (): Promise<ProxyStatusDto> => electronAPI.ipcRenderer.invoke('proxy:stop'),
-  restartProxy: (): Promise<ProxyStatusDto> => electronAPI.ipcRenderer.invoke('proxy:restart')
+    ipcRenderer.invoke('proxy:clean-expired-accounts'),
+  startProxy: (): Promise<ProxyStatusDto> => ipcRenderer.invoke('proxy:start'),
+  stopProxy: (): Promise<ProxyStatusDto> => ipcRenderer.invoke('proxy:stop'),
+  restartProxy: (): Promise<ProxyStatusDto> => ipcRenderer.invoke('proxy:restart')
+}
+
+function isMissingLocaleHandlerError(error: unknown): boolean {
+  const message = errorMessage(error)
+  return message.includes('app:set-locale') && message.includes('No handler registered')
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = error.message
+    return typeof message === 'string' ? message : String(message)
+  }
+  return String(error)
 }
 
 type RendererWindow = Window &
   typeof globalThis & {
-    electron: typeof electronAPI
+    electron: typeof electronBridge
     api: typeof api
   }
 
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
+    contextBridge.exposeInMainWorld('electron', electronBridge)
     contextBridge.exposeInMainWorld('api', api)
   } catch (error) {
     throw new Error(`Failed to expose preload API: ${String(error)}`)
   }
 } else {
   const rendererWindow = window as RendererWindow
-  rendererWindow.electron = electronAPI
+  rendererWindow.electron = electronBridge
   rendererWindow.api = api
 }
