@@ -38,6 +38,7 @@ export interface HttpTrafficAnalysis {
   responsePrimaryUsedPercent?: string
   rpcId?: string
   rpcMethod?: string
+  summaryJson?: string
   totalTokens?: number
   tokenUsageSource?: string
   userAgent?: string
@@ -65,6 +66,13 @@ export function analyzeHttpTraffic(input: {
   )
   const runtime = firstAnalyticsRuntime(requestBody)
   const appClient = firstAnalyticsAppClient(requestBody)
+  const requestPurpose = describeHttpPurpose(path, input.method)
+  const responsePrimaryUsedPercent =
+    firstHeaderValue(input.responseHeaders?.['x-codex-primary-used-percent']) ??
+    usageLimitPercent(responseBody)
+  const responseRateLimitResetAt =
+    unixSecondsHeader(input.responseHeaders?.['x-codex-primary-reset-at']) ??
+    usageLimitResetAt(responseBody)
   return compactAnalysis({
     analyticsEventTypes: analyticsEventTypes(requestBody),
     cachedInputTokens: tokenUsage.cachedInputTokens,
@@ -86,7 +94,7 @@ export function analyzeHttpTraffic(input: {
     requestContentType: firstHeaderValue(input.requestHeaders['content-type']),
     requestInputItemCount: arrayField(requestBody, 'input')?.length,
     requestModel: stringField(requestBody, 'model') ?? firstAnalyticsModel(requestBody),
-    requestPurpose: describeHttpPurpose(path, input.method),
+    requestPurpose,
     responseActiveLimit:
       firstHeaderValue(input.responseHeaders?.['x-codex-active-limit']) ??
       stringField(responseBody, 'active_limit'),
@@ -97,18 +105,105 @@ export function analyzeHttpTraffic(input: {
       firstHeaderValue(input.responseHeaders?.['x-codex-plan-type']) ??
       stringField(responseBody, 'plan_type') ??
       stringField(recordField(responseBody, 'error'), 'plan_type'),
-    responsePrimaryUsedPercent:
-      firstHeaderValue(input.responseHeaders?.['x-codex-primary-used-percent']) ??
-      usageLimitPercent(responseBody),
-    responseRateLimitResetAt:
-      unixSecondsHeader(input.responseHeaders?.['x-codex-primary-reset-at']) ??
-      usageLimitResetAt(responseBody),
+    responsePrimaryUsedPercent,
+    responseRateLimitResetAt,
     rpcId: stringField(requestBody, 'id'),
     rpcMethod: stringField(requestBody, 'method'),
+    summaryJson: httpSummaryJson({
+      path,
+      purpose: requestPurpose,
+      requestBody,
+      requestBytes: input.requestBody.byteLength,
+      responseBody,
+      responseBytes: input.responseBody?.byteLength,
+      responsePrimaryUsedPercent,
+      responseRateLimitResetAt,
+      tokenUsage
+    }),
     tokenUsageSource: tokenUsage.source,
     totalTokens: tokenUsage.totalTokens,
     userAgent: firstHeaderValue(input.requestHeaders['user-agent'])
   })
+}
+
+interface HttpSummaryInput {
+  path: string
+  purpose: string
+  requestBody: Record<string, unknown> | undefined
+  requestBytes: number
+  responseBody: Record<string, unknown> | undefined
+  responseBytes: number | undefined
+  responsePrimaryUsedPercent: string | undefined
+  responseRateLimitResetAt: number | undefined
+  tokenUsage: TokenUsageFields
+}
+
+function httpSummaryJson(input: HttpSummaryInput): string | undefined {
+  const summary = routeSummary(input)
+  if (!summary) {
+    return undefined
+  }
+  return safeSummaryJson(summary)
+}
+
+function routeSummary(input: HttpSummaryInput): Record<string, unknown> | undefined {
+  const base = {
+    path: input.path,
+    purpose: input.purpose
+  }
+  if (input.purpose === 'analytics_events') {
+    return {
+      ...base,
+      eventTypes: analyticsEventTypes(input.requestBody)?.split(',') ?? [],
+      model: firstAnalyticsModel(input.requestBody),
+      threadId: firstAnalyticsThreadId(input.requestBody),
+      tokenUsage: compactObject(input.tokenUsage)
+    }
+  }
+  if (input.purpose === 'account_usage') {
+    return {
+      ...base,
+      activeLimit: stringField(input.responseBody, 'active_limit'),
+      planType: stringField(input.responseBody, 'plan_type'),
+      primaryRemainingPercent: remainingPercent(input.responsePrimaryUsedPercent),
+      primaryUsedPercent: input.responsePrimaryUsedPercent,
+      resetAt: input.responseRateLimitResetAt
+    }
+  }
+  if (input.purpose === 'codex_compact') {
+    return {
+      ...base,
+      compressionRatio:
+        input.responseBytes && input.requestBytes > 0
+          ? Number((input.responseBytes / input.requestBytes).toFixed(4))
+          : undefined,
+      inputBytes: input.requestBytes,
+      outputBytes: input.responseBytes,
+      outputItems: responseItemCount(input.responseBody)
+    }
+  }
+  if (
+    input.purpose === 'models' ||
+    input.purpose === 'wham_apps' ||
+    input.purpose === 'connector_directory' ||
+    input.purpose === 'plugin_featured'
+  ) {
+    return {
+      ...base,
+      itemCount: responseItemCount(input.responseBody),
+      modelSummary: responseModel(input.responseBody, input.path),
+      rpcMethod: stringField(input.requestBody, 'method')
+    }
+  }
+  if (input.purpose === 'codex_response_sse') {
+    return {
+      ...base,
+      model: stringField(input.requestBody, 'model'),
+      tokenUsage: compactObject(input.tokenUsage),
+      userText: extractBodyUserText(input.requestBody)
+    }
+  }
+  return undefined
 }
 
 function describeHttpPurpose(path: string, method: string | undefined): string {
@@ -238,7 +333,7 @@ function responseItemCount(body: Record<string, unknown> | undefined): number | 
   if (!body) {
     return undefined
   }
-  for (const key of ['models', 'apps', 'connectors', 'items', 'data', 'results']) {
+  for (const key of ['models', 'apps', 'connectors', 'items', 'data', 'results', 'output']) {
     const items = arrayField(body, key)
     if (items) {
       return items.length
@@ -252,12 +347,26 @@ function responseItemCount(body: Record<string, unknown> | undefined): number | 
 }
 
 function usageLimitPercent(body: Record<string, unknown> | undefined): string | undefined {
+  const rateLimit = recordField(body, 'rate_limit')
+  const primaryWindow = recordField(rateLimit, 'primary_window')
+  const secondaryWindow = recordField(rateLimit, 'secondary_window')
   const limits = arrayField(body, 'limits')?.filter(isRecord)
   const primary = limits?.find((limit) => stringField(limit, 'type') === 'primary') ?? limits?.[0]
-  return stringField(primary, 'used_percent')
+  return (
+    stringField(body, 'primary_used_percent') ??
+    stringField(primaryWindow, 'used_percent') ??
+    stringField(secondaryWindow, 'used_percent') ??
+    stringField(primary, 'used_percent')
+  )
 }
 
 function usageLimitResetAt(body: Record<string, unknown> | undefined): number | undefined {
+  const rateLimit = recordField(body, 'rate_limit')
+  const primaryWindow = recordField(rateLimit, 'primary_window')
+  const primaryReset = numberField(primaryWindow, 'reset_at')
+  if (primaryReset !== undefined) {
+    return primaryReset > 10_000_000_000 ? primaryReset : primaryReset * 1000
+  }
   const limits = arrayField(body, 'limits')?.filter(isRecord)
   const primary = limits?.find((limit) => stringField(limit, 'type') === 'primary') ?? limits?.[0]
   const seconds = numberField(primary, 'reset_at')
@@ -309,4 +418,57 @@ function compactAnalysis(input: HttpTrafficAnalysis): HttpTrafficAnalysis {
   return Object.fromEntries(
     Object.entries(input).filter(([, value]) => value !== undefined && value !== '')
   ) as HttpTrafficAnalysis
+}
+
+function compactObject(input: object): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== undefined && value !== '')
+  )
+}
+
+function remainingPercent(usedPercent: string | undefined): number | undefined {
+  if (!usedPercent) {
+    return undefined
+  }
+  const used = Number.parseFloat(usedPercent)
+  if (!Number.isFinite(used)) {
+    return undefined
+  }
+  return Math.max(0, Math.min(100, 100 - used))
+}
+
+function extractBodyUserText(body: Record<string, unknown> | undefined): string | undefined {
+  const input = body?.input
+  if (typeof input === 'string') {
+    return input
+  }
+  if (!Array.isArray(input)) {
+    return undefined
+  }
+  const userItems = input.filter((item) => isRecord(item) && stringField(item, 'role') === 'user')
+  const source = userItems.length > 0 ? userItems : input
+  return source.flatMap((item) => collectTextValues(item)).at(-1)
+}
+
+function collectTextValues(value: unknown): string[] {
+  if (typeof value === 'string') {
+    return [value]
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectTextValues(item))
+  }
+  if (!isRecord(value)) {
+    return []
+  }
+  return Object.entries(value).flatMap(([key, child]) =>
+    key === 'text' || key === 'content' ? collectTextValues(child) : []
+  )
+}
+
+function safeSummaryJson(value: unknown): string {
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return JSON.stringify({ text: String(value) })
+  }
 }

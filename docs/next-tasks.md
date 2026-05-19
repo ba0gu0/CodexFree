@@ -1,572 +1,515 @@
-# Next Tasks
+# 下一步任务
 
-## Task Queue
+## 任务队列
 
-| ID | Status | Task | Depends on |
-|----|--------|------|------------|
-| T1a | Done | Implement transparent proxy service and redacted observation ledger | Stack decision |
-| T1b | Done | Complete Codex account-mode packet contract from HAR or proxy logs | T1a or Yakit exports |
-| T2 | Done | Define auth file normalization for Codex, CPA, and sub2api | Sample files |
-| T3 | Done | Design proxy request classification and API-key rejection | T1b |
-| T4 | Done | Implement quota-exhaustion detection and auth switching state machine | T1b |
-| T5 | Done | Define SQLite schema for accounts, usage, and events | T2, T4 |
-| T6 | Done | Design Electron management UI information architecture | T2, T5 |
-| T7 | Done | Create Bun Electron Vite React project manifest | Stack decision |
-| T8 | Draft | Add explicit API-key OpenAI-compatible adapter mode | T1b, T4 |
-| T9 | Done | Split proxy into standalone daemon controlled by app | T4, T5 |
-| T10 | In Progress | Make proxy logs operator-readable from real Docker Codex traffic | T4 |
-| T11 | In Progress | Polish remaining page layouts and interactions against daemon/admin API | T6, T9 |
-| T12 | Done | Optimize app-wide data displays from latest proxy traffic field contract | T10, T11 |
+| ID | 状态 | 任务 | 依赖 |
+|----|------|------|------|
+| T1a | 已完成 | 实现透明代理服务和脱敏观察 ledger | 技术栈决策 |
+| T1b | 已完成 | 从 HAR 或代理日志补全 Codex 账号模式 packet contract | T1a 或 Yakit exports |
+| T2 | 已完成 | 定义 Codex、CPA 和 sub2api 的 auth 文件规范化 | 样例文件 |
+| T3 | 已完成 | 设计代理请求分类和 API-key 拒绝逻辑 | T1b |
+| T4 | 已完成 | 实现 quota-exhaustion 检测和 auth switching 状态机 | T1b |
+| T5 | 已完成 | 定义 accounts、usage 和 events 的 SQLite schema | T2、T4 |
+| T6 | 已完成 | 设计 Electron 管理 UI 信息架构 | T2、T5 |
+| T7 | 已完成 | 创建 Bun Electron Vite React project manifest | 技术栈决策 |
+| T8 | 草稿 | 添加明确的 API-key OpenAI-compatible adapter mode | T1b、T4 |
+| T9 | 已完成 | 把 proxy 拆分为由 app 控制的 standalone daemon | T4、T5 |
+| T10 | 进行中 | 让真实 Docker Codex 流量下的 proxy logs 可供操作员阅读 | T4 |
+| T11 | 进行中 | 依据 daemon/admin API 打磨剩余页面 layout 和 interactions | T6、T9 |
+| T12 | 已完成 | 按最新 proxy traffic field contract 优化全 app 数据展示 | T10、T11 |
 
-## Parallel Work Lines
+## 并行工作线
 
-### Work Line A: Proxy Daemon Core
+### 工作线 A：Proxy Daemon Core
 
-This line can run in a separate thread from UI work.
+这条线可以在独立于 UI 工作的单独线程中运行。
 
-Owned scope:
+负责范围：
 
-- `src/main/proxy/**`;
-- daemon/CLI entrypoint;
-- local admin API or IPC;
-- SQLite ledger and account-state reads/writes;
-- WSS and HTTP quota handling;
-- terminal logs;
-- Docker Codex validation.
+- `src/main/proxy/**`；
+- daemon/CLI entrypoint；
+- local admin API 或 IPC；
+- SQLite ledger 和 account-state 读写；
+- WSS 和 HTTP quota handling；
+- terminal logs；
+- Docker Codex validation。
 
-Immediate tasks:
+即时任务：
 
-1. Done: `bun run proxy` now starts the daemon entrypoint and uses the shared
-   `codexfree.sqlite` ledger.
-2. Done: daemon admin API is token-protected and exposes status, config,
-   accounts, usage updates, requests, request summaries, usage summaries, log
-   events, protocol messages, account disable/delete/reset, and clear. It does
-   not expose `/admin/start`, `/admin/stop`, or `/admin/restart`. Config saves
-   persist to SQLite; the desktop UI applies them through the App process owner
-   rather than admin lifecycle endpoints. `/admin/reload` remains a retained
-   local utility endpoint for daemon/admin clients. Account-management actions
-   refresh only the in-memory account-pool cache and do not close existing WSS
-   sessions.
-3. Done: normal daemon runs write log events to SQLite without request spam;
-   `--debug` prints readable lines from the same event stream.
-4. Done: Electron main no longer embeds the proxy service. Packaged builds
-   include the daemon JS bundle and run it with Electron's Node runtime;
-   development startup uses the same `bun run proxy` path. Main-process
-   lifecycle controls start/stop/restart the app-owned child process or the
-   configured OS service owner, while summary refreshes can read aggregate
-   SQLite data without respawning a stopped daemon.
-5. Continue reworking `bun run proxy` logs against real Docker Codex
-   traffic:
-   - daemon startup;
-   - active account loaded from SQLite;
-   - quota remaining and reset time;
-   - HTTP request purpose and response result;
-   - WSS connection lifecycle;
-   - user request, AI reply, and tool events;
-   - quota detection;
-   - account switch or no replacement account.
-6. Fix HTTP fallback `POST /backend-api/codex/responses` quota handling so it
-   follows the same account-state rules as WSS quota handling.
-7. Keep normal account-login proxy paths under `/backend-api`; keep `/v1`
-   API-key compatibility separate and explicit.
-8. Done: already-open client WSS connections re-enter a per-turn
-   `response.create` probe. Immediate quota is suppressed; self-contained turns
-   are replayed to a replacement upstream account, while incremental turns close
-   the client WSS only when another account exists for Codex to reconnect onto.
-   If the pool has no replacement account, final quota is forwarded.
-9. Done: current packet and relay-analysis findings are documented in
-   `docs/proxy-traffic-analysis.md`. Future UI work should use that document as
-   the data-source reference before adding new request, usage, overview, or
-   account fields.
+1. 已完成：`bun run daemon` 现在启动 daemon entrypoint，并使用共享的
+   `codexfree.sqlite` ledger。
+2. 已完成：daemon admin API 受 token 保护，并暴露 status、config、accounts、usage
+   updates、requests、request summaries、usage summaries、log events、protocol messages、
+   account disable/delete/reset 和 clear。它不暴露 `/admin/start`、`/admin/stop` 或
+   `/admin/restart`。Config saves 会持久化到 SQLite；desktop UI 通过 App process owner
+   应用它们，而不是通过 admin lifecycle endpoints。`/admin/reload` 保留为供
+   daemon/admin clients 使用的本地工具 endpoint。Account-management actions 只刷新内存
+   account-pool cache，不关闭现有 WSS sessions。
+3. 已完成：普通 daemon runs 会把 log events 写入 SQLite，不产生 request spam；`--debug`
+   会从同一 event stream 打印可读行。
+4. 已完成：Electron main 不再嵌入 proxy service。打包构建包含 daemon JS bundle，并通过
+   Electron 的 Node runtime 运行；开发启动使用相同的 `bun run daemon` 路径。Main-process
+   lifecycle controls 会 start/stop/restart app-owned child process 或配置的 OS service
+   owner，而 summary refreshes 可以读取 aggregate SQLite data，不会重新启动已经停止的
+   daemon。
+5. 继续依据真实 Docker Codex 流量重做 `bun run daemon` logs：
+   - daemon startup；
+   - 从 SQLite 加载的 active account；
+   - quota remaining 和 reset time；
+   - HTTP request purpose 和 response result；
+   - WSS connection lifecycle；
+   - user request、AI reply 和 tool events；
+   - quota detection；
+   - account switch 或 no replacement account。
+6. 修复 HTTP fallback `POST /backend-api/codex/responses` quota handling，使它遵循与 WSS
+   quota handling 相同的 account-state rules。
+7. 保持普通 account-login proxy paths 位于 `/backend-api` 下；保持 `/v1` API-key
+   compatibility 独立且明确。
+8. 已完成：已经打开的 client WSS connections 会重新进入 per-turn `response.create` probe。
+   Immediate quota 会被抑制；self-contained turns 会 replay 到替代 upstream account，而
+   incremental turns 只有在另一个账号存在、Codex 可以重连时才关闭 client WSS。如果 pool
+   没有替代账号，就转发最终 quota。
+9. 已完成：当前 packet 和 relay-analysis findings 已记录在
+   `docs/proxy-traffic-analysis.md`。未来 UI 工作在添加新的 request、usage、overview 或
+   account fields 前，应把该文档作为数据源参考。
 
-Verification:
+验证：
 
-- `bun run lint`;
-- `bun run typecheck`;
-- focused proxy tests;
-- `docker exec codex ... codex exec ...` through
-  `chatgpt_base_url = ".../backend-api"` and
-  `openai_base_url = ".../backend-api/codex"`;
-- terminal log review proving the whole flow is understandable.
+- `bun run lint`；
+- `bun run typecheck`；
+- focused proxy tests；
+- 通过 `chatgpt_base_url = ".../backend-api"` 和
+  `openai_base_url = ".../backend-api/codex"` 执行
+  `docker exec codex ... codex exec ...`；
+- terminal log review，证明整个流程可理解。
 
-### Work Line B: Desktop App Console
+### 工作线 B：Desktop App Console
 
-This line should avoid changing proxy hot-path code unless it needs a new admin
-status field.
+这条线应避免修改 proxy hot-path code，除非它需要新的 admin status field。
 
-Owned scope:
+负责范围：
 
-- `src/renderer/**`;
-- `src/preload/**`;
-- Electron shell and admin client glue;
-- app navigation and account/request/usage views.
+- `src/renderer/**`；
+- `src/preload/**`；
+- Electron shell 和 admin client glue；
+- app navigation 和 account/request/usage views。
 
-Immediate tasks:
+即时任务：
 
-1. Done for main-process control: Electron main has a daemon admin client and
-   no embedded proxy service. Runtime startup probes the configured daemon
-   management host/port/token from SQLite `proxy_settings` first and spawns a
-   daemon only when that endpoint is unreachable. Start/stop/restart are owned
-   by the app child process or OS service manager, not by daemon admin HTTP
-   lifecycle endpoints.
-2. Show startup/config helper values:
-   - `chatgpt_base_url = "http://127.0.0.1:<port>/backend-api"`;
-   - `openai_base_url = "http://127.0.0.1:<port>/backend-api/codex"`.
-3. Done for overview: show account email where known, quota, reset time,
-   available count, exhausted count, categorized recent events, and copyable
-   proxy config rows without wrapping around `=`.
-4. Keep account import, batch usage checks, enable/disable/reset, and request
-   ledger screens usable while the daemon evolves.
-5. Done: expose management host/port/token in the Proxy page and add a macOS
-   LaunchAgent toggle so boot startup has a clear service owner.
-6. Use `docs/proxy-traffic-analysis.md` as the UI data-source contract for the
-   next Requests and Usage page optimization pass, especially token source,
-   cached-token display, request purpose filtering, and quota fields.
-7. Execute T12 as an app-wide data-display pass. The source of truth is
-   `docs/proxy-traffic-analysis.md`; do not design from older table columns or
-   synthetic labels. The pass must update Overview, Accounts, Proxy/requests
-   context, Requests, and Usage so visible metrics map to the latest persisted
-   fields and explain their source when duplicate token views are possible.
+1. Main-process control 已完成：Electron main 有 daemon admin client，且没有 embedded proxy
+   service。Runtime startup 会先从 SQLite `proxy_settings` probe 配置的 daemon management
+   host/port/token，只有该 endpoint 不可达时才启动 daemon。Start/stop/restart 由 app child
+   process 或 OS service manager 拥有，而不是由 daemon admin HTTP lifecycle endpoints 拥有。
+2. 显示 startup/config helper values：
+   - `chatgpt_base_url = "http://127.0.0.1:<port>/backend-api"`；
+   - `openai_base_url = "http://127.0.0.1:<port>/backend-api/codex"`。
+3. Overview 已完成：显示 known account email、quota、reset time、available count、
+   exhausted count、categorized recent events，以及不会围绕 `=` 换行的 copyable proxy
+   config rows。
+4. 在 daemon 演进过程中，保持 account import、batch usage checks、enable/disable/reset 和
+   request ledger screens 可用。
+5. 已完成：在 Proxy 页面暴露 management host/port/token，并添加 macOS LaunchAgent toggle，
+   让 boot startup 有清晰的 service owner。
+6. 把 `docs/proxy-traffic-analysis.md` 作为下一轮 Requests 和 Usage 页面优化 pass 的 UI
+   数据源 contract，特别是 token source、cached-token display、request purpose filtering
+   和 quota fields。
+7. 作为全 app data-display pass 执行 T12。真实来源是 `docs/proxy-traffic-analysis.md`；
+   不要从旧 table columns 或 synthetic labels 设计。该 pass 必须更新 Overview、Accounts、
+   Proxy/requests context、Requests 和 Usage，使可见 metrics 映射到最新 persisted fields，
+   并在可能存在重复 token views 时说明它们的来源。
 
-T12 acceptance:
+T12 验收：
 
-- Overview shows request distribution by `request_purpose`, active account
-  email or label, plan, used percent, reset time, and categorized recent events.
-- Accounts prefers `proxy_accounts.email`, shows usage plan/percent/reset and
-  last usage error, and reads exhaustion state from quota events instead of only
-  the last request row.
-- Requests default columns include time, status, purpose, method/path, account,
-  model, token breakdown, duration, and bytes; request details separate HTTP
-  metadata from WSS/protocol messages.
-- Usage groups by account, model, thread, turn, source, and day. Requests with
-  no usage contribute to request/error statistics but not token totals.
-- Token displays keep `cached_input_tokens` separate and surface
-  `token_usage_source` so protocol, SSE, and analytics-event data are not
-  silently mixed.
-- `/backend-api/wham/remote/*` rows are marked as original Codex-account
-  traffic, and `/v1/*` or non-`/backend-api` probes are kept in the API-key
-  compatibility/probe bucket.
-- Verification includes `bun run lint`, `bun run typecheck:web`,
-  `bun run typecheck:node`, `bun run build`, and live Electron inspection of
-  the affected pages at the minimum `1160x720` window.
+- Overview 显示按 `request_purpose` 的 request distribution、active account email 或 label、
+  plan、used percent、reset time 和 categorized recent events。
+- Accounts 优先使用 `proxy_accounts.email`，显示 usage plan/percent/reset 和 last usage
+  error，并从 quota events 而不是只从 last request row 读取 exhaustion state。
+- Requests 默认 columns 包含 time、status、purpose、method/path、account、model、token
+  breakdown、duration 和 bytes；request details 将 HTTP metadata 与 WSS/protocol messages
+  分离。
+- Usage 按 account、model、thread、turn、source 和 day 分组。没有 usage 的 requests 计入
+  request/error statistics，但不计入 token totals。
+- Token displays 保持 `cached_input_tokens` 分离，并暴露 `token_usage_source`，避免
+  protocol、SSE 和 analytics-event data 被静默混合。
+- `/backend-api/wham/remote/*` rows 标记为 original Codex-account traffic，`/v1/*` 或非
+  `/backend-api` probes 放入 API-key compatibility/probe bucket。
+- 验证包含 `bun run lint`、`bun run typecheck:web`、`bun run typecheck:node`、
+  `bun run build`，以及在最小 `1160x720` window 下对受影响页面进行 live Electron inspection。
 
-T12 implementation slices:
+T12 实现切片：
 
-1. Contract surface:
-   - extend `src/preload/proxy-api.ts` DTOs for all existing fields returned by
-     `ProxyRequestLedger.recent()` and `recentProtocolMessages()`;
-   - keep DTO names aligned to ledger camelCase fields;
-   - add focused tests where admin/client serialization currently fixes the
-     exposed shape.
-2. Shared data model:
-   - add renderer helpers for request purpose labels, model fallback,
-     token-breakdown formatting, source labels, byte totals, and account display
-     for original Codex-account paths;
-   - keep helpers in `src/renderer/src/data/` or page model files, not inside
-     large JSX blocks.
-3. Overview:
-   - replace generic recent request count with a purpose distribution;
-   - show active account plan/used/reset details where available;
-   - keep recent log categories based on typed `event_type`.
-4. Accounts:
-   - make email the primary display name;
-   - expose plan, primary/secondary usage, reset time, last check, and last
-     usage error in table/inspector;
-   - show quota history from quota/log events instead of inferring it from only
-     the latest request.
-5. Requests:
-   - rebuild default columns around time, status, purpose, method/path, account,
-     model, tokens, duration, and bytes;
-   - add filters/search for purpose, account, model, thread, turn, source, and
-     outcome;
-   - add a detail layout that separates HTTP metadata, token/source facts,
-     Codex thread/turn/runtime fields, and protocol messages for the request.
-6. Usage:
-   - replace traffic-only analysis with token-aware groups by account, model,
-     thread, turn, source, and day;
-   - keep request/error/latency statistics separate from token totals;
-   - show source-separated totals before any future merged-by-turn view.
-7. Verification and documentation:
-   - update i18n copy for all new labels;
-   - run the required commands;
-   - inspect the live Electron pages in light and dark modes at `1160x720`;
-   - record verification evidence and any remaining risks in this file.
+1. Contract surface：
+   - 扩展 `src/preload/proxy-api.ts` DTOs，覆盖 `ProxyRequestLedger.recent()` 和
+     `recentProtocolMessages()` 返回的所有现有 fields；
+   - 保持 DTO names 与 ledger camelCase fields 对齐；
+   - 在 admin/client serialization 当前固定 exposed shape 的位置添加 focused tests。
+2. Shared data model：
+   - 添加 renderer helpers，用于 request purpose labels、model fallback、token-breakdown
+     formatting、source labels、byte totals，以及 original Codex-account paths 的 account
+     display；
+   - 把 helpers 放在 `src/renderer/src/data/` 或 page model files 中，不要放进大 JSX blocks。
+3. Overview：
+   - 用 purpose distribution 替换 generic recent request count；
+   - 在可用时显示 active account plan/used/reset details；
+   - 保持 recent log categories 基于 typed `event_type`。
+4. Accounts：
+   - 把 email 作为 primary display name；
+   - 在 table/inspector 中暴露 plan、primary/secondary usage、reset time、last check 和
+     last usage error；
+   - 从 quota/log events 显示 quota history，而不是只从 latest request 推断。
+5. Requests：
+   - 围绕 time、status、purpose、method/path、account、model、tokens、duration 和 bytes
+     重建 default columns；
+   - 添加 purpose、account、model、thread、turn、source 和 outcome 的 filters/search；
+   - 添加 detail layout，分离 HTTP metadata、token/source facts、Codex thread/turn/runtime
+     fields，以及 request 的 protocol messages。
+6. Usage：
+   - 用按 account、model、thread、turn、source 和 day 的 token-aware groups 替换
+     traffic-only analysis；
+   - 把 request/error/latency statistics 与 token totals 分开；
+   - 在任何未来 merged-by-turn view 之前先显示 source-separated totals。
+7. Verification and documentation：
+   - 更新所有新 labels 的 i18n copy；
+   - 运行要求的命令；
+   - 在 light 和 dark modes 下以 `1160x720` 检查 live Electron pages；
+   - 在本文件中记录 verification evidence 和剩余 risks。
 
-T12 current implementation evidence:
+T12 当前实现证据：
 
-- Done: renderer DTOs now expose the latest request/protocol fields returned by
-  `ProxyRequestLedger.recent()` and `recentProtocolMessages()`.
-- Done: shared display helpers now cover request purpose, model fallback, token
-  breakdown, source labels, byte totals, and original Codex-account paths.
-- Done: Requests now shows time, status, purpose, method/path, account, model,
-  token breakdown, duration, and bytes, with request detail split into HTTP,
-  token/source, Codex context, and protocol messages.
-- Done: Usage now groups real token usage by source, model, account, day, and
-  thread/turn, while keeping request/error/traffic statistics separate from
-  token totals.
-- Done: Overview now includes recent request purpose distribution, and Accounts
-  exposes reset/check/error details while filtering quota history to typed quota
-  events.
-- Done: User-feedback polish pass added full-database request and usage summary
-  cards, manual refresh buttons on all pages, refresh-on-navigation, top-center
-  concise notices, account usage progress on the triggering buttons, per-row
-  usage refresh controls, sticky sortable list headers, and OS-owner-based
-  daemon lifecycle controls with no admin lifecycle endpoints.
-- Done: Visual consistency pass rebalanced page headers, fixed top metric card
-  height, prevented action-bar wrapping, and toned down the dashboard sidebars
-  so dashboard, accounts, proxy, requests, and usage read as one app again.
-- Done: Follow-up layout pass raised the app/page header bands, bottom-aligned
-  page actions, compressed summary cards to a tighter shared height, and reduced
-  the Accounts page header to primary actions only.
-- Passed: `rtk bun run lint`.
-- Passed: `rtk bun run typecheck:web`.
-- Passed: `rtk bun run typecheck:node`.
-- Passed: `rtk bun run typecheck`.
-- Passed: `rtk bun run test`.
-- Passed: `rtk bun run build`.
-- Passed: `rtk bun run build:unpack`.
-- Passed: live dev-app inspection with Computer Use. Current validation should
-  continue through Computer Use and must not rely on system screenshots.
-- Confirmed: Dashboard uses full-database request totals and purpose groups,
-  keeps the batch usage action out of the top toolbar, and renders the complex
-  background-service waveform below the service text.
-- Confirmed: Requests shows all default columns at `1160x720`, including
-  account and bytes; zero-byte request traffic renders as `0 B / 0 B` instead
-  of "unlimited".
-- Confirmed: Usage shows token totals and groups by source, model, account, day,
-  and thread/turn.
-- Confirmed: Accounts shows email-first account names, plan/usage/reset/check
-  fields, and typed quota-event history sections in light and dark modes.
+- 已完成：renderer DTOs 现在暴露 `ProxyRequestLedger.recent()` 和
+  `recentProtocolMessages()` 返回的最新 request/protocol fields。
+- 已完成：shared display helpers 现在覆盖 request purpose、model fallback、token breakdown、
+  source labels、byte totals 和 original Codex-account paths。
+- 已完成：Requests 现在显示 time、status、purpose、method/path、account、model、token
+  breakdown、duration 和 bytes，并把 request detail 拆成 HTTP、token/source、Codex context
+  和 protocol messages。
+- 已完成：Usage 现在按 source、model、account、day 和 thread/turn 对真实 token usage 分组，
+  同时把 request/error/traffic statistics 与 token totals 分开。
+- 已完成：Overview 现在包含 recent request purpose distribution，Accounts 暴露 reset/check/error
+  details，同时把 quota history 过滤为 typed quota events。
+- 已完成：User-feedback polish pass 添加 full-database request 和 usage summary cards、所有页面
+  manual refresh buttons、refresh-on-navigation、top-center concise notices、触发按钮上的
+  account usage progress、per-row usage refresh controls、sticky sortable list headers，以及
+  基于 OS-owner 的 daemon lifecycle controls，没有 admin lifecycle endpoints。
+- 已完成：Visual consistency pass 重新平衡 page headers、修复 top metric card height、防止
+  action-bar wrapping，并弱化 dashboard sidebars，让 dashboard、accounts、proxy、requests 和
+  usage 重新读成同一个 app。
+- 已完成：Follow-up layout pass 抬高 app/page header bands，bottom-align page actions，压缩
+  summary cards 到更紧凑的 shared height，并把 Accounts page header 减少到 primary actions。
+- Passed：`rtk bun run lint`。
+- Passed：`rtk bun run typecheck:web`。
+- Passed：`rtk bun run typecheck:node`。
+- Passed：`rtk bun run typecheck`。
+- Passed：`rtk bun run test`。
+- Passed：`rtk bun run build`。
+- Passed：`rtk bun run build:unpack`。
+- Passed：使用 Computer Use 进行 live dev-app inspection。当前验证应继续通过 Computer Use，
+  且不能依赖 system screenshots。
+- Confirmed：Dashboard 使用 full-database request totals 和 purpose groups，把 batch usage
+  action 移出 top toolbar，并在 service text 下方渲染复杂 background-service waveform。
+- Confirmed：Requests 在 `1160x720` 下显示所有 default columns，包括 account 和 bytes；
+  zero-byte request traffic 渲染为 `0 B / 0 B`，而不是 "unlimited"。
+- Confirmed：Usage 显示 token totals，并按 source、model、account、day 和 thread/turn 分组。
+- Confirmed：Accounts 在 light 和 dark modes 下显示 email-first account names、
+  plan/usage/reset/check fields，以及 typed quota-event history sections。
 
-Verification:
+验证：
 
-- `bun run lint`;
-- `bun run typecheck`;
-- renderer build;
-- manual app launch;
-- app can inspect/control an already-running daemon.
+- `bun run lint`；
+- `bun run typecheck`；
+- renderer build；
+- manual app launch；
+- app 可以检查/控制一个已经运行的 daemon。
 
-Renderer refactor state:
+Renderer refactor 状态：
 
-- Coss-first and shadcn-fallback component policy remains the target.
-- `src/renderer/src/components/ui/` may contain source-owned component building
-  blocks, but it is not the app UI implementation.
-- `src/renderer/src/App.tsx` now owns the V3 shell and page routing.
-- Dashboard, Accounts, Proxy, Requests, and Usage are implemented and
-  connected. Dashboard, Accounts, Proxy, Requests, and Usage now share
-  the V3 desktop-console information architecture; future work should focus on
-  narrow interaction polish and missing backend-backed fields rather than
-  another broad shell rewrite. Destructive local actions now use confirmation
-  dialogs before clearing records or writing placeholder `auth.json`. The
-  selected UI language is synchronized into native import/export dialogs, while
-  language and theme choices persist locally. Daemon management configuration is
-  part of the Proxy page, not a separate settings page. The
-  overview opens at and is constrained for the `1160x720` minimum desktop
-  window: no top-level page scroll, proportional three-column app structure, and
-  an internally scrolling Recent Activity table with no horizontal scrollbar or
-  fixed row slice. The remaining-page polish pass aligns Accounts, Proxy,
-  Requests, and Usage with the overview through compact headers, semantic
-  light/dark borders, virtualized data tables, and a cleaner Proxy page without
-  duplicate copy/context blocks. The current overview detail pass removes the
-  top recent-event summary, turns the utility system button into a theme cycle,
-  removes the account-health progress bar, classifies recent logs by event type,
-  marks `/backend-api/wham/remote/*` as the original Codex account, and uses
-  email metadata instead of synthetic account ids.
-- `docs/CodexFree-v2.pen`, `docs/CodexFree-v3.pen`, and preview images remain
-  design references rather than proof by themselves.
+- Coss-first 和 shadcn-fallback component policy 仍是目标。
+- `src/renderer/src/components/ui/` 可以包含 source-owned component building blocks，但它不是
+  app UI implementation。
+- `src/renderer/src/App.tsx` 现在拥有 V3 shell 和 page routing。
+- Dashboard、Accounts、Proxy、Requests 和 Usage 已实现并连接。Dashboard、Accounts、Proxy、
+  Requests 和 Usage 现在共享 V3 desktop-console information architecture；未来工作应聚焦
+  窄范围 interaction polish 和缺失 backend-backed fields，而不是再次做 broad shell rewrite。
+  Destructive local actions 现在在 clearing records 或 writing placeholder `auth.json` 前使用
+  confirmation dialogs。所选 UI language 会同步到 native import/export dialogs，同时 language
+  和 theme choices 会本地持久化。Daemon management configuration 是 Proxy 页面的一部分，
+  不是单独 settings page。overview 打开并约束在 `1160x720` minimum desktop window：没有
+  top-level page scroll，按比例的三列 app structure，以及内部滚动的 Recent Activity table，
+  没有 horizontal scrollbar 或 fixed row slice。remaining-page polish pass 让 Accounts、
+  Proxy、Requests 和 Usage 通过 compact headers、semantic light/dark borders、virtualized
+  data tables，以及没有重复 copy/context blocks 的更干净 Proxy 页面与 overview 对齐。当前
+  overview detail pass 移除 top recent-event summary，把 utility system button 改为 theme
+  cycle，移除 account-health progress bar，按 event type 分类 recent logs，把
+  `/backend-api/wham/remote/*` 标记为 original Codex account，并使用 email metadata 而不是
+  synthetic account ids。
+- `docs/CodexFree-v2.pen`、`docs/CodexFree-v3.pen` 和 preview images 仍是设计参考，本身不能
+  作为完成证明。
 
-Current verification:
+当前验证：
 
-- `bun run lint`;
-- `bun run typecheck:web`;
-- `bun run typecheck:node`;
-- `bun run typecheck`;
-- `bun run build`;
-- `bun run build:unpack`.
-- Electron shell verification on the current refactor:
-  - dashboard overview matches the V3 desktop mockup details in the default
-    desktop window;
-  - account, proxy, request, and usage navigation works;
-  - proxy, request, and usage pages render the current polished
-    console layouts in the live Electron window;
-  - accounts, proxy, requests, and usage match the overview card/table visual
-    language in both light and dark modes;
-  - request clearing and placeholder `auth.json` writing open confirmation
-    dialogs and can be canceled without dispatching the destructive action;
-  - at the minimum `1160x720` window, the overview keeps the shell fixed and
-    only the Recent Activity table scrolls vertically;
-  - managed directory open action succeeds.
-- Current daemon/proxy core verification:
-  - `bun run test` passed 24 test files and 89 tests;
-  - `bun run typecheck:node` passed;
-  - `bun run daemon -- --help` passed;
-  - local daemon smoke confirmed log events are persisted by default and printed
-    only with `--debug`.
+- `bun run lint`；
+- `bun run typecheck:web`；
+- `bun run typecheck:node`；
+- `bun run typecheck`；
+- `bun run build`；
+- `bun run build:unpack`。
+- 当前 refactor 的 Electron shell 验证：
+  - dashboard overview 在默认 desktop window 中匹配 V3 desktop mockup details；
+  - account、proxy、request 和 usage navigation 正常；
+  - proxy、request 和 usage 页面在 live Electron window 中渲染当前 polished console layouts；
+  - accounts、proxy、requests 和 usage 在 light 和 dark modes 下匹配 overview card/table
+    visual language；
+  - request clearing 和 placeholder `auth.json` writing 会打开 confirmation dialogs，并且可以
+    在不派发 destructive action 的情况下取消；
+  - 最小 `1160x720` window 下，overview 保持 shell fixed，只有 Recent Activity table 垂直滚动；
+  - managed directory open action 成功。
+- 当前 daemon/proxy core 验证：
+  - `bun run test` 通过 24 个 test files 和 89 个 tests；
+  - `bun run typecheck:node` 通过；
+  - `bun run daemon -- --help` 通过；
+  - local daemon smoke 确认默认写入 log events，仅在 `--debug` 下打印。
 
-## Immediate Next Step
+## 即时下一步
 
-T1a is complete. The service starts from the standalone daemon, supports
-configurable listen host, listen port, upstream base URL, outbound proxy mode,
-redacted logs, SQLite request ledger fields, and explicit temp-directory raw
-capture. It does not mutate request bodies and does not replace upstream auth.
+T1a 已完成。服务从 standalone daemon 启动，支持 configurable listen host、listen port、
+upstream base URL、outbound proxy mode、redacted logs、SQLite request ledger fields，以及
+明确的 temp-directory raw capture。它不修改 request bodies，也不替换 upstream auth。
 
-Verification: `bun run lint`, `bun run typecheck`, `bun run test`,
-`bun run build`, `bun run build:unpack`, transparent proxy integration test,
-local curl through `127.0.0.1:33333`, Docker Node fetch through
-`10.211.55.2:33333`, and `codex exec` from the existing `codex` container.
+验证：`bun run lint`、`bun run typecheck`、`bun run test`、`bun run build`、
+`bun run build:unpack`、transparent proxy integration test、通过 `127.0.0.1:33333` 的
+local curl、通过 `10.211.55.2:33333` 的 Docker Node fetch，以及现有 `codex` container 中的
+`codex exec`。
 
-Environment notes: the default port is now `33333` and the default host is
-`127.0.0.1`. The existing `codex` container has `codex-cli 0.130.0`; Docker
-validation needs an explicit `--host 0.0.0.0` override before its config can be
-pointed to the Mac proxy. Docker should use `host.docker.internal`; local host
-Codex should use `127.0.0.1`, or the computer IP when accessed from a VM/LAN
-client.
+环境说明：默认 port 现在是 `33333`，默认 host 是 `127.0.0.1`。现有 `codex` container 有
+`codex-cli 0.130.0`；Docker 验证需要显式 `--host 0.0.0.0` override，之后才能把它的 config
+指向 Mac proxy。Docker 应使用 `host.docker.internal`；本地主机 Codex 应使用 `127.0.0.1`，
+从 VM/LAN client 访问时使用电脑 IP。
 
-T1b is complete for normal account-mode traffic. HAR analysis confirmed the
-direct upstream paths under `https://chatgpt.com/backend-api`. Two local routing
-shapes are now verified:
+T1b 已针对普通账号模式流量完成。HAR 分析确认 direct upstream paths 位于
+`https://chatgpt.com/backend-api` 下。现在验证了两种本地路由形态：
 
-- `openai_base_url = "http://host.docker.internal:33333/backend-api/codex"`
-  keeps Docker Codex-to-proxy model traffic on `/backend-api/codex/models` and
-  `/backend-api/codex/responses` while `chatgpt_base_url =
-  "http://host.docker.internal:33333/backend-api"` keeps auxiliary ChatGPT
-  backend traffic on `/backend-api/*`.
-- `/v1/models` and `/v1/responses` belong to the future API-key compatibility
-  surface. `/v1/models` must convert upstream account models into the standard
-  OpenAI model-list response shape.
-- `openai_base_url = "http://127.0.0.1:33333/backend-api/codex"` keeps host
-  Codex-to-proxy model traffic on `/backend-api/codex/models` and
-  `/backend-api/codex/responses` while `chatgpt_base_url =
-  "http://127.0.0.1:33333/backend-api"` keeps auxiliary ChatGPT backend traffic
-  on `/backend-api/*`.
+- `openai_base_url = "http://host.docker.internal:33333/backend-api/codex"` 让 Docker
+  Codex-to-proxy model traffic 保持在 `/backend-api/codex/models` 和
+  `/backend-api/codex/responses`，同时 `chatgpt_base_url =
+  "http://host.docker.internal:33333/backend-api"` 让 auxiliary ChatGPT backend traffic 保持在
+  `/backend-api/*`。
+- `/v1/models` 和 `/v1/responses` 属于未来 API-key compatibility surface。`/v1/models`
+  必须把 upstream account models 转换成标准 OpenAI model-list response shape。
+- `openai_base_url = "http://127.0.0.1:33333/backend-api/codex"` 让 host Codex-to-proxy
+  model traffic 保持在 `/backend-api/codex/models` 和 `/backend-api/codex/responses`，同时
+  `chatgpt_base_url = "http://127.0.0.1:33333/backend-api"` 让 auxiliary ChatGPT backend
+  traffic 保持在 `/backend-api/*`。
 
-In both verified shapes, the proxy rewrites `Host` to `chatgpt.com` and
-preserves request bodies.
+在两个已验证形态中，proxy 都会把 `Host` 重写为 `chatgpt.com`，并保留 request bodies。
 
-The provided flat auth template was normalized into Codex 0.130 native
-`auth.json` shape. After normalization, `codex exec` through
-the earlier `/v1` experiment returned `converted-auth-proxy-ok`; that result is
-historical evidence only and should not be used as the account-login default.
+提供的 flat auth template 已规范化为 Codex 0.130 native `auth.json` shape。规范化之后，通过
+早期 `/v1` 实验的 `codex exec` 返回 `converted-auth-proxy-ok`；该结果只是历史证据，不应作为
+账号登录默认路径使用。
 
-The second HAR, `test/History-1778652315307.har`, verified the
-`/backend-api/codex` base URL shape. `codex exec` returned
-`chatgpt-base-url-ok`; raw captures showed `GET /backend-api/codex/models`
-status `200` and WebSocket `GET /backend-api/codex/responses` status `101`.
-Auxiliary interfaces (`analytics-events`, `connectors`, `wham/apps`, and
-`plugins/featured`) matched between HAR and raw capture with unchanged bodies
-and selected auth/protocol headers.
+第二个 HAR `test/History-1778652315307.har` 验证了 `/backend-api/codex` base URL shape。
+`codex exec` 返回 `chatgpt-base-url-ok`；raw captures 显示
+`GET /backend-api/codex/models` status `200`，WebSocket
+`GET /backend-api/codex/responses` status `101`。Auxiliary interfaces（`analytics-events`、
+`connectors`、`wham/apps` 和 `plugins/featured`）在 HAR 和 raw capture 之间 body 与选定
+auth/protocol headers 保持不变。
 
-Immediate next step: keep API-key compatibility mode as a separate T8 phase.
-The account-login proxy path is now usable with imported managed accounts,
-real usage checks, persisted account state, and explicit auth-pool takeover.
+即时下一步：继续把 API-key compatibility mode 保持为单独的 T8 phase。account-login proxy
+path 现在已可配合 imported managed accounts、real usage checks、persisted account state 和
+明确 auth-pool takeover 使用。
 
-T2 is complete for the current supported import surface. The normalization
-module accepts native Codex `auth.json`, CPA-style records, and sub2api-style
-records that contain ChatGPT account tokens. It returns canonical Codex
-account-login auth shape and separates safe metadata from the raw token-bearing
-object.
+T2 已针对当前支持的 import surface 完成。Normalization module 接受 native Codex
+`auth.json`、CPA-style records，以及包含 ChatGPT account tokens 的 sub2api-style records。它
+返回 canonical Codex account-login auth shape，并把 safe metadata 与包含 token 的 raw object
+分离。
 
-Current T2 verification: `bun run lint`, `bun run typecheck`, `bun run test`,
-and `bun run build`.
+当前 T2 验证：`bun run lint`、`bun run typecheck`、`bun run test` 和 `bun run build`。
 
-Deferred T2 hardening:
+延后的 T2 加固：
 
-- add more real-world sub2api variants as samples appear;
-- replace plaintext app-managed auth-file storage with encrypted or
-  platform-protected storage in a later security phase.
+- 随着样例出现添加更多真实世界 sub2api variants；
+- 在后续 security phase 用 encrypted 或 platform-protected storage 替代 plaintext
+  app-managed auth-file storage。
 
-T3 is complete. The proxy now classifies requests by account-mode path and
-headers before forwarding. Known Codex account backend paths are allowed only
-when they carry account auth headers; `Bearer sk-` API-key mode requests and
-unknown backend paths are rejected locally and written to the ledger as
-`rejected` without reaching upstream. This applies to normal HTTP requests and
-WebSocket Upgrade requests.
+T3 已完成。代理现在会在转发前按 account-mode path 和 headers 分类请求。已知 Codex account
+backend paths 只有在携带 account auth headers 时才允许；`Bearer sk-` API-key mode requests
+和 unknown backend paths 会在本地被拒绝，并以 `rejected` 写入 ledger，不会到达上游。这适用
+于普通 HTTP requests 和 WebSocket Upgrade requests。
 
-Current T3 verification: `bun run lint`, `bun run typecheck`, `bun run test`,
-and `bun run build`.
+当前 T3 验证：`bun run lint`、`bun run typecheck`、`bun run test` 和 `bun run build`。
 
-T4 has advanced because real usage-limit samples were captured and decoded from
-the WebSocket packet stream. The loop run
-`/tmp/codexfree-ws-loop-usage.jsonl` hit:
+T4 已推进，因为真实 usage-limit samples 已经从 WebSocket packet stream 抓取并解码。loop run
+`/tmp/codexfree-ws-loop-usage.jsonl` 命中：
 
 ```text
 You've hit your usage limit. Upgrade to Plus to continue using Codex
 (https://chatgpt.com/explore/plus), or try again at May 20th, 2026 3:15 AM.
 ```
 
-The matching raw capture id was `<uuid>`, with
-`GET /backend-api/codex/responses` returning HTTP `101`. The decoded
-`websocket-upstream-to-codex.frames.jsonl` payload contained
-`usage_limit_reached`, `status_code: 429`, `X-Codex-Plan-Type: free`,
-`X-Codex-Active-Limit: premium`, and `X-Codex-Primary-Used-Percent: 100`.
+匹配的 raw capture id 是 `<uuid>`，其中
+`GET /backend-api/codex/responses` 返回 HTTP `101`。解码后的
+`websocket-upstream-to-codex.frames.jsonl` payload 包含 `usage_limit_reached`、
+`status_code: 429`、`X-Codex-Plan-Type: free`、`X-Codex-Active-Limit: premium` 和
+`X-Codex-Primary-Used-Percent: 100`。
 
-Implemented T4 slice: decoded upstream WSS text frames are now parsed for
-`usage_limit_reached`, and matching upgraded requests are updated in the ledger
-as `quota_exhausted` with status `429`. This does not replay or modify the
-in-flight turn.
+已实现的 T4 切片：现在会解析 decoded upstream WSS text frames 中的
+`usage_limit_reached`，并把匹配的 upgraded requests 在 ledger 中更新为
+`quota_exhausted`，status 为 `429`。这不会 replay 或修改 in-flight turn。
 
-Current T4 verification: `bun run lint:fix`, `bun run test`,
-`bun run typecheck`, and `bun run build`.
+当前 T4 验证：`bun run lint:fix`、`bun run test`、`bun run typecheck` 和 `bun run build`。
 
-Immediate next step: update account availability and implement next-boundary
-auth replacement without changing request bodies or replaying the failed turn.
+即时下一步：更新 account availability，并实现 next-boundary auth replacement，不改变 request
+bodies，也不 replay failed turn。
 
-Implemented T4 account-pool slice: account-pool routing loads normalized auth
-files from the app-managed import directory into an in-memory router. The user
-cannot select a custom runtime auth directory. The router binds each
-conversation key to a selected account, replaces only upstream `Authorization`
-and `chatgpt-account-id`, marks the bound account exhausted on decoded WSS
-`usage_limit_reached`, and selects the next available account on the next
-request or WSS upgrade boundary. Multiple conversations are handled by separate
-conversation bindings.
+已实现的 T4 account-pool 切片：account-pool routing 从 app-managed import directory 加载
+规范化 auth files 到内存 router。用户不能选择自定义 runtime auth directory。router 把每个
+conversation key 绑定到选中账号，只替换 upstream `Authorization` 和 `chatgpt-account-id`，
+在 decoded WSS `usage_limit_reached` 时把绑定账号标记为 exhausted，并在下一次 request 或 WSS
+upgrade boundary 选择下一个 available account。多个 conversations 由独立 conversation
+bindings 处理。
 
-Implemented WSS quota retry shielding: when a newly opened upstream WSS returns
-`usage_limit_reached` before any upstream business frame has been forwarded to
-Codex, the proxy buffers the client socket, hides that quota frame, marks the
-attempted account exhausted, reconnects upstream with the next available
-account, replays buffered client frames, and then resumes normal piping. This
-prevents a new Codex task from showing quota exhausted when another long task
-spent the previous account's final quota.
+已实现的 WSS quota retry shielding：当新打开的 upstream WSS 在任何 upstream business frame
+被转发给 Codex 前返回 `usage_limit_reached`，proxy 会缓冲 client socket、隐藏 quota frame、
+标记尝试账号 exhausted、用下一个 available account 重连 upstream、replay buffered client
+frames，然后恢复 normal piping。这避免了当另一个长任务耗尽前一个账号最终 quota 时，新的
+Codex task 在仍有其他账号可用的情况下显示 quota exhausted。
 
-Usage query policy is also fixed: `/backend-api/wham/usage` should be forwarded
-with the currently bound/default available account and return that account's
-real upstream usage. The proxy must not fabricate a constant 100% or fake low
-usage value.
+Usage query policy 也已固定：`/backend-api/wham/usage` 应使用当前绑定/默认可用账号转发，并
+返回该账号真实 upstream usage。proxy 不能伪造固定 100% 或虚假的低 usage value。
 
-Four free-account `hi` samples were captured in
-`test/raw-captures/account-hi`. The packet comparison showed:
+四个 free-account `hi` samples 已抓取到 `test/raw-captures/account-hi`。packet comparison 显示：
 
-- account-varying fields: `Authorization`, `chatgpt-account-id`;
-- session-varying fields: `thread_id`, `session_id`, `x-client-request-id`,
-  `x-codex-window-id`, `x-codex-turn-metadata`;
-- transport-varying fields: `sec-websocket-key`;
-- stable protocol fields: `/backend-api/codex/models`,
-  `/backend-api/codex/responses`, `openai-beta:
-  responses_websockets=2026-02-06`, request bodies for model/responses.
+- account-varying fields：`Authorization`、`chatgpt-account-id`；
+- session-varying fields：`thread_id`、`session_id`、`x-client-request-id`、
+  `x-codex-window-id`、`x-codex-turn-metadata`；
+- transport-varying fields：`sec-websocket-key`；
+- stable protocol fields：`/backend-api/codex/models`、`/backend-api/codex/responses`、
+  `openai-beta: responses_websockets=2026-02-06`、model/responses 的 request bodies。
 
-Same-session account switching was also captured in
-`test/raw-captures/same-session-account-switch`. Three auth files were used with
-the same `codex exec resume` thread id
-`019e<thread-redacted>`. The response WSS account id changed per
-auth file, while `thread_id`, `session_id`, `x-client-request-id`,
-`x-codex-window-id`, and `x-codex-turn-metadata` stayed stable. This confirms
-that account switching can happen inside one conversation at the next WSS
-upgrade boundary.
+Same-session account switching 也已抓取到 `test/raw-captures/same-session-account-switch`。
+三个 auth files 使用相同的 `codex exec resume` thread id
+`019e<thread-redacted>`。response WSS account id 随 auth file 改变，而
+`thread_id`、`session_id`、`x-client-request-id`、`x-codex-window-id` 和
+`x-codex-turn-metadata` 保持稳定。这确认 account switching 可以在同一 conversation 内的下一个
+WSS upgrade boundary 发生。
 
-Current T4 verification: `bun run lint`, `bun run test`, `bun run typecheck`,
-`bun run build`, and Docker validation with Codex CLI `0.130.0`.
+当前 T4 验证：`bun run lint`、`bun run test`、`bun run typecheck`、`bun run build`，以及
+Codex CLI `0.130.0` 的 Docker validation。
 
-Completed T4 core work:
+已完成的 T4 core work：
 
-- persisted account availability into SQLite `proxy_accounts`;
-- persisted route decisions into `proxy_routing_events`;
-- persisted quota exhaustion details into `proxy_quota_events`;
-- reloaded persisted exhausted accounts before routing after service restart;
-- marked token/account failures during forwarding without refreshing inside the
-  proxy path;
-- kept concurrent conversation bindings separate and avoided stealing an account
-  already bound to another active conversation when an unbound account exists;
-- shielded initial WSS `usage_limit_reached` frames and retried on the next
-  available account;
-- passed through the quota error only when every managed account is exhausted;
-- verified real `/backend-api/wham/usage` forwarding with the selected account.
+- 把 account availability 持久化到 SQLite `proxy_accounts`；
+- 把 route decisions 持久化到 `proxy_routing_events`；
+- 把 quota exhaustion details 持久化到 `proxy_quota_events`；
+- service restart 后在路由前重新加载 persisted exhausted accounts；
+- 在 forwarding 期间标记 token/account failures，但不在 proxy path 内 refresh；
+- 保持 concurrent conversation bindings 分离，并在存在 unbound account 时避免抢占另一个 active
+  conversation 已绑定的账号；
+- 屏蔽 initial WSS `usage_limit_reached` frames，并用下一个 available account 重试；
+- 只有在所有 managed accounts 都 exhausted 时才透传 quota error；
+- 验证使用 selected account 进行真实 `/backend-api/wham/usage` forwarding。
 
-Docker validation evidence:
+Docker validation evidence：
 
-- Container inbound account:
-  `<uuid>`.
-- Local auth-pool outbound account:
-  `<uuid>`.
-- Raw captures show account replacement on `/backend-api/codex/models`,
-  WebSocket `/backend-api/codex/responses`, and `/backend-api/wham/usage`.
-- The chat task returned `authpool-docker-ok`; the manual usage query returned
-  HTTP 200 with a real upstream body.
+- Container inbound account：
+  `<uuid>`。
+- Local auth-pool outbound account：
+  `<uuid>`。
+- Raw captures 显示 `/backend-api/codex/models`、WebSocket `/backend-api/codex/responses`
+  和 `/backend-api/wham/usage` 上发生 account replacement。
+- chat task 返回 `authpool-docker-ok`；manual usage query 返回 HTTP 200 和真实 upstream body。
 
-T4 is complete for the account-login proxy path. The latest slice added:
+T4 已针对 account-login proxy path 完成。最新切片添加了：
 
-- app-managed account import without automatically enabling takeover;
-- runtime routing uses the same app-managed directory as batch import;
-- batch usage checks for imported accounts;
-- per-account disable/enable control;
-- exhausted-account reset control;
-- exported auth-file backup path;
-- 24-hour retention pruning for in-memory conversation bindings;
-- status reporting for available, exhausted, and disabled account counts.
+- app-managed account import，不自动启用 takeover；
+- runtime routing 使用与 batch import 相同的 app-managed directory；
+- imported accounts 的 batch usage checks；
+- per-account disable/enable control；
+- exhausted-account reset control；
+- exported auth-file backup path；
+- in-memory conversation bindings 的 24 小时 retention pruning；
+- available、exhausted 和 disabled account counts 的 status reporting。
 
-The latest evidence from `test/History-1778683339690.har` and raw captures
-refines T4:
+来自 `test/History-1778683339690.har` 和 raw captures 的最新证据进一步细化 T4：
 
-- Codex establishes a WSS `/backend-api/codex/responses` channel after a
-  session/turn starts.
-- The proxy must preserve auth headers for an already-upgraded WSS connection.
-- Only a decoded upstream WSS payload with `error.type =
-  "usage_limit_reached"` marks the bound account as exhausted.
-- Network disconnects, `EPIPE`, local proxy failures, or Yakit HTML errors must
-  not trigger auth replacement.
-- After quota exhaustion, the same session can become eligible for a new account
-  on the next request boundary; the failed in-flight WSS turn is not replayed.
+- Codex 在 session/turn starts 后建立 WSS `/backend-api/codex/responses` channel。
+- proxy 必须为已经升级的 WSS connection 保留 auth headers。
+- 只有解码后的 upstream WSS payload 中 `error.type = "usage_limit_reached"` 才把绑定账号标记为
+  exhausted。
+- Network disconnects、`EPIPE`、local proxy failures 或 Yakit HTML errors 不能触发 auth
+  replacement。
+- quota exhaustion 后，同一 session 可以在下一个 request boundary 获得新账号资格；failed
+  in-flight WSS turn 不会 replay。
 
-T8 is intentionally separate. It changes the previous hard boundary by adding an
-off-by-default API-key compatibility mode. In that mode, CodexFree would accept
-standard OpenAI-style `/v1/models`, `/v1/responses`, and legacy
-`/v1/chat/completions` requests on a configured port/key. `/v1/models` must
-convert the account models payload into the standard OpenAI response shape.
-`/v1/responses` must support HTTP/SSE and WebSocket client surfaces while every
-generation request to ChatGPT goes through a short-lived account WSS
-`/backend-api/codex/responses` call. `chat/completions` must translate requests
-to Codex Responses frames and translate Codex response events back to OpenAI
-Chat Completions chunks or final JSON. The detailed conversion design is in
-`docs/specs/v1-compatibility-adapter.md`. This is not the same as the
-account-login transparent proxy and needs separate tests and operator controls.
+T8 有意保持独立。它通过添加 off-by-default API-key compatibility mode 来改变之前的 hard
+boundary。在该模式下，CodexFree 会在配置的 port/key 上接受标准 OpenAI-style `/v1/models`、
+`/v1/responses` 和 legacy `/v1/chat/completions` requests。`/v1/models` 必须把 account
+models payload 转换成标准 OpenAI response shape。`/v1/responses` 必须支持 HTTP/SSE 和
+WebSocket client surfaces，同时每个 generation request 到 ChatGPT 都通过短生命周期 account
+WSS `/backend-api/codex/responses` call。`chat/completions` 必须把 requests 转换成 Codex
+Responses frames，并把 Codex response events 转换回 OpenAI Chat Completions chunks 或 final
+JSON。详细转换设计在 `docs/specs/v1-compatibility-adapter.md`。这不同于 account-login
+transparent proxy，需要单独 tests 和 operator controls。
 
-## Overall Proxy Capability Plan
+## 整体 Proxy 能力计划
 
-Still needed after the account-login proxy core:
+account-login proxy core 后仍需要：
 
-- Account storage hardening: encrypted or platform-protected auth payload
-  storage.
-- Validation tools: one-click raw capture cleanup and packet diff summaries for
-  account/header changes. Docker smoke output for the current daemon path is now
-  recorded in `docs/current-state.md`.
-- Token refresh integration: `src/main/auth/refresh.ts` exists, but forwarding
-  should not refresh inside HTTP/WSS proxy paths. Use the main app
-  account-maintenance flow to refresh or recover accounts marked unavailable.
-- API-key compatibility mode: separate disabled-by-default listener, explicit
-  local API key, visible ban/detection warning, and adapter from OpenAI-style
-  `/v1/*` requests to short-lived account WSS exchanges.
+- Account storage hardening：encrypted 或 platform-protected auth payload storage。
+- Validation tools：一键 raw capture cleanup 和 account/header changes 的 packet diff summaries。
+  当前 daemon path 的 Docker smoke output 现在已记录在 `docs/current-state.md`。
+- Token refresh integration：`src/main/auth/refresh.ts` 存在，但 forwarding 不应在 HTTP/WSS
+  proxy paths 内 refresh。使用主 app account-maintenance flow 来 refresh 或 recover 被标记为
+  unavailable 的 accounts。
+- API-key compatibility mode：单独的 disabled-by-default listener、明确的 local API key、可见的
+  ban/detection warning，以及从 OpenAI-style `/v1/*` requests 到短生命周期 account WSS
+  exchanges 的 adapter。
 
-T7 is complete. Verification: `rtk bun run lint`, `rtk bun run typecheck`,
-`rtk bun run test`, `rtk bun run build`, `rtk bun run build:unpack`, dev UI
-checked with Computer Use, and packaged GitHub
-update metadata confirmed with sanitized update-check failure logging.
+T7 已完成。验证：`rtk bun run lint`、`rtk bun run typecheck`、`rtk bun run test`、
+`rtk bun run build`、`rtk bun run build:unpack`、用 Computer Use 检查 dev UI，并确认打包的
+GitHub update metadata 和 sanitized update-check failure logging。
 
-The latest proxy-response slice is complete for the two client-visible account
-surfaces:
+最新 proxy-response 切片已针对两个 client-visible account surfaces 完成：
 
-- `/backend-api/wham/usage` still forwards through the selected managed auth
-  file and updates quota state from the real upstream response, then returns
-  the real upstream usage shape to Codex without client-visible field rewriting.
-  The previous `user_id`/`account_id` rewrite helper remains in code but is not
-  active.
-- `/backend-api/wham/remote` and child paths now bypass managed auth
-  replacement so upstream receives the original Codex `Authorization` and
-  `chatgpt-account-id` headers for HTTP and WSS traffic.
-- Terminal WSS quota handling now suppresses immediate probe quota frames only
-  while another account remains usable. If no replacement account remains, the
-  final `usage_limit_reached` frame is returned to Codex.
-- `/backend-api/codex/models` keeps the upstream model list exactly as returned
-  by upstream.
-- Verification passed:
-  `bun run test -- src/main/proxy/service.test.ts`,
-  `bunx biome check src/main/proxy/service.ts src/main/proxy/service.test.ts`,
-  and `bun run typecheck:node`.
+- `/backend-api/wham/usage` 仍通过 selected managed auth file 转发，并从真实 upstream response
+  更新 quota state，然后把真实 upstream usage shape 返回给 Codex，不做 client-visible field
+  rewriting。之前的 `user_id`/`account_id` rewrite helper 仍在代码中，但未激活。
+- `/backend-api/wham/remote` 及其子路径现在绕过 managed auth replacement，因此 HTTP 和 WSS
+  流量中，上游会收到原始 Codex `Authorization` 和 `chatgpt-account-id` headers。
+- Terminal WSS quota handling 现在只在仍有另一个账号可用时抑制 immediate probe quota frames。
+  如果没有替代账号，最终 `usage_limit_reached` frame 会返回给 Codex。
+- `/backend-api/codex/models` 保持上游返回的 model list 原样。
+- 验证通过：
+  `bun run test -- src/main/proxy/service.test.ts`、
+  `bunx biome check src/main/proxy/service.ts src/main/proxy/service.test.ts`，
+  以及 `bun run typecheck:node`。
 
-## Readiness Rules
+daemon log-model rewrite 已针对当前 account-login proxy 完成：
 
-- Draft tasks cannot be implemented until their dependencies are supplied.
-- Any task that changes request forwarding, auth handling, or persistence must
-  update `docs/security-checklist.md` if it discovers a new risk.
-- Temporary raw capture is allowed only behind an explicit debug setting and
-  must write outside the repository into the app data `raw-captures` directory.
-- When a task becomes Done, record the verification evidence here.
-- Independent task cards are not enabled; this file is the task queue authority.
+- `proxy_requests` 记录一个完成的 network request，并携带 route-specific HTTP results 的
+  structured `summary_json`。
+- `proxy_protocol_messages` 记录解析后的 SSE/WSS protocol events，包括 user requests、assistant
+  replies、usage、errors、tool calls 和 tool results，并带有 `item_id`、`call_id`、
+  `response_id`、`previous_response_id` 和 `parent_response_id` correlation fields。
+- `proxy_turn_summaries` 聚合从 user request 到 assistant completion 的一轮，包括 token usage
+  和 tool counts。
+- Normal request progress logs 不再填充 `proxy_log_events`；该表现在保留给 system、error、
+  auth、account-switch 和 quota events。
+- Requests UI 会在 requests、protocol messages 和 events 旁加载 turn summaries；account
+  history links 仍然会把 account id 传入 request search box。
+- 验证通过：`rtk bun run lint`、`rtk bun run typecheck`、`rtk bun run test` 和
+  `rtk bun run build`。
+- Live Docker Codex validation 使用 isolated data dir `/tmp/codexfree-live-i757ob` 通过：
+  direct interactive `codex` 产生 HTTP request rows、WSS user/assistant/usage protocol rows、
+  turn summaries 和 tool call/result rows。后续 `/backend-api/wham/usage` request 确认该 row
+  存储 proxied account 和 remaining-quota summary（`primaryUsedPercent=4`、
+  `primaryRemainingPercent=96`）。
+
+## 就绪规则
+
+- Draft tasks 在依赖提供前不能实现。
+- 任何改变 request forwarding、auth handling 或 persistence 的任务，如果发现新风险，都必须更新
+  `docs/security-checklist.md`。
+- Temporary raw capture 只能在明确 debug setting 后启用，并且必须写到 repository 外 app data
+  `raw-captures` 目录。
+- 当任务变为 Done 时，在这里记录 verification evidence。
+- 不启用 independent task cards；本文件是 task queue authority。

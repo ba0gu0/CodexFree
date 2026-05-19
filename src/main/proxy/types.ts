@@ -135,6 +135,7 @@ export interface RequestLedgerEntry {
   reasoningTokens?: number
   requestBodyEncoding?: string
   requestHeadersJson?: string
+  summaryJson?: string
   responseHeadersJson?: string
   requestBodySample?: string
   responseBodySample?: string
@@ -204,6 +205,7 @@ export interface RecentRequest {
   userAgent: string | null
   originator: string | null
   streaming: number
+  summaryJson: string | null
   upstreamHost: string
   outboundMode: string
   rawCapturePath: string | null

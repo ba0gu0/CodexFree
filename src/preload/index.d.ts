@@ -21,6 +21,7 @@ import type {
   RequestSummaryDto,
   ResetExhaustedAccountsDto,
   SetAccountDisabledDto,
+  TurnSummaryDto,
   UsageSummaryDto
 } from './proxy-api'
 
@@ -47,6 +48,7 @@ declare global {
       getUsageSummary: () => Promise<UsageSummaryDto>
       getProxyLogEvents: (limit?: number) => Promise<ActivityPageDto<ProxyLogEventDto>>
       getProtocolMessages: (limit?: number) => Promise<ActivityPageDto<ProtocolMessageDto>>
+      getTurnSummaries: (limit?: number) => Promise<ActivityPageDto<TurnSummaryDto>>
       getRawCapture: (requestId: string) => Promise<RawCaptureDetailDto | undefined>
       clearProxyRecords: () => Promise<ClearProxyRecordsResultDto>
       saveProxyConfig: (

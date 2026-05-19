@@ -78,6 +78,28 @@ describe('websocket protocol summary', () => {
     })
     expect(summary).not.toHaveProperty('inputTokens')
   })
+
+  it('extracts tool correlation ids from websocket tool events', () => {
+    const summary = summarizeWebSocketFrame(
+      textFrame({
+        item: {
+          call_id: 'call-1',
+          id: 'item-1',
+          name: 'exec_command',
+          type: 'function_call'
+        },
+        response_id: 'resp-1',
+        type: 'response.output_item.added'
+      })
+    )
+
+    expect(summary).toMatchObject({
+      callId: 'call-1',
+      itemId: 'item-1',
+      kind: 'tool_call',
+      responseId: 'resp-1'
+    })
+  })
 })
 
 function textFrame(

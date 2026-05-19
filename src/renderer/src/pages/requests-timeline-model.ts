@@ -1,12 +1,6 @@
 import { logEventTypeLabel, protocolKindLabel } from '@renderer/data/activity-display'
-import {
-  outcomeKey,
-  requestModelLabel,
-  requestPurposeLabel,
-  requestTokenTotal,
-  tokenBreakdownText,
-  tokenUsageSourceLabel
-} from '@renderer/data/proxy-console'
+import { activityKindLabel } from '@renderer/data/activity-view-model'
+import { outcomeKey, requestPurposeLabel, requestTokenTotal } from '@renderer/data/proxy-console'
 import {
   type RequestFilter,
   type RequestTimelineItem,
@@ -26,14 +20,13 @@ export interface SelectOption {
 export type SortDirection = 'asc' | 'desc'
 export type RequestSortKey =
   | 'account'
-  | 'bytes'
   | 'duration'
   | 'model'
-  | 'path'
-  | 'purpose'
   | 'startedAt'
   | 'status'
+  | 'summary'
   | 'tokens'
+  | 'type'
 
 export interface RequestSort {
   direction: SortDirection
@@ -42,15 +35,14 @@ export interface RequestSort {
 
 export function requestColumns(t: PageProps['t']): Array<{ key: RequestSortKey; label: string }> {
   return [
-    { key: 'startedAt', label: t('table.startedAt') },
-    { key: 'status', label: t('table.status') },
-    { key: 'purpose', label: t('table.purpose') },
-    { key: 'path', label: t('table.path') },
+    { key: 'startedAt', label: t('table.time') },
+    { key: 'type', label: t('table.type') },
+    { key: 'summary', label: t('table.summary') },
     { key: 'account', label: t('table.accountId') },
     { key: 'model', label: t('table.model') },
-    { key: 'tokens', label: t('table.tokens') },
-    { key: 'duration', label: t('table.duration') },
-    { key: 'bytes', label: t('table.bytes') }
+    { key: 'status', label: t('table.result') },
+    { key: 'tokens', label: t('table.usageQuota') },
+    { key: 'duration', label: t('table.durationBytes') }
   ]
 }
 
@@ -84,6 +76,9 @@ export function timelineStatusClass(item: RequestTimelineItem): string {
 }
 
 export function timelineStatusText(item: RequestTimelineItem, t?: PageProps['t']): string {
+  if (item.activity.statusText) {
+    return item.activity.statusText
+  }
   if (item.kind === 'request') {
     return item.request.statusCode
       ? String(item.request.statusCode)
@@ -92,37 +87,23 @@ export function timelineStatusText(item: RequestTimelineItem, t?: PageProps['t']
   if (item.kind === 'protocol') {
     return t ? t('source.protocol') : 'WSS'
   }
+  if (item.kind === 'turn') {
+    return item.turn.status ?? (t ? t('requests.turnSummary') : 'turn')
+  }
   return item.event.level.toUpperCase()
 }
 
 export function timelinePurposeLabel(item: RequestTimelineItem, t: PageProps['t']): string {
-  if (item.kind === 'request') {
-    return requestPurposeLabel(item.request.requestPurpose, t)
-  }
-  if (item.kind === 'protocol') {
-    return protocolKindLabel(item.message.kind, t)
-  }
-  return logEventTypeLabel(item.event.eventType, t)
+  return activityKindLabel(item.activity.kind, t)
 }
 
 export function timelineTokenSource(item: RequestTimelineItem, t: PageProps['t']): string {
-  if (item.kind === 'request') {
-    return tokenUsageSourceLabel(item.request.tokenUsageSource, t)
-  }
-  if (item.kind === 'protocol') {
-    return t('source.protocol')
-  }
-  return '-'
+  return item.activity.badges.join(' · ') || t('status.empty')
 }
 
 export function timelineTokenText(item: RequestTimelineItem, locale: PageProps['locale']): string {
-  if (item.kind === 'request') {
-    return tokenBreakdownText(item.request, locale)
-  }
-  if (item.kind === 'protocol') {
-    return tokenBreakdownText(item.message, locale)
-  }
-  return '-'
+  void locale
+  return item.activity.metrics.join(' · ') || '-'
 }
 
 export function requestFilterOptionSets(
@@ -171,9 +152,6 @@ function compareTimelineValue(
   if (key === 'tokens') {
     return timelineTokenTotal(left) - timelineTokenTotal(right)
   }
-  if (key === 'bytes') {
-    return timelineBytes(left) - timelineBytes(right)
-  }
   return timelineSortText(left, key).localeCompare(timelineSortText(right, key))
 }
 
@@ -184,23 +162,16 @@ function timelineSortText(item: RequestTimelineItem, key: RequestSortKey): strin
   if (key === 'model') {
     return timelineModelLabel(item)
   }
-  if (key === 'path') {
+  if (key === 'summary') {
     return timelinePathText(item)
-  }
-  if (key === 'purpose') {
-    return timelinePurposeValue(item)
   }
   if (key === 'status') {
     return timelineStatusText(item)
   }
-  return ''
-}
-
-function timelineBytes(item: RequestTimelineItem): number {
-  if (item.kind === 'request') {
-    return item.request.requestBytes + item.request.responseBytes
+  if (key === 'type') {
+    return item.activity.kind
   }
-  return item.kind === 'protocol' ? (item.message.payloadBytes ?? 0) : 0
+  return ''
 }
 
 function timelineDurationMs(item: RequestTimelineItem): number {
@@ -211,13 +182,13 @@ function timelineTokenTotal(item: RequestTimelineItem): number {
   if (item.kind === 'request') {
     return requestTokenTotal(item.request)
   }
-  return item.kind === 'protocol' ? requestTokenTotal(item.message) : 0
+  if (item.kind === 'protocol') {
+    return requestTokenTotal(item.message)
+  }
+  return item.kind === 'turn' ? requestTokenTotal(item.turn) : 0
 }
 
 export function timelineModelLabel(item: RequestTimelineItem): string {
-  if (item.kind === 'request') {
-    return requestModelLabel(item.request)
-  }
   return timelineModelValue(item) || '-'
 }
 
@@ -228,6 +199,9 @@ function purposeOptionLabel(value: string, t: PageProps['t']): string {
   }
   if (value.startsWith('protocol:')) {
     return protocolKindLabel(value.slice('protocol:'.length), t)
+  }
+  if (value.startsWith('turn:')) {
+    return t('requests.turnSummary')
   }
   const eventType = value.slice('event:'.length)
   return logEventTypeLabel(eventType, t)

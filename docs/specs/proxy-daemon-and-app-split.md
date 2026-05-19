@@ -1,27 +1,20 @@
-# Proxy Daemon And App Split
+# 代理 Daemon 与 App 拆分
 
-## Decision
+## 决策
 
-CodexFree should split the forwarding service from the Electron main process.
-The proxy becomes a standalone local daemon/CLI process, while the desktop app
-becomes a management console.
+CodexFree 应该把 forwarding service 从 Electron main process 中拆出来。proxy 变成独立的本地 daemon/CLI process，而 desktop app 变成 management console。
 
-Recommended implementation for the next phase:
+下一阶段推荐实现：
 
-- keep the proxy in Node.js / strict TypeScript;
-- extract reusable proxy core modules under `src/main/proxy`;
-- add a standalone daemon entry that starts the proxy without opening Electron;
-- let Electron control the daemon through a local admin API or local IPC channel;
-- keep SQLite and the app-managed auth-pool directory as the shared source of
-  truth.
+- proxy 保持在 Node.js / strict TypeScript 中；
+- 在 `src/main/proxy` 下提取 reusable proxy core modules；
+- 增加一个 standalone daemon entry，在不打开 Electron 的情况下启动 proxy；
+- 让 Electron 通过 local admin API 或 local IPC channel 控制 daemon；
+- 保持 SQLite 和 app-managed auth-pool directory 作为共享事实来源。
 
-Do not rewrite the proxy in Go or Rust at this stage. The current hard problems
-are Codex protocol routing, WSS state, account selection, quota handling,
-packet logging, and UI control. A language rewrite would slow protocol work and
-duplicate the existing TypeScript models/tests. Go or Rust can be revisited only
-after the protocol is stable and there is a measured runtime bottleneck.
+此阶段不要把 proxy 重写为 Go 或 Rust。当前困难问题是 Codex protocol routing、WSS state、account selection、quota handling、packet logging 和 UI control。语言重写会拖慢协议工作，并重复已有 TypeScript models/tests。只有在协议稳定且存在可测量 runtime bottleneck 后，才重新考虑 Go 或 Rust。
 
-## Runtime Shape
+## 运行时形态
 
 ```text
 Codex CLI
@@ -37,130 +30,97 @@ CodexFree Desktop App
   -> SQLite ledger + auth-pool directory
 ```
 
-The Electron app should not own the long-running forwarding socket directly.
-On startup, it should:
+Electron app 不应直接拥有 long-running forwarding socket。启动时，它应该：
 
-1. read saved config;
-2. check whether the daemon is already running;
-3. show daemon status, listen address, active account, quota, and recent events;
-4. start or restart the daemon only when the operator asks or when auto-start is
-   enabled.
+1. 读取 saved config；
+2. 检查 daemon 是否已经运行；
+3. 显示 daemon status、listen address、active account、quota 和 recent events；
+4. 只有在 operator 请求或 auto-start 启用时才 start 或 restart daemon。
 
-## Daemon Responsibilities
+## 守护进程职责
 
-The daemon owns:
+daemon 拥有：
 
-- listen host and port;
-- account-login proxy routes under `/backend-api`;
-- optional future compatibility routes under a separate `/v1` listener or port;
-- outbound proxy settings;
-- auth-pool takeover;
-- active account selection;
-- quota exhaustion handling;
-- WSS frame parsing and concise event logging;
-- request and protocol ledger writes;
-- raw capture files when enabled.
+- listen host 和 port；
+- `/backend-api` 下的 account-login proxy routes；
+- 单独 `/v1` listener 或 port 下的可选未来 compatibility routes；
+- outbound proxy settings；
+- auth-pool takeover；
+- active account selection；
+- quota exhaustion handling；
+- WSS frame parsing 和简洁 event logging；
+- request 和 protocol ledger writes；
+- 启用时的 raw capture files。
 
-The daemon must read persisted SQLite account state on startup. It must not fall
-back to in-memory account status in normal development or production runs,
-because that loses exhausted, disabled, active, and usage data already collected
-by the app.
+daemon 启动时必须读取持久化 SQLite account state。它在普通开发或生产运行中不得回退到 in-memory account status，因为那会丢失 app 已收集的 exhausted、disabled、active 和 usage data。
 
-## App Responsibilities
+## 应用职责
 
-The desktop app owns:
+desktop app 拥有：
 
-- account import/export;
-- batch usage checks;
-- enable/disable/reset account controls;
-- config editing;
-- daemon start/stop/restart controls through the actual process owner;
-- live status display;
-- request, WSS, and quota event views;
-- raw capture cleanup;
-- Codex config helper text.
+- account import/export；
+- batch usage checks；
+- enable/disable/reset account controls；
+- config editing；
+- 通过实际 process owner 执行 daemon start/stop/restart controls；
+- live status display；
+- request、WSS 和 quota event views；
+- raw capture cleanup；
+- Codex config helper text。
 
-The app should be able to run while proxy work is being developed separately.
-UI work must not require changing the daemon hot path unless the UI needs a new
-status or admin API field.
+proxy work 独立开发时，app 应仍能运行。除非 UI 需要新的 status 或 admin API field，否则 UI work 不应要求修改 daemon hot path。
 
-## Admin Surface
+## 管理面
 
-The daemon should expose a local-only admin surface. Preferred first version:
+daemon 应暴露 local-only admin surface。首版推荐：
 
-- bind to `127.0.0.1`;
-- use a random local admin token stored in the app data directory;
-- expose JSON endpoints or IPC methods for:
-  - `GET /admin/status`;
-  - `GET /admin/config`;
-  - `PUT /admin/config`;
-  - `POST /admin/reload`;
-  - `GET /admin/accounts`;
-  - `POST /admin/accounts/sync`;
-  - `POST /admin/accounts/usage`;
-  - `POST /admin/accounts/reset-exhausted`;
-  - `POST /admin/accounts/disable`;
-  - `POST /admin/accounts/delete`;
-  - `GET /admin/request-summary`;
-  - `GET /admin/usage-summary`;
-  - `GET /admin/requests`;
-  - `GET /admin/log-events`;
-  - `GET /admin/protocol-messages`;
-  - `POST /admin/clear-records`.
+- bind 到 `127.0.0.1`；
+- 使用存储在 app data directory 中的 random local admin token；
+- 暴露 JSON endpoints 或 IPC methods：
+  - `GET /admin/status`；
+  - `GET /admin/config`；
+  - `PUT /admin/config`；
+  - `POST /admin/reload`；
+  - `GET /admin/accounts`；
+  - `POST /admin/accounts/sync`；
+  - `POST /admin/accounts/usage`；
+  - `POST /admin/accounts/reset-exhausted`；
+  - `POST /admin/accounts/disable`；
+  - `POST /admin/accounts/delete`；
+  - `GET /admin/request-summary`；
+  - `GET /admin/usage-summary`；
+  - `GET /admin/requests`；
+  - `GET /admin/log-events`；
+  - `GET /admin/protocol-messages`；
+  - `POST /admin/clear-records`。
 
-The admin surface must not expose daemon lifecycle endpoints such as
-`/admin/start`, `/admin/stop`, or `/admin/restart`. Starting, stopping, and
-restarting the daemon must be handled by the desktop app through the current
-process owner: an App-spawned child process, macOS LaunchAgent, Linux
-`systemctl --user`, or Windows Service Control Manager. This prevents the UI
-from reporting “stopped” while the actual daemon process still owns the listen
-ports.
+admin surface 不得暴露 `/admin/start`、`/admin/stop` 或 `/admin/restart` 这类 daemon lifecycle endpoints。启动、停止和重启 daemon 必须由 desktop app 通过当前 process owner 处理：App-spawned child process、macOS LaunchAgent、Linux `systemctl --user` 或 Windows Service Control Manager。这能防止 UI 显示“stopped”时实际 daemon process 仍占用 listen ports。
 
-Configuration persistence and application are intentionally separate:
-`PUT /admin/config` only saves the configuration to SQLite. `POST /admin/reload`
-is retained as a local daemon/admin utility that makes the daemon read SQLite
-again and restart the proxy service in place. The desktop UI does not use admin
-endpoints for process lifecycle. UI saves write SQLite, then ask the app process
-manager to restart the daemon through the configured owner: App child process,
-macOS LaunchAgent, Linux `systemctl --user`, or Windows `sc`.
+Configuration persistence 和 application 有意分离：`PUT /admin/config` 只把配置保存到 SQLite。`POST /admin/reload` 保留为本地 daemon/admin utility，让 daemon 再次读取 SQLite 并原地 restart proxy service。desktop UI 不使用 admin endpoints 管理 process lifecycle。UI save 写入 SQLite，然后要求 app process manager 通过 configured owner 重启 daemon：App child process、macOS LaunchAgent、Linux `systemctl --user` 或 Windows `sc`。
 
-The database is the only durable configuration source, but directly editing it
-does not affect a running daemon until the app process owner restarts the daemon
-or a local admin client explicitly calls reload. Runtime settings such as raw
-capture, listen host/port, upstream URL, outbound proxy, auth-pool directory,
-body limits, and config monitoring all follow this rule.
+database 是唯一 durable configuration source，但直接编辑它不会影响正在运行的 daemon，直到 app process owner 重启 daemon，或 local admin client 显式调用 reload。raw capture、listen host/port、upstream URL、outbound proxy、auth-pool directory、body limits 和 config monitoring 等 runtime settings 都遵循该规则。
 
-Account-management actions are not proxy configuration changes. Admin actions
-such as usage updates, enable/disable, reset exhausted, import sync, and delete
-write the database first, then refresh only the daemon's in-memory account-pool
-cache. They must not restart the proxy service or close existing upgraded WSS
-sessions.
+Account-management actions 不是 proxy configuration changes。usage updates、enable/disable、reset exhausted、import sync 和 delete 等 admin actions 先写 database，然后只刷新 daemon 的 in-memory account-pool cache。它们不得 restart proxy service，也不得关闭已有 upgraded WSS sessions。
 
-## Packaged Daemon Startup
+## 打包后守护进程启动
 
-Development daemon startup uses the same Electron Node runtime shape as the
-packaged app. The daemon is bundled first, then executed with
-`ELECTRON_RUN_AS_NODE=1`:
+开发环境 daemon startup 使用与 packaged app 相同的 Electron Node runtime shape。daemon 先被 bundle，然后用 `ELECTRON_RUN_AS_NODE=1` 执行：
 
 ```bash
 bun run daemon -- --host 0.0.0.0 --port 33333 --debug
 ```
 
-That command runs `bun run daemon:bundle` and then starts `out/daemon/cli.cjs`
-with the local Electron binary. This keeps local daemon behavior aligned with
-the packaged runtime and native module ABI.
+该命令运行 `bun run daemon:bundle`，然后用本地 Electron binary 启动 `out/daemon/cli.cjs`。这保持本地 daemon behavior 与 packaged runtime 和 native module ABI 对齐。
 
-Packaged builds must bundle the daemon once before Electron packaging:
+Packaged builds 必须在 Electron packaging 前 bundle 一次 daemon：
 
 ```bash
 bun run daemon:bundle
 ```
 
-The bundle output is `out/daemon/cli.cjs`. `electron-builder` packages that file
-inside `app.asar`; it does not compile `cli.ts` by itself.
+bundle output 是 `out/daemon/cli.cjs`。`electron-builder` 将该文件打进 `app.asar`；它不会自己编译 `cli.ts`。
 
-At runtime, the installed app starts the daemon with the installed Electron
-binary as a Node runtime:
+runtime 时，已安装 app 使用已安装 Electron binary 作为 Node runtime 启动 daemon：
 
 ```bash
 ELECTRON_RUN_AS_NODE=1 /Applications/CodexFree.app/Contents/MacOS/CodexFree \
@@ -168,9 +128,7 @@ ELECTRON_RUN_AS_NODE=1 /Applications/CodexFree.app/Contents/MacOS/CodexFree \
   --data-dir "$HOME/Library/Application Support/codexfree"
 ```
 
-Electron main performs this spawn automatically through `src/main/runtime.ts`.
-The spawn must use `process.execPath`, pass the packaged `cli.cjs`, and set
-`ELECTRON_RUN_AS_NODE=1`:
+Electron main 通过 `src/main/runtime.ts` 自动执行该 spawn。spawn 必须使用 `process.execPath`，传入 packaged `cli.cjs`，并设置 `ELECTRON_RUN_AS_NODE=1`：
 
 ```ts
 spawn(process.execPath, [daemonScriptPath(), '--data-dir', dataDir], {
@@ -180,8 +138,7 @@ spawn(process.execPath, [daemonScriptPath(), '--data-dir', dataDir], {
 })
 ```
 
-Operators normally do not run the command by hand. A macOS LaunchAgent, if
-added later, should use the same command shape:
+operators 通常不会手动运行该命令。如果稍后添加 macOS LaunchAgent，应使用相同 command shape：
 
 ```xml
 <key>ProgramArguments</key>
@@ -198,12 +155,11 @@ added later, should use the same command shape:
 </dict>
 ```
 
-## Native Module ABI
+## 原生模块 ABI
 
-The daemon and tests intentionally run with Electron's Node runtime. Native
-modules therefore need Electron ABI builds, not the host Bun/Node ABI.
+daemon 和 tests 有意使用 Electron 的 Node runtime 运行。因此 native modules 需要 Electron ABI builds，而不是 host Bun/Node ABI。
 
-The package scripts keep this explicit:
+package scripts 明确保持这一点：
 
 ```json
 "postinstall": "bun node_modules/electron/install.js && electron-builder install-app-deps",
@@ -211,13 +167,9 @@ The package scripts keep this explicit:
 "daemon": "bun run daemon:bundle && ELECTRON_RUN_AS_NODE=1 NODE_NO_WARNINGS=1 electron out/daemon/cli.cjs"
 ```
 
-`bun node_modules/electron/install.js` is required because Bun can leave the
-`electron` package directory present while the Electron binary is incomplete
-(`path.txt`, `dist/version`, or `Electron.app` missing). `electron-builder
-install-app-deps` then rebuilds native dependencies such as `better-sqlite3`
-for the installed Electron version.
+`bun node_modules/electron/install.js` 是必需的，因为 Bun 可能让 `electron` package directory 存在，但 Electron binary 不完整（缺少 `path.txt`、`dist/version` 或 `Electron.app`）。随后 `electron-builder install-app-deps` 会为已安装 Electron version rebuild native dependencies，例如 `better-sqlite3`。
 
-Validation commands:
+验证命令：
 
 ```bash
 rtk bash -lc './node_modules/.bin/electron --version'
@@ -225,89 +177,85 @@ rtk bash -lc 'ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron -p "process.ve
 rtk bash -lc 'ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron -e "const Database=require(\"better-sqlite3\"); const db=new Database(\":memory:\"); db.prepare(\"select 1\").get(); db.close(); console.log(\"electron sqlite ok\")"'
 ```
 
-If Bun or host Node cannot execute `better-sqlite3` after `postinstall`, that is
-expected for an Electron ABI install. The supported local daemon runtime is
-Electron with `ELECTRON_RUN_AS_NODE=1`.
+如果 `postinstall` 后 Bun 或 host Node 不能执行 `better-sqlite3`，这对于 Electron ABI install 是预期的。受支持的本地 daemon runtime 是带 `ELECTRON_RUN_AS_NODE=1` 的 Electron。
 
-## Logging Requirement
+## 日志要求
 
-`bun run proxy` must print event logs that describe what happened, not raw
-protocol names. The log should let an operator reconstruct the flow:
+`bun run daemon` 必须打印描述发生了什么的 event logs，而不是 raw protocol names。日志应让 operator 能重建流程：
 
-- daemon started;
-- active account loaded from SQLite;
-- account quota summary;
-- HTTP request purpose and result;
-- WSS client connected;
-- upstream WSS connected;
-- user request started;
-- tool call started / parameters generated / completed;
-- AI reply summary;
-- quota detected;
-- account marked exhausted;
-- replacement account selected;
-- HTTP fallback quota retried or failed.
+- daemon 已启动；
+- active account 已从 SQLite 加载；
+- account quota summary；
+- HTTP request purpose 和 result；
+- WSS client 已连接；
+- upstream WSS 已连接；
+- user request 已开始；
+- tool call 已开始 / parameters 已生成 / 已完成；
+- AI reply summary；
+- quota 已检测；
+- account 已标记 exhausted；
+- replacement account 已选择；
+- HTTP fallback quota 已重试或失败。
 
-Raw protocol frames and full bodies belong only in raw capture files or the
-SQLite request ledger, not in the normal terminal log.
+Raw protocol frames 和 full bodies 只能进入 raw capture files 或 SQLite request ledger，不能进入普通 terminal log。
 
-## Parallel Work Lines
+## 并行工作线
 
-### Work Line A: Proxy Daemon Core
+### 工作线 A：Proxy Daemon Core
 
-Owned files:
+拥有文件：
 
-- `src/main/proxy/**`;
-- daemon entrypoint;
-- proxy tests;
-- docs/specs/proxy-daemon-and-app-split.md;
-- docs/specs/account-routing-and-quota-switching.md.
+- `src/main/proxy/**`；
+- daemon entrypoint；
+- proxy tests；
+- docs/specs/proxy-daemon-and-app-split.md；
+- docs/specs/account-routing-and-quota-switching.md。
 
-Current focus:
+当前重点：
 
-- make CLI and app use the same SQLite ledger;
-- improve terminal log event quality with real Docker traffic;
-- fix HTTP fallback `/backend-api/codex/responses` quota retry;
-- stabilize WSS lifecycle and reconnect behavior;
-- keep account selection driven by persisted account state.
+- 让 CLI 和 app 使用同一个 SQLite ledger；
+- 用真实 Docker traffic 改进 terminal log event quality；
+- 修复 HTTP fallback `/backend-api/codex/responses` quota retry；
+- 稳定 WSS lifecycle 和 reconnect behavior；
+- 保持 account selection 由 persisted account state 驱动。
 
-Verification:
+验证：
 
-- `bun run lint`;
-- `bun run typecheck`;
-- proxy unit tests;
-- Docker Codex run through `chatgpt_base_url` and `openai_base_url`;
-- terminal log review from a real Codex task.
+- `bun run lint`；
+- `bun run typecheck`；
+- proxy unit tests；
+- Docker Codex 通过 `chatgpt_base_url` 和 `openai_base_url` 运行；
+- 来自真实 Codex task 的 terminal log review。
 
-### Work Line B: Desktop App Console
+### 工作线 B：Desktop App Console
 
-Owned files:
+拥有文件：
 
-- `src/renderer/**`;
-- `src/preload/**`;
-- Electron IPC/admin client glue;
-- docs/specs/desktop-ui.md.
+- `src/renderer/**`；
+- `src/preload/**`；
+- Electron IPC/admin client glue；
+- docs/specs/desktop-ui.md。
 
-Current focus:
+当前重点：
 
-- show daemon status instead of assuming in-process proxy state;
-- import accounts and batch query usage;
-- show active account, quota, reset time, exhausted count;
-- expose start/stop/restart controls backed by the actual daemon process owner;
-- show request and WSS event ledger;
-- keep UI usable while daemon code changes.
+- 展示 daemon status，而不是假设 in-process proxy state；
+- 导入账号并批量查询 usage；
+- 展示 active account、quota、reset time、exhausted count；
+- 暴露由实际 daemon process owner 支撑的 start/stop/restart controls；
+- 展示 request 和 WSS event ledger；
+- daemon code 变化时保持 UI 可用。
 
-Verification:
+验证：
 
-- `bun run lint`;
-- `bun run typecheck`;
-- renderer build;
-- manual app launch;
-- UI can control an already-running daemon.
+- `bun run lint`；
+- `bun run typecheck`；
+- renderer build；
+- manual app launch；
+- UI 可以控制已经运行的 daemon。
 
-## Non-Goals For This Phase
+## 本阶段非目标
 
-- Rewriting proxy core in Go or Rust.
-- Merging API-key compatibility into the account-login listener.
-- Building a remote management interface.
-- Logging raw tokens or full auth files in normal logs.
+- 用 Go 或 Rust 重写 proxy core。
+- 将 API-key compatibility 合并进 account-login listener。
+- 构建 remote management interface。
+- 在普通 logs 中记录 raw tokens 或 full auth files。

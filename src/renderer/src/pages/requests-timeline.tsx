@@ -1,15 +1,16 @@
 import { Card, CardHeader, CardPanel, CardTitle } from '@renderer/components/ui/card'
-import {
-  logEventDisplayMeta,
-  logEventDisplayTitle,
-  protocolMessageDisplayTitle,
-  requestDisplayTitle
-} from '@renderer/data/activity-display'
 import { formatBytes, formatDateTime, formatDuration } from '@renderer/data/format'
 import { accountDisplayForPathFromLookup, requestByteSummary } from '@renderer/data/proxy-console'
 import { useNearBottomLoadMore } from '@renderer/hooks/use-near-bottom-load-more'
 import { useVirtualRows } from '@renderer/hooks/use-virtual-rows'
-import { type ReactElement, type UIEvent, useEffect, useMemo, useState } from 'react'
+import {
+  type ReactElement,
+  type ReactNode,
+  type UIEvent,
+  useEffect,
+  useMemo,
+  useState
+} from 'react'
 import {
   filterRequestTimeline,
   type RequestFilter,
@@ -68,11 +69,14 @@ export function RequestTimelinePanel({
   )
   const timeline = useMemo(() => sortTimelineItems(filteredItems, sort), [filteredItems, sort])
   const filterOptions = useMemo(() => requestFilterOptionSets(timelineItems, t), [timelineItems, t])
-  const virtualRows = useVirtualRows({ rowHeight: 48, rows: timeline })
+  const virtualRows = useVirtualRows({ rowHeight: 68, rows: timeline })
   const columns = requestColumns(t)
   const maybeLoadMore = useNearBottomLoadMore({
     enabled:
-      hasMoreActivity.requests || hasMoreActivity.logEvents || hasMoreActivity.protocolMessages,
+      hasMoreActivity.requests ||
+      hasMoreActivity.logEvents ||
+      hasMoreActivity.protocolMessages ||
+      hasMoreActivity.turnSummaries,
     onLoadMore
   })
 
@@ -174,18 +178,17 @@ function RequestTimelineTable({
       >
         <colgroup>
           <col className="w-[86px] min-[1400px]:w-[116px]" />
-          <col className="w-[54px] min-[1400px]:w-[72px]" />
-          <col className="w-[74px] min-[1400px]:w-[96px]" />
-          <col />
+          <col className="w-[58px] min-[1400px]:w-[74px]" />
+          <col className="w-[32%]" />
           <col className="w-[88px] min-[1400px]:w-[112px]" />
           <col className="w-[70px] min-[1400px]:w-[92px]" />
-          <col className="w-[100px] min-[1400px]:w-[150px]" />
           <col className="w-[58px] min-[1400px]:w-[76px]" />
-          <col className="w-[72px] min-[1400px]:w-[112px]" />
+          <col className="w-[128px] min-[1400px]:w-[190px]" />
+          <col className="w-[96px] min-[1400px]:w-[140px]" />
         </colgroup>
         <RequestTimelineHeader columns={columns} onSort={onSort} sort={sort} />
         <tbody>
-          <PlainSpacerRow colSpan={9} height={virtualRows.topPadding} />
+          <PlainSpacerRow colSpan={8} height={virtualRows.topPadding} />
           {virtualRows.rows.map(({ index, item }) => (
             <RequestTimelineRow
               accountLabels={accountLabels}
@@ -198,7 +201,7 @@ function RequestTimelineTable({
               t={t}
             />
           ))}
-          <PlainSpacerRow colSpan={9} height={virtualRows.bottomPadding} />
+          <PlainSpacerRow colSpan={8} height={virtualRows.bottomPadding} />
         </tbody>
       </table>
     </div>
@@ -258,11 +261,13 @@ function RequestTimelineRow({
     t('accounts.emailPending'),
     t('accounts.originalAccount')
   )
-  const title = timelineTitle(item, t)
+  const activity = item.activity
+  const account = activity.account ?? accountDisplay
+  const subtitle = activity.subtitle || activity.detail
   return (
     <tr
       className={[
-        'h-12 cursor-pointer',
+        'h-[68px] cursor-pointer',
         selected ? 'bg-muted/60' : index % 2 === 0 ? 'bg-card' : 'bg-muted/40'
       ].join(' ')}
       onClick={() => onSelect(item.id)}
@@ -270,41 +275,33 @@ function RequestTimelineRow({
       <TimelineCell className="font-semibold text-muted-foreground">
         {formatDateTime(item.timestamp, locale)}
       </TimelineCell>
+      <TimelineCell className="font-semibold">{timelinePurposeLabel(item, t)}</TimelineCell>
+      <TimelineCell title={`${activity.title} ${subtitle}`}>
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="truncate font-semibold text-foreground">{activity.title}</span>
+          <span className="max-h-8 overflow-hidden break-words text-muted-foreground leading-4">
+            {subtitle || '-'}
+          </span>
+        </div>
+      </TimelineCell>
+      <TimelineCell className="font-semibold text-muted-foreground" title={account}>
+        {account}
+      </TimelineCell>
+      <TimelineCell>{activity.model ?? timelineModelLabel(item)}</TimelineCell>
       <TimelineCell className={`font-bold ${timelineStatusClass(item)}`}>
         {timelineStatusText(item, t)}
       </TimelineCell>
-      <TimelineCell className="font-semibold">{timelinePurposeLabel(item, t)}</TimelineCell>
-      <TimelineCell className="font-semibold" title={title}>
-        {title}
-      </TimelineCell>
-      <TimelineCell className="font-semibold text-muted-foreground" title={accountDisplay}>
-        {accountDisplay}
-      </TimelineCell>
-      <TimelineCell>{timelineModelLabel(item)}</TimelineCell>
       <TimelineCell title={timelineTokenSource(item, t)}>
         {timelineTokenText(item, locale)}
       </TimelineCell>
-      <TimelineCell className="text-right">
-        {item.kind === 'request' ? formatDuration(item.request.durationMs, locale) : '-'}
-      </TimelineCell>
-      <TimelineCell className="text-right">{timelineByteText(item, locale)}</TimelineCell>
+      <TimelineCell className="text-right">{timelineDurationByteText(item, locale)}</TimelineCell>
     </tr>
   )
 }
 
-function timelineTitle(item: RequestTimelineItem, t: PageProps['t']): string {
+function timelineDurationByteText(item: RequestTimelineItem, locale: PageProps['locale']): string {
   if (item.kind === 'request') {
-    return requestDisplayTitle(item.request, t)
-  }
-  if (item.kind === 'protocol') {
-    return protocolMessageDisplayTitle(item.message, t)
-  }
-  return `${logEventDisplayTitle(item.event, t)} · ${logEventDisplayMeta(item.event, t)}`
-}
-
-function timelineByteText(item: RequestTimelineItem, locale: PageProps['locale']): string {
-  if (item.kind === 'request') {
-    return requestByteSummary(item.request, locale)
+    return `${formatDuration(item.request.durationMs, locale)} · ${requestByteSummary(item.request, locale)}`
   }
   if (item.kind === 'protocol') {
     return formatBytes(item.message.payloadBytes, locale)
@@ -319,6 +316,9 @@ function timelineItemPath(item: RequestTimelineItem): string | null {
   if (item.kind === 'protocol') {
     return item.message.path
   }
+  if (item.kind === 'turn') {
+    return null
+  }
   return item.event.path
 }
 
@@ -327,15 +327,17 @@ function TimelineCell({
   className = '',
   title
 }: {
-  children: string
+  children: ReactNode
   className?: string
   title?: string
 }): ReactElement {
+  const textTitle = title ?? (typeof children === 'string' ? children : undefined)
+  const contentClass = typeof children === 'string' ? 'truncate' : 'min-w-0'
   return (
     <td className={`max-w-0 overflow-hidden px-2 align-middle min-[1400px]:px-3 ${className}`}>
-      <span className="block truncate" title={title ?? children}>
+      <div className={contentClass} title={textTitle}>
         {children}
-      </span>
+      </div>
     </td>
   )
 }

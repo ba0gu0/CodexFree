@@ -40,31 +40,49 @@ export function RequestsPage({
   snapshot,
   t
 }: PageProps): ReactElement {
-  const timelineItems = useMemo(
-    () => buildRequestTimeline(snapshot.requests, snapshot.logEvents, snapshot.protocolMessages),
-    [snapshot.logEvents, snapshot.protocolMessages, snapshot.requests]
-  )
-  const summary = snapshot.requestSummary
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [confirmClearOpen, setConfirmClearOpen] = useState(false)
   const accountLabels = useMemo(
     () => accountDisplayLookup(snapshot.accounts, t('accounts.emailPending')),
     [snapshot.accounts, t]
   )
+  const timelineItems = useMemo(
+    () =>
+      buildRequestTimeline(
+        snapshot.requests,
+        snapshot.logEvents,
+        snapshot.protocolMessages,
+        snapshot.turnSummaries,
+        { accountLabels, locale, t }
+      ),
+    [
+      accountLabels,
+      locale,
+      snapshot.logEvents,
+      snapshot.protocolMessages,
+      snapshot.requests,
+      snapshot.turnSummaries,
+      t
+    ]
+  )
+  const summary = snapshot.requestSummary
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false)
   const selected = timelineItems.find((item) => item.id === selectedId) ?? timelineItems[0]
   const selectedRequestId = selected ? timelineRequestId(selected) : null
   const selectedRequest =
     selected?.kind === 'request'
       ? selected.request
       : snapshot.requests.find((request) => request.id === selectedRequestId)
-  const selectedMessages = useMemo(
+  const selectedTurnSummaries = useMemo(
     () =>
       selectedRequestId
-        ? snapshot.protocolMessages
-            .filter((message) => message.requestId === selectedRequestId)
-            .sort((left, right) => left.createdAt - right.createdAt)
+        ? snapshot.turnSummaries.filter(
+            (summary) =>
+              summary.requestId === selectedRequestId ||
+              (selectedRequest?.conversationKey &&
+                summary.conversationKey === selectedRequest.conversationKey)
+          )
         : [],
-    [selectedRequestId, snapshot.protocolMessages]
+    [selectedRequest?.conversationKey, selectedRequestId, snapshot.turnSummaries]
   )
 
   return (
@@ -126,9 +144,9 @@ export function RequestsPage({
           actions={actions}
           linkedRequest={selectedRequest}
           locale={locale}
-          messages={selectedMessages}
           selected={selected}
           t={t}
+          turnSummaries={selectedTurnSummaries}
         />
       </section>
 

@@ -86,7 +86,18 @@ describe('HTTP traffic analysis', () => {
       path: '/backend-api/wham/usage',
       requestBody: Buffer.alloc(0),
       requestHeaders: {},
-      responseBody: Buffer.from(JSON.stringify({ model: 'gpt-5.5', plan_type: 'free' })),
+      responseBody: Buffer.from(
+        JSON.stringify({
+          model: 'gpt-5.5',
+          plan_type: 'free',
+          rate_limit: {
+            primary_window: {
+              reset_at: 1779765695,
+              used_percent: 3
+            }
+          }
+        })
+      ),
       responseHeaders: { 'content-type': 'application/json' }
     })
 
@@ -94,7 +105,15 @@ describe('HTTP traffic analysis', () => {
       requestPurpose: 'account_usage',
       responseContentType: 'application/json',
       responseModel: 'gpt-5.5',
-      responsePlanType: 'free'
+      responsePlanType: 'free',
+      responsePrimaryUsedPercent: '3',
+      responseRateLimitResetAt: 1779765695000
+    })
+    expect(JSON.parse(analysis.summaryJson ?? '{}')).toMatchObject({
+      planType: 'free',
+      primaryRemainingPercent: 97,
+      primaryUsedPercent: '3',
+      purpose: 'account_usage'
     })
   })
 
@@ -138,6 +157,10 @@ describe('HTTP traffic analysis', () => {
       tokenUsageSource: 'sse',
       totalTokens: 94917
     })
+    expect(JSON.parse(analysis.summaryJson ?? '{}')).toMatchObject({
+      purpose: 'codex_response_sse',
+      tokenUsage: { totalTokens: 94917 }
+    })
   })
 
   it('extracts RPC and catalog item counts from supporting endpoints', () => {
@@ -159,6 +182,23 @@ describe('HTTP traffic analysis', () => {
       responseItemCount: 1,
       rpcId: '1',
       rpcMethod: 'apps.list'
+    })
+  })
+
+  it('summarizes compact compression ratio from request and response bytes', () => {
+    const analysis = analyzeHttpTraffic({
+      method: 'POST',
+      path: '/backend-api/codex/responses/compact',
+      requestBody: Buffer.from(JSON.stringify({ input: ['x'.repeat(100)] })),
+      requestHeaders: { 'content-type': 'application/json' },
+      responseBody: Buffer.from(JSON.stringify({ output: [{ type: 'message' }] })),
+      responseHeaders: { 'content-type': 'application/json' }
+    })
+
+    expect(analysis.requestPurpose).toBe('codex_compact')
+    expect(JSON.parse(analysis.summaryJson ?? '{}')).toMatchObject({
+      outputItems: 1,
+      purpose: 'codex_compact'
     })
   })
 })

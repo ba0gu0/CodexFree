@@ -59,22 +59,26 @@ export interface AccountUsageSummary {
 
 export interface ProtocolMessageInput {
   cachedInputTokens?: number
+  callId?: string
   requestId: string
   path: string
   accountId?: string
   conversationKey?: string
   direction: string
+  itemId?: string
   inputItemCount?: number
   inputTokens?: number
   kind: string
   model?: string
   outputTokens?: number
+  parentResponseId?: string
   payloadBytes?: number
   previousResponseId?: string
   protocolType?: string
   reasoningTokens?: number
   responseId?: string
   sequenceNumber?: number
+  summaryJson?: string
   text: string
   toolCount?: number
   totalTokens?: number
@@ -84,15 +88,18 @@ export interface ProtocolMessageInput {
 export interface ProtocolMessageRow {
   accountId: string | null
   cachedInputTokens: number | null
+  callId: string | null
   conversationKey: string | null
   createdAt: number
   direction: string
   id: string
+  itemId: string | null
   inputItemCount: number | null
   inputTokens: number | null
   kind: string
   model: string | null
   outputTokens: number | null
+  parentResponseId: string | null
   path: string
   payloadBytes: number | null
   previousResponseId: string | null
@@ -101,10 +108,63 @@ export interface ProtocolMessageRow {
   requestId: string
   responseId: string | null
   sequenceNumber: number | null
+  summaryJson: string | null
   text: string
   toolCount: number | null
   totalTokens: number | null
   truncated: number | null
+}
+
+export interface TurnSummaryInput {
+  accountId?: string
+  assistantText?: string
+  cachedInputTokens?: number
+  callId?: string
+  completedAt?: number
+  conversationKey?: string
+  codexThreadId?: string
+  codexTurnId?: string
+  inputTokens?: number
+  itemId?: string
+  outputTokens?: number
+  parentResponseId?: string
+  reasoningTokens?: number
+  requestId: string
+  responseId?: string
+  startedAt?: number
+  status?: string
+  summaryJson?: string
+  toolCallDelta?: number
+  toolResultDelta?: number
+  totalTokens?: number
+  turnKey?: string
+  userText?: string
+}
+
+export interface TurnSummaryRow {
+  accountId: string | null
+  assistantText: string | null
+  cachedInputTokens: number | null
+  completedAt: number | null
+  conversationKey: string | null
+  codexThreadId: string | null
+  codexTurnId: string | null
+  id: string
+  inputTokens: number | null
+  outputTokens: number | null
+  parentResponseId: string | null
+  reasoningTokens: number | null
+  requestId: string
+  responseId: string | null
+  startedAt: number | null
+  status: string | null
+  summaryJson: string | null
+  toolCallCount: number
+  toolResultCount: number
+  totalTokens: number | null
+  turnKey: string
+  updatedAt: number
+  userText: string | null
 }
 
 export interface LogEventInput {

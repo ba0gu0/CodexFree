@@ -16,6 +16,7 @@ import { formatQuotaLedgerMessage, parseQuotaExhaustionEvent } from './quota'
 import { createRawCapture } from './raw-capture'
 import { createRequestId, fingerprint, firstHeaderValue, redactHeaders } from './redaction'
 import type { ProxyHandlerContext } from './service-context'
+import { summarizeServerSentEvents } from './sse-summary'
 import { createTerminalQuotaPayload } from './terminal-quota'
 import { forwardHttpRequest } from './transport-http'
 
@@ -392,6 +393,24 @@ export async function handleProxyHttpRequest(
     responseBody: clientResult.deferredBody ?? clientResult.responseSample,
     responseHeaders: clientResult.responseHeaders
   })
+  if (trafficAnalysis.requestPurpose === 'codex_response_sse') {
+    const sseSummary = summarizeServerSentEvents({
+      accountId: routedAccountId,
+      conversationKey,
+      path: request.url ?? '/',
+      requestBody,
+      requestId,
+      responseBody: clientResult.deferredBody ?? clientResult.responseSample
+    })
+    for (const message of sseSummary.messages) {
+      if (typeof ctx.ledger.recordProtocolMessage === 'function') {
+        ctx.ledger.recordProtocolMessage(message)
+      }
+    }
+    if (sseSummary.turnSummary && typeof ctx.ledger.recordTurnSummary === 'function') {
+      ctx.ledger.recordTurnSummary(sseSummary.turnSummary)
+    }
+  }
   ctx.writeDeferredHttpResponse(response, clientResult)
   const completedAt = new Date()
   ctx.log.info('HTTP result', {

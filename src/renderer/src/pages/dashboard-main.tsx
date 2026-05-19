@@ -115,9 +115,13 @@ export function RecentActivityPanel({
 }): ReactElement {
   const [sort, setSort] = useState<ActivitySort>({ direction: 'desc', key: 'time' })
   const sortedRows = useMemo(() => sortActivityRows(rows, sort), [rows, sort])
-  const virtualRows = useVirtualRows({ rowHeight: 48, rows: sortedRows })
+  const virtualRows = useVirtualRows({ rowHeight: 64, rows: sortedRows })
   const maybeLoadMore = useNearBottomLoadMore({
-    enabled: hasMoreActivity.requests || hasMoreActivity.logEvents,
+    enabled:
+      hasMoreActivity.requests ||
+      hasMoreActivity.logEvents ||
+      hasMoreActivity.protocolMessages ||
+      hasMoreActivity.turnSummaries,
     onLoadMore: actions.loadMoreActivity
   })
   const handleScroll = (event: UIEvent<HTMLDivElement>): void => {
@@ -161,12 +165,12 @@ export function RecentActivityPanel({
           className="w-full table-fixed border-separate border-spacing-0 text-left text-xs leading-tight min-[1400px]:text-sm"
         >
           <colgroup>
-            <col className="w-[104px] min-[1400px]:w-[128px]" />
-            <col className="w-[58px] min-[1400px]:w-[78px]" />
+            <col className="w-[112px] min-[1400px]:w-[142px] min-[1800px]:w-[152px]" />
+            <col className="w-[54px] min-[1400px]:w-[64px] min-[1800px]:w-[70px]" />
             <col />
-            <col className="w-[100px] min-[1400px]:w-[170px]" />
-            <col className="w-[54px] min-[1400px]:w-[76px]" />
-            <col className="w-[58px] min-[1400px]:w-[70px]" />
+            <col className="w-[128px] min-[1400px]:w-[220px] min-[1800px]:w-[250px]" />
+            <col className="w-[58px] min-[1400px]:w-[72px] min-[1800px]:w-[78px]" />
+            <col className="w-[74px] min-[1400px]:w-[106px] min-[1800px]:w-[120px]" />
           </colgroup>
           <thead className="sticky top-0 z-10">
             <tr className="bg-muted/60 text-muted-foreground">
@@ -199,19 +203,24 @@ export function RecentActivityPanel({
                 <PlainSpacerRow colSpan={6} height={virtualRows.topPadding} />
                 {virtualRows.rows.map(({ index, item: row }) => (
                   <tr
-                    className={index % 2 === 0 ? 'h-12 bg-card' : 'h-12 bg-muted/40'}
+                    className={index % 2 === 0 ? 'h-16 bg-card' : 'h-16 bg-muted/40'}
                     key={row.id}
                   >
-                    <td className={`${muted} overflow-hidden px-2 font-semibold min-[1400px]:px-3`}>
+                    <td
+                      className={`${muted} overflow-hidden px-1.5 font-semibold min-[1400px]:px-3`}
+                    >
                       <span className="block truncate">{row.time}</span>
                     </td>
                     <td
-                      className={`overflow-hidden px-2 font-bold min-[1400px]:px-3 ${kindClass(row.kind)}`}
+                      className={`overflow-hidden px-1.5 font-bold min-[1400px]:px-2 ${kindClass(row.kind)}`}
                     >
                       <span className="block truncate">{typeLabel(row.kind, t)}</span>
                     </td>
                     <td className="overflow-hidden px-2 font-semibold text-foreground min-[1400px]:px-3">
                       <span className="block truncate">{row.event}</span>
+                      <span className="block truncate pt-1 font-medium text-muted-foreground text-[11px]">
+                        {row.detail}
+                      </span>
                     </td>
                     <td className="overflow-hidden px-2 font-semibold text-muted-foreground min-[1400px]:px-3">
                       <span className="block truncate">{row.account}</span>

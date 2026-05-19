@@ -1,67 +1,58 @@
-# Auth File Management Spec
+# 认证文件管理规格
 
-## Status
+## 状态
 
-In Progress.
+进行中。
 
-Codex native auth files and flat Codex/CPA-compatible token records are covered
-by the first pure normalization module. sub2api parsing remains draft until a
-real sample file is provided.
+Codex 原生认证文件和平铺的 Codex/CPA 兼容 token 记录，已由第一个纯规范化模块覆盖。sub2api 解析在提供真实样例文件前仍保持草稿状态。
 
-## Supported Formats
+## 支持的格式
 
-- Codex authenticated `auth.json`.
-- CPA format auth file.
-- sub2api format auth file.
+- Codex 已认证的 `auth.json`。
+- CPA 格式认证文件。
+- sub2api 格式认证文件。
 
-Sample files are still required before parsers can be marked Ready.
+parser 可以标记为 Ready 前，仍然需要样例文件。
 
-Current parser coverage:
+当前 parser 覆盖范围：
 
-- native Codex `auth.json` with `auth_mode = "chatgpt"` and nested `tokens`;
-- flat token records with `id_token`, `access_token`, `refresh_token`,
-  `account_id`, and `last_refresh`;
-- CPA records declared through `type = "cpa"` or inferred from filename.
+- 原生 Codex `auth.json`，包含 `auth_mode = "chatgpt"` 和嵌套 `tokens`；
+- 平铺 token 记录，包含 `id_token`、`access_token`、`refresh_token`、`account_id` 和 `last_refresh`；
+- 通过 `type = "cpa"` 声明，或从文件名推断的 CPA 记录。
 
-sub2api records are only accepted when they expose the same required token
-fields as the flat Codex shape.
+sub2api 记录只有在暴露与平铺 Codex 形态相同的必需 token 字段时才会被接受。
 
-## Normalized Shape
+## 规范化形态
 
-The normalizer returns:
+normalizer 返回：
 
-- safe metadata: format, label, account id, optional email, disabled state,
-  optional expiry, last refresh timestamp, stable fingerprint, and warnings;
-- canonical Codex account-login auth shape for later secure storage or export.
+- 安全元数据：format、label、account id、可选 email、disabled 状态、可选 expiry、last refresh 时间戳、稳定 fingerprint 和 warnings；
+- 用于后续安全存储或导出的标准 Codex account-login auth 形态。
 
-The fingerprint is derived from account id plus token values so duplicate files
-can be detected without displaying raw secrets.
+fingerprint 从 account id 加 token 值派生，这样可以检测重复文件而不显示原始密钥。
 
-## Import
+## 导入
 
-Batch import must:
+批量导入必须：
 
-- detect format;
-- normalize account metadata;
-- validate required fields without logging secrets;
-- deduplicate accounts with stable identifiers where possible;
-- mark unsupported or malformed files with actionable errors.
+- 检测格式；
+- 规范化账号元数据；
+- 验证必需字段且不记录密钥；
+- 尽可能使用稳定标识符对账号去重；
+- 对不支持或格式错误的文件标记可执行的错误。
 
-Parser errors must name the missing or invalid field but must not include token
-values.
+Parser 错误必须指出缺失或无效字段名，但不得包含 token 值。
 
-## Export
+## 导出
 
-Batch export must support:
+批量导出必须支持：
 
-- Codex `auth.json` format;
-- CPA format;
-- sub2api format.
+- Codex `auth.json` 格式；
+- CPA 格式；
+- sub2api 格式。
 
-Export must not include disabled accounts unless the user explicitly selects
-them.
+除非用户明确选择 disabled accounts，否则导出不得包含它们。
 
-## Usage Query
+## 用量查询
 
-The UI should support batch quota or usage queries for selected accounts and
-store results in SQLite with timestamp, status, and error reason.
+UI 应支持对选中账号进行批量额度或用量查询，并将结果连同时间戳、状态和错误原因存储到 SQLite。

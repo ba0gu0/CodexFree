@@ -28,7 +28,8 @@ const THEME_STORAGE_KEY = 'codexfree.theme'
 const EMPTY_ACTIVITY_HAS_MORE: ConsoleActivityHasMore = {
   logEvents: false,
   protocolMessages: false,
-  requests: false
+  requests: false,
+  turnSummaries: false
 }
 
 function App(): React.JSX.Element {
@@ -63,6 +64,7 @@ function App(): React.JSX.Element {
       requestSummary,
       logEventPage,
       protocolMessagePage,
+      turnSummaryPage,
       usageSummary
     ] = await Promise.all([
       window.api.getVersion(),
@@ -75,6 +77,7 @@ function App(): React.JSX.Element {
       window.api.getRequestSummary(),
       window.api.getProxyLogEvents(activityLimit),
       window.api.getProtocolMessages(activityLimit),
+      window.api.getTurnSummaries(activityLimit),
       window.api.getUsageSummary()
     ])
     setSnapshot({
@@ -87,13 +90,15 @@ function App(): React.JSX.Element {
       requestSummary,
       requests: requestPage.items,
       status,
+      turnSummaries: turnSummaryPage.items,
       usageSummary,
       version
     })
     setHasMoreActivity({
       logEvents: activityLimit < ACTIVITY_MAX_LIMIT && logEventPage.hasMore,
       protocolMessages: activityLimit < ACTIVITY_MAX_LIMIT && protocolMessagePage.hasMore,
-      requests: activityLimit < ACTIVITY_MAX_LIMIT && requestPage.hasMore
+      requests: activityLimit < ACTIVITY_MAX_LIMIT && requestPage.hasMore,
+      turnSummaries: activityLimit < ACTIVITY_MAX_LIMIT && turnSummaryPage.hasMore
     })
     setLastRefresh(Date.now())
   }, [activityLimit])

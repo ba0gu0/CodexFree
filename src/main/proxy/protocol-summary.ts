@@ -11,18 +11,21 @@ import type { CapturedWebSocketFrame } from './websocket-capture'
 
 export interface WebSocketSummary {
   cachedInputTokens?: number
+  callId?: string
   inputItemCount?: number
   inputTokens?: number
   itemId?: string
   kind: string
   model?: string
   outputTokens?: number
+  parentResponseId?: string
   payloadBytes?: number
   previousResponseId?: string
   protocolType?: string
   reasoningTokens?: number
   responseId?: string
   sequenceNumber?: number
+  summaryJson?: string
   text: string
   tool?: WebSocketToolUpdate
   toolCount?: number
@@ -83,8 +86,16 @@ export function summarizeWebSocketFrame(
       kind: 'user',
       model,
       previousResponseId,
+      parentResponseId: previousResponseId,
       text: truncateForLog(text),
       toolCount,
+      summaryJson: safeSummaryJson({
+        inputItemCount: input?.length,
+        model,
+        previousResponseId,
+        toolCount,
+        userText: message
+      }),
       ...(effort ? { protocolType: `${type}:reasoning=${effort}` } : {})
     }
   }
@@ -93,6 +104,8 @@ export function summarizeWebSocketFrame(
     const response = recordField(payload, 'response')
     const usage = recordField(response, 'usage')
     const responseId = stringField(response, 'id')
+    const parentResponseId =
+      stringField(response, 'previous_response_id') ?? stringField(payload, 'previous_response_id')
     const status = stringField(response, 'status')
     const model = stringField(response, 'model')
     return {
@@ -102,8 +115,10 @@ export function summarizeWebSocketFrame(
       kind: 'usage',
       model,
       outputTokens: numberField(usage, 'output_tokens'),
+      parentResponseId,
       reasoningTokens: numberField(recordField(usage, 'output_tokens_details'), 'reasoning_tokens'),
       responseId,
+      summaryJson: safeSummaryJson({ model, responseId, status, usage }),
       text: tokenUsageText(status, usage),
       totalTokens: numberField(usage, 'total_tokens')
     }
@@ -128,6 +143,9 @@ export function summarizeWebSocketFrame(
       ...base,
       itemId,
       kind: 'assistant',
+      responseId: stringField(item, 'response_id') ?? stringField(payload, 'response_id'),
+      parentResponseId: stringField(item, 'parent_response_id'),
+      summaryJson: safeSummaryJson({ itemId, text: stringField(item, 'text') }),
       text: truncateForLog(`AI 回复: ${stringField(item, 'text') ?? ''}`)
     }
   }
@@ -136,14 +154,19 @@ export function summarizeWebSocketFrame(
       ...base,
       itemId: stringField(payload, 'output_index') ?? itemId,
       kind: 'assistant',
+      responseId: stringField(payload, 'response_id'),
+      summaryJson: safeSummaryJson({ itemId, text: stringField(payload, 'text') }),
       text: truncateForLog(`AI 回复: ${stringField(payload, 'text') ?? ''}`)
     }
   }
   if (type === 'response.output_item.added' && itemType?.includes('call')) {
     return {
       ...base,
+      callId: callIdFromPayload(payload, item),
       itemId,
-      kind: 'tool',
+      kind: 'tool_call',
+      responseId: stringField(payload, 'response_id') ?? stringField(item, 'response_id'),
+      summaryJson: safeSummaryJson({ itemId, itemType, phase: 'started' }),
       text: '',
       tool: toolUpdateFromItem('started', item, itemType)
     }
@@ -151,8 +174,11 @@ export function summarizeWebSocketFrame(
   if (type.endsWith('function_call_arguments.done')) {
     return {
       ...base,
+      callId: callIdFromPayload(payload, undefined),
       itemId,
-      kind: 'tool',
+      kind: 'tool_call',
+      responseId: stringField(payload, 'response_id'),
+      summaryJson: safeSummaryJson({ itemId, phase: 'arguments' }),
       text: '',
       tool: { arguments: describeArguments(stringField(payload, 'arguments')), phase: 'arguments' }
     }
@@ -160,8 +186,11 @@ export function summarizeWebSocketFrame(
   if (type.endsWith('custom_tool_call_input.done')) {
     return {
       ...base,
+      callId: callIdFromPayload(payload, undefined),
       itemId,
-      kind: 'tool',
+      kind: 'tool_call',
+      responseId: stringField(payload, 'response_id'),
+      summaryJson: safeSummaryJson({ itemId, phase: 'arguments' }),
       text: '',
       tool: { arguments: describeArguments(stringField(payload, 'input')), phase: 'arguments' }
     }
@@ -172,8 +201,11 @@ export function summarizeWebSocketFrame(
   ) {
     return {
       ...base,
+      callId: callIdFromPayload(payload, item),
       itemId,
-      kind: 'tool',
+      kind: 'tool_result',
+      responseId: stringField(payload, 'response_id') ?? stringField(item, 'response_id'),
+      summaryJson: safeSummaryJson({ itemId, itemType, phase: 'completed' }),
       text: '',
       tool: toolUpdateFromItem('completed', item, itemType)
     }
@@ -200,6 +232,8 @@ function summaryBase(
   return {
     payloadBytes: frame.payloadBytes,
     protocolType: type,
+    parentResponseId: stringField(payload, 'parent_response_id'),
+    responseId: stringField(payload, 'response_id'),
     sequenceNumber: numberField(payload, 'sequence_number'),
     truncated: frame.truncated
   }
@@ -292,6 +326,26 @@ function countToolResults(item: Record<string, unknown> | undefined): number | u
     arrayField(item, 'search_results') ??
     arrayField(recordField(item, 'result'), 'results')
   return results?.length
+}
+
+function callIdFromPayload(
+  payload: Record<string, unknown>,
+  item: Record<string, unknown> | undefined
+): string | undefined {
+  return (
+    stringField(payload, 'call_id') ??
+    stringField(payload, 'item_id') ??
+    stringField(item, 'call_id') ??
+    stringField(item, 'id')
+  )
+}
+
+function safeSummaryJson(value: unknown): string {
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return JSON.stringify({ text: String(value) })
+  }
 }
 
 function describeArguments(argumentsText: string | undefined): string {

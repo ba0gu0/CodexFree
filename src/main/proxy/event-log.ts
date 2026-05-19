@@ -23,20 +23,23 @@ export function createProxyLogger(
 
   function emit(level: LogEventLevel, message: string, data?: unknown): void {
     const meta = extractLogMeta(data)
-    ledger.recordLogEvent(
-      {
-        level,
-        eventType: classifyLogEvent(level, message, data),
-        message,
-        detail: data,
-        requestId: meta.requestId,
-        accountId: meta.accountId,
-        conversationKey: meta.conversationKey,
-        path: meta.path,
-        method: meta.method
-      },
-      new Date()
-    )
+    const eventType = classifyLogEvent(level, message, data)
+    if (shouldPersistLogEvent(level, eventType)) {
+      ledger.recordLogEvent(
+        {
+          level,
+          eventType,
+          message,
+          detail: data,
+          requestId: meta.requestId,
+          accountId: meta.accountId,
+          conversationKey: meta.conversationKey,
+          path: meta.path,
+          method: meta.method
+        },
+        new Date()
+      )
+    }
 
     if (!options.debug) {
       return
@@ -45,6 +48,13 @@ export function createProxyLogger(
     const target = level === 'error' ? stderr : stdout
     target.write(`[${options.prefix}:${level}] ${formatProxyLog(message, data)}\n`)
   }
+}
+
+function shouldPersistLogEvent(level: LogEventLevel, eventType: LogEventType): boolean {
+  if (level === 'error') {
+    return true
+  }
+  return eventType !== 'request'
 }
 
 function classifyLogEvent(level: LogEventLevel, message: string, data: unknown): LogEventType {

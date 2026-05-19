@@ -22,6 +22,7 @@ import type {
   RequestSummaryDto,
   ResetExhaustedAccountsDto,
   SetAccountDisabledDto,
+  TurnSummaryDto,
   UsageSummaryDto
 } from './proxy-api'
 
@@ -64,6 +65,8 @@ const api = {
     ipcRenderer.invoke('proxy:log-events', limit),
   getProtocolMessages: (limit?: number): Promise<ActivityPageDto<ProtocolMessageDto>> =>
     ipcRenderer.invoke('proxy:protocol-messages', limit),
+  getTurnSummaries: (limit?: number): Promise<ActivityPageDto<TurnSummaryDto>> =>
+    ipcRenderer.invoke('proxy:turn-summaries', limit),
   getRawCapture: (requestId: string): Promise<RawCaptureDetailDto | undefined> =>
     ipcRenderer.invoke('proxy:raw-capture', requestId),
   clearProxyRecords: (): Promise<ClearProxyRecordsResultDto> =>

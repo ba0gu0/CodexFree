@@ -1,4 +1,3 @@
-import { StatusBadge } from '@renderer/components/app-shell/status-badge'
 import { Button } from '@renderer/components/ui/button'
 import {
   Card,
@@ -7,36 +6,33 @@ import {
   CardPanel,
   CardTitle
 } from '@renderer/components/ui/card'
-import {
-  logEventDisplayMeta,
-  logEventDisplayTitle,
-  logEventTypeLabel,
-  protocolDirectionLabel,
-  protocolKindLabel,
-  protocolMessageDisplayMeta,
-  protocolMessageDisplayTitle
-} from '@renderer/data/activity-display'
-import { formatBytes, formatDateTime, truncateMiddle } from '@renderer/data/format'
-import type { ProtocolMessage, ProxyLogEvent, RecentRequest } from '@renderer/data/proxy-console'
+import { logEventDisplayTitle, logEventTypeLabel } from '@renderer/data/activity-display'
+import type { ActivityViewModel } from '@renderer/data/activity-view-model'
+import { formatDateTime, truncateMiddle } from '@renderer/data/format'
+import type {
+  ProtocolMessage,
+  ProxyLogEvent,
+  RecentRequest,
+  TurnSummary
+} from '@renderer/data/proxy-console'
 import {
   accountDisplayForPathFromLookup,
-  outcomeKey,
   requestByteSummary,
-  requestPurposeLabel,
   tokenBreakdownText,
   tokenUsageSourceLabel
 } from '@renderer/data/proxy-console'
-import { ActivityIcon, FileSearchIcon } from 'lucide-react'
+import { ActivityIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
 import {
+  ActivityOverview,
   DetailSection,
-  eventTone,
   LogDetailJson,
-  outcomeTone,
-  ProtocolMessages,
+  RelatedActivityList,
   RequestDetail
 } from './requests-detail-shared'
 import type { RequestTimelineItem } from './requests-model'
+import { ProtocolMessageMetadata } from './requests-protocol-message-metadata'
+import { TurnOnlyDetails, TurnSummaries } from './requests-turn-summary'
 import type { PageProps } from './types'
 
 export function SelectedRequestPanel({
@@ -44,27 +40,29 @@ export function SelectedRequestPanel({
   actions,
   linkedRequest,
   locale,
-  messages,
   selected,
-  t
+  t,
+  turnSummaries
 }: {
   accountLabels: Map<string, string>
   actions: PageProps['actions']
   linkedRequest: RecentRequest | undefined
   locale: PageProps['locale']
-  messages: ProtocolMessage[]
   selected: RequestTimelineItem | undefined
   t: PageProps['t']
+  turnSummaries: TurnSummary[]
 }): ReactElement {
   return (
     <aside className="flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden">
       <Card className="h-full min-h-0 overflow-hidden rounded-xl shadow-none">
         <CardHeader className="pb-3">
-          <CardTitle>
+          <CardTitle className="text-xl">
             {selected?.kind === 'request' ? t('requests.selected') : t('requests.selectedEvent')}
           </CardTitle>
-          <CardDescription>
-            {selected ? selectedDescription(selected, t) : t('requests.noSelection')}
+          <CardDescription className="max-h-20 overflow-y-auto break-words text-sm leading-5 [overflow-wrap:anywhere]">
+            {selected
+              ? selected.activity.subtitle || selected.activity.title
+              : t('requests.noSelection')}
           </CardDescription>
         </CardHeader>
         <CardPanel className="flex h-[calc(100%-74px)] min-h-0 min-w-0 flex-col gap-3 overflow-y-auto overflow-x-hidden">
@@ -72,30 +70,39 @@ export function SelectedRequestPanel({
             <RequestDetails
               accountLabels={accountLabels}
               actions={actions}
+              activity={selected.activity}
               locale={locale}
-              messages={messages}
               selected={selected.request}
               t={t}
+              turnSummaries={turnSummaries}
             />
           ) : selected?.kind === 'log' ? (
             <EventDetails
               accountLabels={accountLabels}
               actions={actions}
+              activity={selected.activity}
               event={selected.event}
               linkedRequest={linkedRequest}
               locale={locale}
-              messages={messages}
               t={t}
+              turnSummaries={turnSummaries}
             />
           ) : selected?.kind === 'protocol' ? (
             <ProtocolMessageDetails
               accountLabels={accountLabels}
+              activity={selected.activity}
               linkedRequest={linkedRequest}
               locale={locale}
               message={selected.message}
-              messages={messages}
               t={t}
+              turnSummaries={turnSummaries}
             />
+          ) : selected?.kind === 'turn' ? (
+            <>
+              <ActivityOverview activity={selected.activity} t={t} />
+              <TurnOnlyDetails locale={locale} t={t} turn={selected.turn} />
+              <RelatedActivityList activities={selected.activity.children ?? []} t={t} />
+            </>
           ) : (
             <div className="rounded-lg border bg-muted/40 p-6 text-muted-foreground text-sm">
               {t('requests.noSelection')}
@@ -107,48 +114,31 @@ export function SelectedRequestPanel({
   )
 }
 
-function selectedDescription(item: RequestTimelineItem, t: PageProps['t']): string {
-  if (item.kind === 'request') {
-    return requestPurposeLabel(item.request.requestPurpose, t)
-  }
-  if (item.kind === 'protocol') {
-    return protocolMessageDisplayTitle(item.message, t)
-  }
-  return logEventDisplayTitle(item.event, t)
-}
-
 function RequestDetails({
   accountLabels,
   actions,
+  activity,
   locale,
-  messages,
   selected,
-  t
+  t,
+  turnSummaries
 }: {
   accountLabels: Map<string, string>
   actions: PageProps['actions']
+  activity: ActivityViewModel
   locale: PageProps['locale']
-  messages: ProtocolMessage[]
   selected: RecentRequest
   t: PageProps['t']
+  turnSummaries: TurnSummary[]
 }): ReactElement {
   return (
     <>
-      <div className="rounded-lg bg-muted/55 p-3">
-        <div className="mb-2 flex items-center gap-2">
-          <FileSearchIcon data-icon="inline-start" />
-          <StatusBadge tone={outcomeTone(selected.outcome)}>
-            {t(outcomeKey(selected.outcome))}
-          </StatusBadge>
-        </div>
-        <div className="break-all font-semibold text-foreground text-sm">
-          {selected.method} {selected.path}
-        </div>
-      </div>
+      <ActivityOverview activity={activity} t={t} />
       <HttpMetadata selected={selected} locale={locale} t={t} />
       <TokenMetadata selected={selected} locale={locale} t={t} />
       <CodexMetadata accountLabels={accountLabels} locale={locale} selected={selected} t={t} />
-      <ProtocolMessages locale={locale} messages={messages} t={t} />
+      <TurnSummaries locale={locale} summaries={turnSummaries} t={t} />
+      <RelatedActivityList activities={activity.children ?? []} t={t} />
       <Button
         disabled={!selected.rawCapturePath}
         onClick={() => actions.openCapture(selected.id)}
@@ -164,37 +154,25 @@ function RequestDetails({
 function EventDetails({
   accountLabels,
   actions,
+  activity,
   event,
   linkedRequest,
   locale,
-  messages,
-  t
+  t,
+  turnSummaries
 }: {
   accountLabels: Map<string, string>
   actions: PageProps['actions']
+  activity: ActivityViewModel
   event: ProxyLogEvent
   linkedRequest: RecentRequest | undefined
   locale: PageProps['locale']
-  messages: ProtocolMessage[]
   t: PageProps['t']
+  turnSummaries: TurnSummary[]
 }): ReactElement {
   return (
     <>
-      <div className="rounded-lg bg-muted/55 p-3">
-        <div className="mb-2 flex items-center gap-2">
-          <FileSearchIcon data-icon="inline-start" />
-          <StatusBadge tone={eventTone(event.level)}>{event.level.toUpperCase()}</StatusBadge>
-          {event.eventType ? (
-            <StatusBadge>{logEventTypeLabel(event.eventType, t)}</StatusBadge>
-          ) : null}
-        </div>
-        <div className="break-all font-semibold text-foreground text-sm">
-          {logEventDisplayTitle(event, t)}
-        </div>
-        <div className="mt-1 break-all text-muted-foreground text-xs">
-          {logEventDisplayMeta(event, t)}
-        </div>
-      </div>
+      <ActivityOverview activity={activity} t={t} />
       <EventMetadata accountLabels={accountLabels} event={event} locale={locale} t={t} />
       <LogDetailJson detailJson={event.detailJson} t={t} />
       {linkedRequest ? (
@@ -207,9 +185,10 @@ function EventDetails({
             selected={linkedRequest}
             t={t}
           />
+          <TurnSummaries locale={locale} summaries={turnSummaries} t={t} />
         </>
       ) : null}
-      <ProtocolMessages locale={locale} messages={messages} t={t} />
+      <RelatedActivityList activities={activity.children ?? []} t={t} />
       <Button
         disabled={!linkedRequest?.rawCapturePath}
         onClick={() => {
@@ -228,36 +207,24 @@ function EventDetails({
 
 function ProtocolMessageDetails({
   accountLabels,
+  activity,
   linkedRequest,
   locale,
   message,
-  messages,
-  t
+  t,
+  turnSummaries
 }: {
   accountLabels: Map<string, string>
+  activity: ActivityViewModel
   linkedRequest: RecentRequest | undefined
   locale: PageProps['locale']
   message: ProtocolMessage
-  messages: ProtocolMessage[]
   t: PageProps['t']
+  turnSummaries: TurnSummary[]
 }): ReactElement {
   return (
     <>
-      <div className="rounded-lg bg-muted/55 p-3">
-        <div className="mb-2 flex items-center gap-2">
-          <FileSearchIcon data-icon="inline-start" />
-          <StatusBadge tone={message.kind === 'error' ? 'error' : 'success'}>
-            {protocolKindLabel(message.kind, t)}
-          </StatusBadge>
-          <StatusBadge>{protocolDirectionLabel(message.direction, t)}</StatusBadge>
-        </div>
-        <div className="break-all font-semibold text-foreground text-sm">
-          {protocolMessageDisplayTitle(message, t)}
-        </div>
-        <div className="mt-1 break-all text-muted-foreground text-xs">
-          {protocolMessageDisplayMeta(message, locale, t)}
-        </div>
-      </div>
+      <ActivityOverview activity={activity} t={t} />
       <ProtocolMessageMetadata
         accountLabels={accountLabels}
         locale={locale}
@@ -274,60 +241,11 @@ function ProtocolMessageDetails({
             selected={linkedRequest}
             t={t}
           />
+          <TurnSummaries locale={locale} summaries={turnSummaries} t={t} />
         </>
       ) : null}
-      <ProtocolMessages locale={locale} messages={messages} t={t} />
+      <RelatedActivityList activities={activity.children ?? []} t={t} />
     </>
-  )
-}
-
-function ProtocolMessageMetadata({
-  accountLabels,
-  locale,
-  message,
-  t
-}: {
-  accountLabels: Map<string, string>
-  locale: PageProps['locale']
-  message: ProtocolMessage
-  t: PageProps['t']
-}): ReactElement {
-  return (
-    <DetailSection title={t('requests.protocolMessages')}>
-      <RequestDetail
-        label={t('table.startedAt')}
-        value={formatDateTime(message.createdAt, locale)}
-      />
-      <RequestDetail
-        label={t('table.accountId')}
-        value={accountDisplayForPathFromLookup(
-          accountLabels,
-          message.accountId,
-          message.path,
-          t('accounts.emailPending'),
-          t('accounts.originalAccount')
-        )}
-      />
-      <RequestDetail label={t('requests.requestId')} value={message.requestId} />
-      <RequestDetail label={t('table.path')} value={message.path} />
-      <RequestDetail label={t('requests.eventType')} value={message.protocolType ?? '-'} />
-      <RequestDetail
-        label={t('table.source')}
-        value={protocolDirectionLabel(message.direction, t)}
-      />
-      <RequestDetail label={t('table.purpose')} value={protocolKindLabel(message.kind, t)} />
-      <RequestDetail label={t('table.model')} value={message.model ?? '-'} />
-      <RequestDetail label={t('table.tokens')} value={tokenBreakdownText(message, locale)} />
-      <RequestDetail label={t('requests.conversation')} value={message.conversationKey ?? '-'} />
-      <RequestDetail
-        label={t('requests.previousResponseId')}
-        value={message.previousResponseId ?? '-'}
-      />
-      <RequestDetail label={t('requests.responseId')} value={message.responseId ?? '-'} />
-      <RequestDetail label={t('requests.sequence')} value={String(message.sequenceNumber ?? '-')} />
-      <RequestDetail label={t('table.bytes')} value={formatBytes(message.payloadBytes, locale)} />
-      <RequestDetail label={t('requests.message')} value={message.text || '-'} />
-    </DetailSection>
   )
 }
 
@@ -379,7 +297,7 @@ function HttpMetadata({
   t: PageProps['t']
 }): ReactElement {
   return (
-    <DetailSection title={t('requests.httpMetadata')}>
+    <DetailSection title={t('requests.requestContent')}>
       <RequestDetail
         label={t('table.startedAt')}
         value={formatDateTime(selected.startedAt, locale)}
@@ -419,7 +337,7 @@ function TokenMetadata({
   t: PageProps['t']
 }): ReactElement {
   return (
-    <DetailSection title={t('requests.tokenMetadata')}>
+    <DetailSection title={t('requests.responseContent')}>
       <RequestDetail
         label={t('table.model')}
         value={`${selected.requestModel ?? '-'} / ${selected.responseModel ?? '-'}`}

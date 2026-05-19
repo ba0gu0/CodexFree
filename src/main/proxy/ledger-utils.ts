@@ -39,6 +39,7 @@ export function clearLedgerTables(sqlite: Database.Database): number {
     sqlite.prepare('DELETE FROM proxy_routing_events').run()
     sqlite.prepare('DELETE FROM proxy_quota_events').run()
     sqlite.prepare('DELETE FROM proxy_protocol_messages').run()
+    sqlite.prepare('DELETE FROM proxy_turn_summaries').run()
     sqlite.prepare('DELETE FROM proxy_log_events').run()
     return sqlite.prepare('DELETE FROM proxy_requests').run().changes
   })()
@@ -62,6 +63,7 @@ export function pruneLedgerTables(sqlite: Database.Database, olderThan: Date): n
     sqlite.prepare('DELETE FROM proxy_routing_events WHERE created_at < ?').run(cutoff)
     sqlite.prepare('DELETE FROM proxy_quota_events WHERE created_at < ?').run(cutoff)
     sqlite.prepare('DELETE FROM proxy_protocol_messages WHERE created_at < ?').run(cutoff)
+    sqlite.prepare('DELETE FROM proxy_turn_summaries WHERE updated_at < ?').run(cutoff)
     sqlite.prepare('DELETE FROM proxy_log_events WHERE created_at < ?').run(cutoff)
     return sqlite.prepare('DELETE FROM proxy_requests WHERE started_at < ?').run(cutoff).changes
   })()

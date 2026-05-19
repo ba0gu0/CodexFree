@@ -3,7 +3,8 @@ import type {
   AccountUsageInput,
   LogEventRow,
   ManagedAccountRow,
-  ProtocolMessageRow
+  ProtocolMessageRow,
+  TurnSummaryRow
 } from '../proxy/ledger-types'
 import type {
   ProxyAccountSwitchResult,
@@ -128,6 +129,10 @@ export class DaemonAdminClient {
 
   protocolMessages(limit = 50): Promise<{ hasMore: boolean; messages: ProtocolMessageRow[] }> {
     return this.getJson(`/protocol-messages?limit=${limit}`)
+  }
+
+  turnSummaries(limit = 50): Promise<{ hasMore: boolean; summaries: TurnSummaryRow[] }> {
+    return this.getJson(`/turn-summaries?limit=${limit}`)
   }
 
   clearRecords(): Promise<{ deletedCaptureEntries: number; deletedRequests: number }> {

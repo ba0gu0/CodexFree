@@ -7,7 +7,8 @@ import type {
   LogEventInput,
   LogEventRow,
   ManagedAccountRow,
-  ProtocolMessageRow
+  ProtocolMessageRow,
+  TurnSummaryRow
 } from '../proxy/ledger-types'
 import { clearRawCaptures } from '../proxy/raw-capture'
 import type {
@@ -38,6 +39,7 @@ export interface AdminLedger {
   deleteAccounts(accountIds: string[]): number
   recentLogEvents(limit?: number): LogEventRow[]
   recentProtocolMessages(limit?: number): ProtocolMessageRow[]
+  recentTurnSummaries(limit?: number): TurnSummaryRow[]
   recent(limit?: number): RecentRequest[]
   requestSummary(): RequestSummary
   recordLogEvent(input: LogEventInput): void
@@ -262,6 +264,12 @@ export class DaemonAdminServer {
       const limit = normalizeListLimit(url.searchParams.get('limit'), 50)
       const page = pageFromRows(this.options.ledger.recentProtocolMessages(limit + 1), limit)
       writeJson(response, 200, { hasMore: page.hasMore, messages: page.items })
+      return
+    }
+    if (request.method === 'GET' && url.pathname === '/admin/turn-summaries') {
+      const limit = normalizeListLimit(url.searchParams.get('limit'), 50)
+      const page = pageFromRows(this.options.ledger.recentTurnSummaries(limit + 1), limit)
+      writeJson(response, 200, { hasMore: page.hasMore, summaries: page.items })
       return
     }
     if (request.method === 'POST' && url.pathname === '/admin/clear-records') {

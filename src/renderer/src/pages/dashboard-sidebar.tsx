@@ -38,7 +38,9 @@ export function DirectoryPanel({ actions, t }: Pick<PageProps, 'actions' | 't'>)
     ['dashboard.workDirectory', actions.openWorkDirectory, 'bg-success/12 text-success']
   ] as const
   return (
-    <section className={`${panel} flex h-[196px] shrink-0 flex-col gap-3 min-[1400px]:h-[216px]`}>
+    <section
+      className={`${panel} flex min-h-[196px] flex-1 flex-col gap-3 min-[1400px]:min-h-[216px]`}
+    >
       <div className={`${muted} font-bold text-xs`}>{t('dashboard.directories')}</div>
       {rows.map(([key, action, className]) => (
         <Button

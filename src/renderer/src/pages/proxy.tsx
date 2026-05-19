@@ -139,11 +139,10 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
             <CardTitle>{t('proxy.title')}</CardTitle>
             <CardDescription>{t('proxy.desc')}</CardDescription>
           </CardHeader>
-          <CardPanel className="grid min-h-0 gap-3 overflow-y-auto p-4 pt-0 md:grid-cols-2">
+          <CardPanel className="grid min-h-0 content-start gap-3 overflow-y-auto p-4 pt-0 md:grid-cols-2">
             <SwitchField
               checked={draft.rawCaptureEnabled}
               className="md:col-span-2"
-              controlPosition="left"
               description={t('proxy.rawCaptureDesc')}
               label={t('proxy.rawCapture')}
               onChange={(rawCaptureEnabled) => setDraft({ ...draft, rawCaptureEnabled })}
@@ -360,25 +359,31 @@ function ConfigRepairPanel({
   t: PageProps['t']
 }): ReactElement {
   return (
-    <div className="grid gap-3 md:col-span-2 md:grid-cols-[minmax(0,1fr)_220px]">
+    <div className="grid gap-3 md:col-span-2">
       <SwitchField
         checked={checked}
-        className={`h-full ${checked ? 'md:col-span-2' : ''}`}
-        controlPosition="left"
         description={t('proxy.configMonitorDesc')}
         label={t('proxy.configMonitor')}
         onChange={onChange}
       />
       {!checked ? (
-        <Button
-          className="h-full min-h-16"
-          loading={busyAction === 'config'}
-          onClick={actions.writeCodexConfig}
-          variant="outline"
-        >
-          <FilePenLineIcon data-icon="inline-start" />
-          {t('proxy.configToml')}
-        </Button>
+        <Field className="flex-row items-center justify-between gap-3 rounded-lg border bg-background p-3">
+          <div className="min-w-0">
+            <FieldLabel>{t('proxy.configToml')}</FieldLabel>
+            <FieldDescription className="mt-1 line-clamp-2">
+              {t('proxy.configTomlDesc')}
+            </FieldDescription>
+          </div>
+          <Button
+            className="shrink-0"
+            loading={busyAction === 'config'}
+            onClick={actions.writeCodexConfig}
+            variant="outline"
+          >
+            <FilePenLineIcon data-icon="inline-start" />
+            {t('proxy.configToml')}
+          </Button>
+        </Field>
       ) : null}
     </div>
   )

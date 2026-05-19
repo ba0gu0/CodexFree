@@ -161,6 +161,7 @@ export interface RecentRequestDto {
   outboundMode: string
   rawCapturePath: string | null
   errorMessage: string | null
+  summaryJson: string | null
   startedAt: number
 }
 
@@ -186,15 +187,18 @@ export interface ProxyLogEventDto {
 export interface ProtocolMessageDto {
   accountId: string | null
   cachedInputTokens: number | null
+  callId: string | null
   conversationKey: string | null
   createdAt: number
   direction: string
   id: string
+  itemId: string | null
   inputItemCount: number | null
   inputTokens: number | null
   kind: string
   model: string | null
   outputTokens: number | null
+  parentResponseId: string | null
   path: string
   payloadBytes: number | null
   previousResponseId: string | null
@@ -203,10 +207,37 @@ export interface ProtocolMessageDto {
   requestId: string
   responseId: string | null
   sequenceNumber: number | null
+  summaryJson: string | null
   text: string
   toolCount: number | null
   totalTokens: number | null
   truncated: number | null
+}
+
+export interface TurnSummaryDto {
+  accountId: string | null
+  assistantText: string | null
+  cachedInputTokens: number | null
+  completedAt: number | null
+  conversationKey: string | null
+  codexThreadId: string | null
+  codexTurnId: string | null
+  id: string
+  inputTokens: number | null
+  outputTokens: number | null
+  parentResponseId: string | null
+  reasoningTokens: number | null
+  requestId: string
+  responseId: string | null
+  startedAt: number | null
+  status: string | null
+  summaryJson: string | null
+  toolCallCount: number
+  toolResultCount: number
+  totalTokens: number | null
+  turnKey: string
+  updatedAt: number
+  userText: string | null
 }
 
 export interface RawCaptureFileDto {

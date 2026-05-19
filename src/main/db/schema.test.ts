@@ -7,7 +7,8 @@ import {
   proxyQuotaEvents,
   proxyRequests,
   proxyRoutingEvents,
-  proxySettings
+  proxySettings,
+  proxyTurnSummaries
 } from './schema'
 
 describe('database schema', () => {
@@ -45,6 +46,7 @@ describe('database schema', () => {
       expect(rows.map((row) => row.name)).toContain('proxy_routing_events')
       expect(rows.map((row) => row.name)).toContain('proxy_quota_events')
       expect(rows.map((row) => row.name)).toContain('proxy_protocol_messages')
+      expect(rows.map((row) => row.name)).toContain('proxy_turn_summaries')
       expect(rows.map((row) => row.name)).toContain('proxy_log_events')
     } finally {
       db.$client.close()
@@ -59,7 +61,8 @@ describe('database schema', () => {
       proxyRoutingEvents,
       proxyQuotaEvents,
       proxyProtocolMessages,
+      proxyTurnSummaries,
       proxyLogEvents
-    ]).toHaveLength(7)
+    ]).toHaveLength(8)
   })
 })

@@ -5,7 +5,7 @@ import type { ProxyLedger } from './ledger'
 import type { LogEventInput } from './ledger-types'
 
 describe('proxy event log', () => {
-  it('stores readable proxy events in the ledger even when debug output is disabled', () => {
+  it('keeps request progress logs out of the persisted UI event stream', () => {
     const events: LogEventInput[] = []
     const ledger = {
       recordLogEvent: (event: LogEventInput) => events.push(event)
@@ -20,13 +20,29 @@ describe('proxy event log', () => {
       targetHost: 'chatgpt.com'
     })
 
+    expect(events).toEqual([])
+  })
+
+  it('stores system and quota events in the ledger even when debug output is disabled', () => {
+    const events: LogEventInput[] = []
+    const ledger = {
+      recordLogEvent: (event: LogEventInput) => events.push(event)
+    } as unknown as ProxyLedger
+    const logger = createProxyLogger(ledger, { debug: false, prefix: 'daemon' })
+
+    logger.warn('Usage limit reached; marking account exhausted', {
+      accountId: 'account-1',
+      id: 'request-1',
+      path: '/backend-api/codex/responses'
+    })
+
     expect(events).toMatchObject([
       {
         accountId: 'account-1',
-        level: 'info',
-        message: 'HTTP forward',
-        method: 'GET',
-        path: '/backend-api/codex/models',
+        eventType: 'quota',
+        level: 'warn',
+        message: 'Usage limit reached; marking account exhausted',
+        path: '/backend-api/codex/responses',
         requestId: 'request-1'
       }
     ])

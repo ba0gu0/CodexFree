@@ -188,6 +188,106 @@ describe('proxy ledger account sync', () => {
       rmSync(tempDir, { force: true, recursive: true })
     }
   })
+
+  it('upserts turn summaries by stable conversation and response keys', () => {
+    const ledger = new ProxyLedger(':memory:')
+    try {
+      ledger.recordTurnSummary({
+        conversationKey: 'conversation-1',
+        parentResponseId: 'resp-parent',
+        requestId: 'request-1',
+        turnKey: 'turn-1',
+        userText: 'hello'
+      })
+      ledger.recordTurnSummary({
+        assistantText: 'world',
+        conversationKey: 'conversation-1',
+        outputTokens: 5,
+        requestId: 'request-1',
+        responseId: 'resp-1',
+        status: 'completed',
+        toolCallDelta: 1,
+        toolResultDelta: 1,
+        totalTokens: 9,
+        turnKey: 'turn-1'
+      })
+
+      expect(ledger.recentTurnSummaries()).toEqual([
+        expect.objectContaining({
+          assistantText: 'world',
+          responseId: 'resp-1',
+          status: 'completed',
+          toolCallCount: 1,
+          toolResultCount: 1,
+          totalTokens: 9,
+          turnKey: 'turn-1',
+          userText: 'hello'
+        })
+      ])
+    } finally {
+      ledger.close()
+    }
+  })
+
+  it('deduplicates structured routing and quota rows from generic log events', () => {
+    const ledger = new ProxyLedger(':memory:')
+    const createdAt = new Date(1_800_000_000_000)
+    try {
+      ledger.recordLogEvent(
+        {
+          accountId: 'account-1',
+          eventType: 'account_switch',
+          level: 'info',
+          message: 'Active account selected',
+          requestId: 'request-switch'
+        },
+        createdAt
+      )
+      ledger.recordRoutingEvent(
+        {
+          accountId: 'account-1',
+          eventType: 'selected',
+          reason: 'auth_pool',
+          requestId: 'request-switch'
+        },
+        createdAt
+      )
+      ledger.recordLogEvent(
+        {
+          accountId: 'account-2',
+          eventType: 'quota',
+          level: 'warn',
+          message: 'Usage limit reached; marking account exhausted',
+          requestId: 'request-quota'
+        },
+        createdAt
+      )
+      ledger.markAccountQuotaExhausted(
+        'account-2',
+        'request-quota',
+        'conversation-1',
+        {
+          errorType: 'usage_limit_reached',
+          primaryUsedPercent: '100',
+          statusCode: 429
+        },
+        'status=429 used=100',
+        createdAt
+      )
+
+      const rows = ledger.recentLogEvents()
+
+      expect(rows.filter((row) => row.requestId === 'request-switch')).toHaveLength(1)
+      expect(rows.filter((row) => row.requestId === 'request-quota')).toEqual([
+        expect.objectContaining({
+          eventType: 'quota',
+          message: 'Quota event'
+        })
+      ])
+    } finally {
+      ledger.close()
+    }
+  })
 })
 
 function createRequestLedgerEntry(

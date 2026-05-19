@@ -15,7 +15,7 @@ export function DashboardPage(props: PageProps): ReactElement {
   const activityRows = useActivityRows(props)
   const [filter, setFilter] = useState<ActivityFilter>('all')
   const visibleRows = useMemo(
-    () => activityRows.filter((row) => filter === 'all' || row.kind === filter),
+    () => activityRows.filter((row) => row.tags.includes(filter)),
     [activityRows, filter]
   )
   return (

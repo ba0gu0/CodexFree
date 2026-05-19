@@ -197,7 +197,7 @@ describe('transparent proxy service websocket handling', () => {
     expect(frames).toContain('usage sample')
   })
 
-  it('aggregates websocket tool lifecycle events into one readable log line', async () => {
+  it('records websocket tool call frames as one readable event', async () => {
     const upstream = http.createServer()
     upstream.on('upgrade', (_request, socket) => {
       socket.write(
@@ -280,7 +280,7 @@ describe('transparent proxy service websocket handling', () => {
         item.message === 'WSS message' &&
         typeof item.data === 'object' &&
         item.data !== null &&
-        (item.data as { kind?: string }).kind === 'tool'
+        String((item.data as { kind?: string }).kind).startsWith('tool')
     )
     expect(toolMessages).toHaveLength(1)
     expect(JSON.stringify(toolMessages[0].data)).toContain('工具调用: exec_command')

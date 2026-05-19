@@ -261,12 +261,12 @@ function AccountTable({
       >
         <colgroup>
           <col className="w-[38px]" />
-          <col className="w-[210px]" />
-          <col className="w-[82px]" />
-          <col className="w-[76px]" />
+          <col className="w-[210px] min-[1400px]:w-[250px]" />
+          <col className="w-[76px] min-[1400px]:w-[82px]" />
+          <col className="w-[72px] min-[1400px]:w-[82px]" />
           <col />
-          <col className="w-[130px]" />
-          <col className="w-[96px]" />
+          <col className="w-[140px] min-[1400px]:w-[178px]" />
+          <col className="w-[86px] min-[1400px]:w-[96px]" />
         </colgroup>
         <thead className="sticky top-0 z-10">
           <tr className="bg-muted/60 text-muted-foreground">
@@ -347,7 +347,14 @@ function AccountTable({
                 </div>
               </td>
               <td className="max-w-0 overflow-hidden px-2.5 align-middle">
-                {account.lastUsageError ?? formatDateTime(account.lastUsageCheckedAt, locale)}
+                <span
+                  className="block truncate"
+                  title={
+                    account.lastUsageError ?? formatDateTime(account.lastUsageCheckedAt, locale)
+                  }
+                >
+                  {account.lastUsageError ?? formatDateTime(account.lastUsageCheckedAt, locale)}
+                </span>
               </td>
               <td className="overflow-hidden px-2.5 align-middle">
                 <div className="flex justify-end gap-1.5">

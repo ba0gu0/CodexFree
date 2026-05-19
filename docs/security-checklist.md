@@ -1,46 +1,38 @@
-# Security Checklist
+# 安全清单
 
-## Auth Secrets
+## 认证密钥
 
-- Never log raw auth file contents.
-- Never log authorization headers, cookies, access tokens, or refresh tokens.
-- Protocol-shaped `.http` packets may be captured only when an explicit debug
-  setting is enabled for local analysis.
-- Protocol-shaped `.http` captures contain raw authorization headers and
-  must be treated as secrets.
-- Debug raw capture must write outside the repository into the app data
-  `raw-captures` directory and must be disabled by default.
-- Mask secrets in UI by default.
-- Keep imported auth files out of git.
-- Define encryption or platform credential storage before production use.
+- 绝不记录原始认证文件内容。
+- 绝不记录 authorization header、cookie、access token 或 refresh token。
+- 只有在为本地分析显式启用 debug 设置时，才可以捕获协议形态的 `.http` 包。
+- 协议形态的 `.http` 捕获包含原始 authorization header，必须按密钥处理。
+- debug 原始捕获必须写到仓库外的 app data `raw-captures` 目录，并且默认关闭。
+- UI 中默认遮蔽密钥。
+- 导入的认证文件不得进入 git。
+- 生产使用前需要定义加密或平台凭据存储。
 
-## Proxy Safety
+## 代理安全
 
-- Reject API-key mode requests on the normal account-login proxy.
-- Keep any future API-key compatibility service on a separate port with an
-  explicit off-by-default switch and a visible account-ban/detection warning.
-- Treat local compatibility API keys as secrets and never log them.
-- Forward account-mode request bodies unchanged.
-- Enforce a local request body size limit before forwarding upstream.
-- Mutate only upstream authentication headers.
-- Do not add diagnostic headers containing account identifiers unless explicitly
-  approved.
-- Keep quota and auth switching decisions auditable without storing secrets.
-- Record successful admin write operations in the ledger audit log.
+- 在普通账号登录代理上拒绝 API-key 模式请求。
+- 任何未来 API-key 兼容服务都要放在单独端口上，带显式的默认关闭开关，并显示账号封禁/检测风险提示。
+- 把本地兼容 API key 视为密钥，绝不记录。
+- 原样转发账号模式请求 body。
+- 转发上游前强制执行本地请求 body 大小限制。
+- 只改写上游认证 header。
+- 除非明确批准，不添加包含账号标识的诊断 header。
+- 额度和认证切换决策必须可审计，但不能存储密钥。
+- 成功的 admin 写操作要记录到 ledger 审计日志。
 
-## Account Protection
+## 账号保护
 
-- Treat unknown request shapes as blocked until packet evidence proves they are
-  account-mode compatible.
-- Do not retry quota-exhausted requests in a loop.
-- Do not mix auth state across concurrently active runs.
-- Avoid behavior that could look like automated abuse or token sharing beyond
-  the user's local account pool management.
+- 对未知请求形态先阻断，直到包证据证明其与账号模式兼容。
+- 不要循环重试额度耗尽的请求。
+- 不要在并发活跃运行之间混用认证状态。
+- 避免看起来像自动化滥用或超出用户本地账号池管理范围的 token 共享行为。
 
-## Local Machine Safety
+## 本机安全
 
-- Do not overwrite existing `~/.codex/config.toml` or `~/.codex/auth.json`
-  without backup and explicit user confirmation.
-- Generated placeholder auth files must be clearly marked as local proxy tokens.
-- Local certificate generation and trust-store changes require explicit user
-  confirmation.
+- 未备份并获得用户明确确认前，不要覆盖现有 `~/.codex/config.toml` 或
+  `~/.codex/auth.json`。
+- 生成的 placeholder 认证文件必须清楚标记为本地代理 token。
+- 本地证书生成和信任库变更需要用户明确确认。

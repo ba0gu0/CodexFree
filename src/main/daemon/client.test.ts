@@ -4,7 +4,8 @@ import type {
   AccountUsageInput,
   LogEventRow,
   ManagedAccountRow,
-  ProtocolMessageRow
+  ProtocolMessageRow,
+  TurnSummaryRow
 } from '../proxy/ledger-types'
 import type { ProxyConfig, ProxyStatus } from '../proxy/types'
 import { type AdminLedger, DaemonAdminServer } from './admin'
@@ -194,6 +195,7 @@ function fakeLedger(): AdminLedger {
     recent: () => [],
     recentLogEvents: (): LogEventRow[] => [],
     recentProtocolMessages: (): ProtocolMessageRow[] => [],
+    recentTurnSummaries: (): TurnSummaryRow[] => [],
     requestSummary: () => ({
       captured: 0,
       failed: 0,

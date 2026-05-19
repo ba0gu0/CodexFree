@@ -110,7 +110,12 @@ export function protocolKindLabel(kind: string | null | undefined, t: Translator
     case 'assistant':
       return t('protocol.kindAssistant')
     case 'tool':
+    case 'tool_call':
       return t('protocol.kindTool')
+    case 'tool_result':
+      return t('protocol.kindToolResult')
+    case 'response_started':
+      return t('protocol.kindResponseStarted')
     case 'error':
       return t('protocol.kindError')
     case 'usage':

@@ -54,6 +54,7 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
       token_usage_source TEXT,
       user_agent TEXT,
       originator TEXT,
+      summary_json TEXT,
       codex_session_id TEXT,
       codex_thread_id TEXT,
       codex_turn_id TEXT,
@@ -121,6 +122,9 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
       response_id TEXT,
       model TEXT,
       previous_response_id TEXT,
+      parent_response_id TEXT,
+      item_id TEXT,
+      call_id TEXT,
       input_item_count INTEGER,
       tool_count INTEGER,
       input_tokens INTEGER,
@@ -130,12 +134,42 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
       total_tokens INTEGER,
       payload_bytes INTEGER,
       truncated INTEGER,
+      summary_json TEXT,
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS proxy_protocol_messages_request_idx
       ON proxy_protocol_messages(request_id, created_at);
     CREATE INDEX IF NOT EXISTS proxy_protocol_messages_conversation_idx
       ON proxy_protocol_messages(conversation_key, created_at);
+    CREATE TABLE IF NOT EXISTS proxy_turn_summaries (
+      id TEXT PRIMARY KEY,
+      turn_key TEXT NOT NULL UNIQUE,
+      request_id TEXT NOT NULL,
+      conversation_key TEXT,
+      account_id TEXT,
+      codex_thread_id TEXT,
+      codex_turn_id TEXT,
+      response_id TEXT,
+      parent_response_id TEXT,
+      user_text TEXT,
+      assistant_text TEXT,
+      tool_call_count INTEGER NOT NULL DEFAULT 0,
+      tool_result_count INTEGER NOT NULL DEFAULT 0,
+      input_tokens INTEGER,
+      cached_input_tokens INTEGER,
+      output_tokens INTEGER,
+      reasoning_tokens INTEGER,
+      total_tokens INTEGER,
+      status TEXT,
+      summary_json TEXT,
+      started_at INTEGER,
+      completed_at INTEGER,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS proxy_turn_summaries_request_idx
+      ON proxy_turn_summaries(request_id, updated_at);
+    CREATE INDEX IF NOT EXISTS proxy_turn_summaries_conversation_idx
+      ON proxy_turn_summaries(conversation_key, updated_at);
     CREATE TABLE IF NOT EXISTS proxy_log_events (
       id TEXT PRIMARY KEY,
       level TEXT NOT NULL,
@@ -203,6 +237,7 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
     ['token_usage_source', 'ALTER TABLE proxy_requests ADD COLUMN token_usage_source TEXT'],
     ['user_agent', 'ALTER TABLE proxy_requests ADD COLUMN user_agent TEXT'],
     ['originator', 'ALTER TABLE proxy_requests ADD COLUMN originator TEXT'],
+    ['summary_json', 'ALTER TABLE proxy_requests ADD COLUMN summary_json TEXT'],
     ['codex_session_id', 'ALTER TABLE proxy_requests ADD COLUMN codex_session_id TEXT'],
     ['codex_thread_id', 'ALTER TABLE proxy_requests ADD COLUMN codex_thread_id TEXT'],
     ['codex_turn_id', 'ALTER TABLE proxy_requests ADD COLUMN codex_turn_id TEXT'],
@@ -232,6 +267,12 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
       'previous_response_id',
       'ALTER TABLE proxy_protocol_messages ADD COLUMN previous_response_id TEXT'
     ],
+    [
+      'parent_response_id',
+      'ALTER TABLE proxy_protocol_messages ADD COLUMN parent_response_id TEXT'
+    ],
+    ['item_id', 'ALTER TABLE proxy_protocol_messages ADD COLUMN item_id TEXT'],
+    ['call_id', 'ALTER TABLE proxy_protocol_messages ADD COLUMN call_id TEXT'],
     ['input_item_count', 'ALTER TABLE proxy_protocol_messages ADD COLUMN input_item_count INTEGER'],
     ['tool_count', 'ALTER TABLE proxy_protocol_messages ADD COLUMN tool_count INTEGER'],
     ['input_tokens', 'ALTER TABLE proxy_protocol_messages ADD COLUMN input_tokens INTEGER'],
@@ -243,7 +284,12 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
     ['reasoning_tokens', 'ALTER TABLE proxy_protocol_messages ADD COLUMN reasoning_tokens INTEGER'],
     ['total_tokens', 'ALTER TABLE proxy_protocol_messages ADD COLUMN total_tokens INTEGER'],
     ['payload_bytes', 'ALTER TABLE proxy_protocol_messages ADD COLUMN payload_bytes INTEGER'],
-    ['truncated', 'ALTER TABLE proxy_protocol_messages ADD COLUMN truncated INTEGER']
+    ['truncated', 'ALTER TABLE proxy_protocol_messages ADD COLUMN truncated INTEGER'],
+    ['summary_json', 'ALTER TABLE proxy_protocol_messages ADD COLUMN summary_json TEXT']
+  ])
+  ensureColumns(sqlite, 'proxy_turn_summaries', [
+    ['parent_response_id', 'ALTER TABLE proxy_turn_summaries ADD COLUMN parent_response_id TEXT'],
+    ['summary_json', 'ALTER TABLE proxy_turn_summaries ADD COLUMN summary_json TEXT']
   ])
 }
 
@@ -271,6 +317,7 @@ function assertSafeTableName(table: string): void {
     'proxy_requests',
     'proxy_log_events',
     'proxy_protocol_messages',
+    'proxy_turn_summaries',
     'proxy_settings'
   ])
   if (!allowedTables.has(table)) {

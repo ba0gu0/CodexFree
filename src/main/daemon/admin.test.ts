@@ -5,7 +5,8 @@ import type {
   LogEventInput,
   LogEventRow,
   ManagedAccountRow,
-  ProtocolMessageRow
+  ProtocolMessageRow,
+  TurnSummaryRow
 } from '../proxy/ledger-types'
 import type { ProxyConfig, ProxyStatus } from '../proxy/types'
 import { type AdminLedger, DaemonAdminServer } from './admin'
@@ -248,15 +249,18 @@ describe('daemon admin server', () => {
           {
             accountId: 'account-1',
             cachedInputTokens: null,
+            callId: null,
             conversationKey: 'thread-1',
             createdAt: 1,
             direction: 'upstream-to-codex',
             id: 'msg-1',
+            itemId: null,
             inputItemCount: null,
             inputTokens: null,
             kind: 'assistant',
             model: null,
             outputTokens: null,
+            parentResponseId: null,
             path: '/backend-api/codex/responses',
             payloadBytes: null,
             previousResponseId: null,
@@ -265,6 +269,7 @@ describe('daemon admin server', () => {
             requestId: 'request-1',
             responseId: null,
             sequenceNumber: null,
+            summaryJson: null,
             text: 'AI 回复: ok',
             toolCount: null,
             totalTokens: null,
@@ -469,7 +474,11 @@ function fakeService() {
   }
 }
 
-function fakeLedger(events: LogEventRow[] = [], messages: ProtocolMessageRow[] = []): AdminLedger {
+function fakeLedger(
+  events: LogEventRow[] = [],
+  messages: ProtocolMessageRow[] = [],
+  turns: TurnSummaryRow[] = []
+): AdminLedger {
   let accounts: ManagedAccountRow[] = []
   return {
     accounts: (): ManagedAccountRow[] => accounts,
@@ -497,6 +506,7 @@ function fakeLedger(events: LogEventRow[] = [], messages: ProtocolMessageRow[] =
     },
     recentLogEvents: () => events,
     recentProtocolMessages: () => messages,
+    recentTurnSummaries: () => turns,
     recent: () => [],
     requestSummary: () => ({
       captured: 0,

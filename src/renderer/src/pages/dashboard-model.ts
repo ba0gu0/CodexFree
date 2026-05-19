@@ -1,10 +1,16 @@
-import { logEventDisplayTitle, requestDisplayTitle } from '@renderer/data/activity-display'
+import {
+  type ActivityViewContext,
+  type ActivityViewModel,
+  logActivityViewModel,
+  protocolActivityViewModel,
+  requestActivityViewModel,
+  turnActivityViewModel
+} from '@renderer/data/activity-view-model'
 import { formatDateTime, formatDuration, normalizePercent } from '@renderer/data/format'
 import {
   accountDisplayForPathFromLookup,
   accountDisplayLookup,
-  type ManagedAccount,
-  outcomeKey
+  type ManagedAccount
 } from '@renderer/data/proxy-console'
 import type { CopyKey } from '@renderer/i18n/copy'
 import { useMemo } from 'react'
@@ -12,6 +18,8 @@ import type { PageProps } from './types'
 
 export type ActivityFilter =
   | 'all'
+  | 'dialogue'
+  | 'tool'
   | 'request'
   | 'quota'
   | 'switch'
@@ -20,6 +28,8 @@ export type ActivityFilter =
   | 'error'
   | 'rejected'
 export type ActivityKind =
+  | 'dialogue'
+  | 'tool'
   | 'request'
   | 'quota'
   | 'switch'
@@ -30,10 +40,12 @@ export type ActivityKind =
 
 export interface ActivityRow {
   account: string
+  detail: string
   duration: string
   event: string
   id: string
   kind: ActivityKind
+  tags: ActivityFilter[]
   status: string
   timestamp: number
   time: string
@@ -41,6 +53,8 @@ export interface ActivityRow {
 
 export const activityFilters: [ActivityFilter, CopyKey][] = [
   ['all', 'dashboard.filterAll'],
+  ['dialogue', 'dashboard.filterDialogue'],
+  ['tool', 'dashboard.filterTool'],
   ['request', 'dashboard.kindRequest'],
   ['quota', 'dashboard.filterQuota'],
   ['switch', 'dashboard.filterSwitch'],
@@ -54,49 +68,110 @@ export function useActivityRows({ locale, snapshot, t }: PageProps): ActivityRow
   return useMemo(() => {
     const pendingEmail = t('accounts.emailPending')
     const accountLabels = accountDisplayLookup(snapshot.accounts, pendingEmail)
-    const requestRows = snapshot.requests.map((request): ActivityRow => {
-      const account = accountDisplayForPathFromLookup(
-        accountLabels,
-        request.accountId,
-        request.path,
-        pendingEmail,
-        t('accounts.originalAccount')
-      )
-      return {
-        account,
-        duration: formatDuration(request.durationMs, locale),
-        event: requestDisplayTitle(request, t),
-        id: request.id,
-        kind: requestKind(request.outcome),
-        status: request.statusCode ? String(request.statusCode) : t(outcomeKey(request.outcome)),
-        timestamp: request.startedAt,
-        time: formatDateTime(request.startedAt, locale)
-      }
-    })
-    const eventRows = snapshot.logEvents.map((event): ActivityRow => {
-      const account = accountDisplayForPathFromLookup(
-        accountLabels,
-        event.accountId,
-        event.path,
-        pendingEmail,
-        t('accounts.originalAccount')
-      )
-      return {
-        account,
+    const context: ActivityViewContext = { accountLabels, locale, t }
+    const turnRows = snapshot.turnSummaries.filter(isMeaningfulTurn).map((turn): ActivityRow => {
+      const view = turnActivityViewModel(turn, context)
+      return viewRow(view, {
         duration: '-',
-        event: logEventDisplayTitle(event, t),
-        id: event.id,
-        kind: logKind(event.level, event.message, event.eventType),
-        status: event.level.toUpperCase(),
-        timestamp: event.createdAt,
-        time: formatDateTime(event.createdAt, locale)
-      }
+        fallbackAccount: accountDisplayForPathFromLookup(
+          accountLabels,
+          turn.accountId,
+          null,
+          pendingEmail,
+          t('accounts.originalAccount')
+        ),
+        id: `turn:${turn.id}`,
+        kind: 'dialogue',
+        locale,
+        tags: turn.toolCallCount > 0 ? ['dialogue', 'tool'] : ['dialogue'],
+        timestamp: turn.updatedAt
+      })
     })
-    return [...requestRows, ...eventRows].sort((left, right) => right.timestamp - left.timestamp)
-  }, [locale, snapshot.accounts, snapshot.logEvents, snapshot.requests, t])
+    const coveredMessageIds = new Set(
+      snapshot.protocolMessages
+        .filter((message) => snapshot.turnSummaries.some((turn) => matchesTurn(message, turn)))
+        .map((message) => message.id)
+    )
+    const protocolRows = snapshot.protocolMessages
+      .filter((message) => !coveredMessageIds.has(message.id))
+      .filter(isDashboardProtocolMessage)
+      .map((message): ActivityRow => {
+        const view = protocolActivityViewModel(message, context)
+        return viewRow(view, {
+          duration: '-',
+          fallbackAccount: accountDisplayForPathFromLookup(
+            accountLabels,
+            message.accountId,
+            message.path,
+            pendingEmail,
+            t('accounts.originalAccount')
+          ),
+          id: `protocol:${message.id}`,
+          kind: view.kind === 'tool' ? 'tool' : requestKindFromActivity(view.kind),
+          locale,
+          tags: tagsForActivityKind(view.kind),
+          timestamp: message.createdAt
+        })
+      })
+    const requestRows = snapshot.requests.map((request): ActivityRow => {
+      const view = requestActivityViewModel(request, context)
+      return viewRow(view, {
+        duration: formatDuration(request.durationMs, locale),
+        fallbackAccount: accountDisplayForPathFromLookup(
+          accountLabels,
+          request.accountId,
+          request.path,
+          pendingEmail,
+          t('accounts.originalAccount')
+        ),
+        id: `request:${request.id}`,
+        includeInAll: !isLowValueRequest(request),
+        kind: requestKind(request.outcome),
+        locale,
+        tags: tagsForRequest(request.outcome),
+        timestamp: request.startedAt
+      })
+    })
+    const eventRows = snapshot.logEvents.filter(isVisibleLogEvent).map((event): ActivityRow => {
+      const view = logActivityViewModel(event, context)
+      const kind = logKind(event.level, event.message, event.eventType)
+      return viewRow(view, {
+        duration: '-',
+        fallbackAccount: accountDisplayForPathFromLookup(
+          accountLabels,
+          event.accountId,
+          event.path,
+          pendingEmail,
+          t('accounts.originalAccount')
+        ),
+        id: `event:${event.id}`,
+        kind,
+        locale,
+        tags: tagsForLogKind(kind),
+        timestamp: event.createdAt
+      })
+    })
+    return [...turnRows, ...protocolRows, ...requestRows, ...eventRows].sort(
+      (left, right) => right.timestamp - left.timestamp
+    )
+  }, [
+    locale,
+    snapshot.accounts,
+    snapshot.logEvents,
+    snapshot.protocolMessages,
+    snapshot.requests,
+    snapshot.turnSummaries,
+    t
+  ])
 }
 
 export function typeLabel(kind: ActivityKind, t: PageProps['t']): string {
+  if (kind === 'dialogue') {
+    return t('dashboard.filterDialogue')
+  }
+  if (kind === 'tool') {
+    return t('dashboard.filterTool')
+  }
   if (kind === 'quota') {
     return t('dashboard.filterQuota')
   }
@@ -119,6 +194,12 @@ export function typeLabel(kind: ActivityKind, t: PageProps['t']): string {
 }
 
 export function rowTone(kind: ActivityKind): string {
+  if (kind === 'dialogue') {
+    return 'bg-primary/12 text-primary'
+  }
+  if (kind === 'tool') {
+    return 'bg-info/12 text-info'
+  }
   if (kind === 'quota') {
     return 'bg-warning/12 text-warning'
   }
@@ -138,6 +219,12 @@ export function rowTone(kind: ActivityKind): string {
 }
 
 export function kindClass(kind: ActivityKind): string {
+  if (kind === 'dialogue') {
+    return 'text-primary'
+  }
+  if (kind === 'tool') {
+    return 'text-info'
+  }
   if (kind === 'quota') {
     return 'text-warning'
   }
@@ -180,6 +267,16 @@ function requestKind(outcome: string): ActivityKind {
     return 'rejected'
   }
   return outcome === 'failed' ? 'error' : 'request'
+}
+
+function requestKindFromActivity(kind: ActivityViewModel['kind']): ActivityKind {
+  if (kind === 'quota') {
+    return 'quota'
+  }
+  if (kind === 'tool') {
+    return 'tool'
+  }
+  return kind === 'auth' ? 'auth' : 'request'
 }
 
 function logKind(level: string, message: string, eventType: string | null): ActivityKind {
@@ -234,4 +331,140 @@ function logKind(level: string, message: string, eventType: string | null): Acti
     return 'rejected'
   }
   return level === 'error' || level === 'warn' ? 'error' : 'request'
+}
+
+function viewRow(
+  view: ActivityViewModel,
+  options: {
+    duration: string
+    fallbackAccount: string
+    id: string
+    includeInAll?: boolean
+    kind: ActivityKind
+    locale: PageProps['locale']
+    tags: ActivityFilter[]
+    timestamp: number
+  }
+): ActivityRow {
+  return {
+    account: view.account ?? options.fallbackAccount,
+    detail: compactDetail(view),
+    duration: options.duration,
+    event: view.title,
+    id: options.id,
+    kind: options.kind,
+    status: view.statusText,
+    tags: options.includeInAll === false ? options.tags : ['all', ...options.tags],
+    timestamp: options.timestamp,
+    time: formatDateTime(options.timestamp, options.locale)
+  }
+}
+
+function compactDetail(view: ActivityViewModel): string {
+  const parts = [view.subtitle, view.detail, ...view.metrics].filter(Boolean)
+  const compacted = parts.filter((part, index) => {
+    const previous = parts.slice(0, index)
+    return !previous.some((item) => item === part || item.includes(part))
+  })
+  return compacted.join(' · ') || '-'
+}
+
+function isLowValueRequest(request: {
+  outcome: string
+  path: string
+  requestPurpose: string | null
+}): boolean {
+  if (request.outcome !== 'forwarded') {
+    return false
+  }
+  if (request.path === '/backend-api/wham/remote/control/server') {
+    return true
+  }
+  return [
+    'analytics_events',
+    'connector_directory',
+    'plugin_featured',
+    'codex_wss',
+    'codex_response_sse'
+  ].includes(request.requestPurpose ?? '')
+}
+
+function isDashboardProtocolMessage(message: { kind: string }): boolean {
+  return ['error', 'rate_limit', 'tool_call', 'tool_result', 'user', 'assistant', 'usage'].includes(
+    message.kind
+  )
+}
+
+function isMeaningfulTurn(turn: {
+  assistantText: string | null
+  toolCallCount: number
+  toolResultCount: number
+  userText: string | null
+}): boolean {
+  if (turn.assistantText?.trim() || turn.toolCallCount > 0 || turn.toolResultCount > 0) {
+    return true
+  }
+  return Boolean(turn.userText?.trim() && !turn.userText.startsWith('发起模型请求:'))
+}
+
+function matchesTurn(
+  message: {
+    conversationKey: string | null
+    previousResponseId: string | null
+    requestId: string | null
+    responseId: string | null
+  },
+  turn: {
+    conversationKey: string | null
+    parentResponseId: string | null
+    requestId: string
+    responseId: string | null
+  }
+): boolean {
+  if (message.requestId && message.requestId === turn.requestId) {
+    return true
+  }
+  if (message.responseId && message.responseId === turn.responseId) {
+    return true
+  }
+  if (message.previousResponseId && message.previousResponseId === turn.responseId) {
+    return true
+  }
+  if (message.responseId && message.responseId === turn.parentResponseId) {
+    return true
+  }
+  return Boolean(message.conversationKey && message.conversationKey === turn.conversationKey)
+}
+
+function tagsForActivityKind(kind: ActivityViewModel['kind']): ActivityFilter[] {
+  if (kind === 'tool') {
+    return ['tool']
+  }
+  if (kind === 'quota') {
+    return ['quota']
+  }
+  if (kind === 'auth') {
+    return ['auth']
+  }
+  return ['request']
+}
+
+function tagsForRequest(outcome: string): ActivityFilter[] {
+  return [requestKind(outcome)]
+}
+
+function tagsForLogKind(kind: ActivityKind): ActivityFilter[] {
+  return [kind]
+}
+
+function isVisibleLogEvent(event: { eventType: string | null; level: string }): boolean {
+  if (event.level === 'error' || event.level === 'warn') {
+    return true
+  }
+  return (
+    event.eventType === 'account_switch' ||
+    event.eventType === 'auth' ||
+    event.eventType === 'quota' ||
+    event.eventType === 'system'
+  )
 }

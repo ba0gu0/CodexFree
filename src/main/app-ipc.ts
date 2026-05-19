@@ -72,6 +72,13 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     const page = await runtime.daemonClient.protocolMessages(normalizeActivityLimit(limit))
     return { hasMore: page.hasMore, items: page.messages }
   })
+  ipcMain.handle('proxy:turn-summaries', async (_, limit: unknown) => {
+    if (!(await tryEnsureDaemon(runtime))) {
+      return { hasMore: false, items: [] }
+    }
+    const page = await runtime.daemonClient.turnSummaries(normalizeActivityLimit(limit))
+    return { hasMore: page.hasMore, items: page.summaries }
+  })
   ipcMain.handle('proxy:accounts', async () => {
     if (!(await tryEnsureDaemon(runtime))) {
       return []

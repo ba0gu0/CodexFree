@@ -1,37 +1,30 @@
-# Architecture
+# 架构
 
-## System Shape
+## 系统形态
 
-CodexFree has three primary runtime surfaces, plus one future compatibility
-surface:
+CodexFree 有三个主要 runtime surface，外加一个未来兼容 surface：
 
-1. Electron desktop app for account management, usage inspection, import/export,
-   and operational controls.
-2. Standalone local proxy daemon that owns the forwarding socket and account
-   routing state.
-3. Local admin/control surface used by the app to start, stop, inspect, and
-   configure the daemon.
-4. Future explicit API-key compatibility service on a separate port. This mode
-   is disabled by default and must warn the operator that adapting external
-   API-key traffic onto account WebSocket traffic can increase account detection
-   or ban risk.
+1. Electron desktop app，用于账号管理、用量检查、导入/导出和操作控制。
+2. 独立本地 proxy daemon，拥有 forwarding socket 和账号 routing state。
+3. 本地 admin/control surface，app 用它来启动、停止、检查和配置 daemon。
+4. 未来在单独端口上的显式 API-key compatibility service。该模式默认关闭，并且必须提示 operator：把外部 API-key 流量适配到账号 WebSocket 流量可能增加账号检测或封禁风险。
 
-## Confirmed Stack
+## 已确认技术栈
 
-The implementation stack is:
+实现技术栈为：
 
-- Bun for runtime scripts and package execution.
-- Strict TypeScript.
-- Electron and Vite for the desktop application shell.
-- React 19 for the renderer.
-- Tailwind CSS and Coss UI for the component system.
-- Base UI as the primitive layer through Coss UI, not Radix UI.
-- `lucide-react` for icons.
-- SQLite with Drizzle ORM for local persistence.
-- Vitest for unit and integration tests.
-- Playwright later for UI and Electron verification when needed.
+- Bun 用于 runtime scripts 和 package execution。
+- Strict TypeScript。
+- Electron 和 Vite 用于 desktop application shell。
+- React 19 用于 renderer。
+- Tailwind CSS 和 Coss UI 用于 component system。
+- 通过 Coss UI 使用 Base UI 作为 primitive layer，而不是 Radix UI。
+- `lucide-react` 用于 icons。
+- SQLite with Drizzle ORM 用于本地持久化。
+- Vitest 用于 unit 和 integration tests。
+- 需要 UI 和 Electron 验证时，稍后使用 Playwright。
 
-## Proxy Path
+## 代理路径
 
 ```text
 Codex CLI
@@ -41,147 +34,111 @@ Codex CLI
   -> upstream Codex/OpenAI account endpoint
 ```
 
-The proxy is transparent for request bodies. The only permitted mutation is
-authentication-related upstream headers.
+代理对 request bodies 是透明的。唯一允许的 mutation 是 authentication-related upstream headers。
 
-The default Codex config uses `chatgpt_base_url` under `/backend-api` and
-`openai_base_url` under `/backend-api/codex`. The `/v1` local path belongs to
-the future API-key compatibility surface, not the account-login default.
+默认 Codex config 在 `/backend-api` 下使用 `chatgpt_base_url`，在 `/backend-api/codex` 下使用 `openai_base_url`。本地 `/v1` path 属于未来 API-key compatibility surface，不是 account-login default。
 
-The account-login proxy and the future API-key compatibility service are
-separate trust boundaries. API-key shaped requests remain rejected on the normal
-Codex account proxy. If the compatibility service is implemented, it must listen
-on its own configured port, require an explicit local API key, and translate each
-accepted OpenAI-compatible request into a short-lived account WebSocket exchange
-against `/backend-api/codex/responses`. This applies to `/v1/responses` HTTP,
-SSE, and WebSocket clients, and to legacy `/v1/chat/completions` after request
-conversion. Upstream generation calls to ChatGPT must use WSS, not HTTP
-`POST /backend-api/codex/responses`.
+account-login proxy 和未来 API-key compatibility service 是独立 trust boundaries。API-key 形态请求在普通 Codex account proxy 上仍保持拒绝。如果实现 compatibility service，它必须监听自己的 configured port，要求显式 local API key，并把每个已接受的 OpenAI-compatible request 转换为针对 `/backend-api/codex/responses` 的短生命周期 account WebSocket exchange。这适用于 `/v1/responses` HTTP、SSE 和 WebSocket clients，也适用于经过 request conversion 后的 legacy `/v1/chat/completions`。发往 ChatGPT 的上游 generation calls 必须使用 WSS，而不是 HTTP `POST /backend-api/codex/responses`。
 
-## Account Session Routing
+## 账号会话路由
 
-The router owns:
+router 拥有：
 
-- active auth file selection from the app-managed import directory;
-- per-account health and quota status;
-- in-progress run binding;
-- next-message auth switching;
-- audit events for quota detection and account transitions.
+- 从 app-managed import directory 选择 active auth file；
+- 每账号 health 和 quota status；
+- in-progress run binding；
+- next-message auth switching；
+- quota detection 和 account transitions 的 audit events。
 
-The critical rule is that quota exhaustion must not forcibly rewrite the auth of
-an in-flight request stream. Switching applies to the next eligible request after
-the current run boundary is identified.
+关键规则是：quota exhaustion 不得强行改写 in-flight request stream 的 auth。只有识别出当前 run boundary 后，切换才应用到下一个 eligible request。
 
-The runtime account source is intentionally not configurable by arbitrary path.
-Operators batch-import files into the app-managed auth pool, then enable or
-disable the pool. This keeps the UI database, account status, usage checks, and
-proxy routing aligned to the same file set.
+runtime account source 有意不允许配置为任意路径。operator 将文件批量导入 app-managed auth pool，然后启用或禁用该 pool。这使 UI database、account status、usage checks 和 proxy routing 对齐到同一组文件。
 
-Codex CLI 0.130 traffic exposes that boundary through request headers:
+Codex CLI 0.130 流量通过 request headers 暴露该边界：
 
-- `thread_id` / `session_id` identify the conversation.
-- `x-codex-turn-metadata` contains a `turn_id` for the active user turn.
-- `x-codex-window-id` stays tied to the active conversation window.
-- `chatgpt-account-id` identifies the upstream account currently used by Codex.
+- `thread_id` / `session_id` 标识 conversation。
+- `x-codex-turn-metadata` 包含 active user turn 的 `turn_id`。
+- `x-codex-window-id` 仍绑定 active conversation window。
+- `chatgpt-account-id` 标识 Codex 当前使用的 upstream account。
 
-Auth switching should bind an account to the active `turn_id` when present. If
-quota exhaustion is detected during that turn, the account is marked unavailable
-for future eligible turns, but the current turn is not replayed with a different
-auth file. A later user message in the same conversation can switch because it
-will have a new `turn_id`.
+当存在 active `turn_id` 时，auth switching 应把账号绑定到该 turn。如果该 turn 期间检测到 quota exhaustion，该账号会被标记为未来 eligible turns 不可用，但当前 turn 不会用不同 auth file replay。同一 conversation 中之后的 user message 可以切换，因为它会有新的 `turn_id`。
 
-## Storage
+## 存储
 
-SQLite is the local source of truth for:
+SQLite 是以下内容的本地事实来源：
 
-- imported auth file metadata;
-- normalized account identifiers;
-- request records;
-- usage counters;
-- quota and rejection events;
-- import/export history;
-- batch usage query results.
+- imported auth file metadata；
+- normalized account identifiers；
+- request records；
+- usage counters；
+- quota and rejection events；
+- import/export history；
+- batch usage query results。
 
-Raw secrets should be encrypted or stored through the platform credential store
-when implementation begins. If plain local storage is used during early
-development, it must be documented as temporary and excluded from commits.
+实现开始时，raw secrets 应加密或通过 platform credential store 存储。如果早期开发使用 plain local storage，必须记录为临时方案，并排除在 commits 之外。
 
-Drizzle ORM should own schema definitions and migrations after the project
-manifest is created.
+project manifest 创建后，Drizzle ORM 应拥有 schema definitions 和 migrations。
 
-## Runtime Split
+## 运行时拆分
 
-The accepted direction is documented in
-`docs/specs/proxy-daemon-and-app-split.md`.
+已接受方向记录在 `docs/specs/proxy-daemon-and-app-split.md`。
 
-The current implementation still has Electron main-process wiring, but the next
-architecture step is to extract a daemon boundary:
+当前实现仍有 Electron main-process wiring，但下一个架构步骤是提取 daemon boundary：
 
 ```text
 Codex CLI -> codexfree-proxy daemon -> ChatGPT account backend
 CodexFree App -> local admin API / IPC -> codexfree-proxy daemon
 ```
 
-The daemon and the app must share:
+daemon 和 app 必须共享：
 
-- SQLite ledger and account state;
-- app-managed auth-pool directory;
-- proxy config file;
-- raw capture directory policy.
+- SQLite ledger 和 account state；
+- app-managed auth-pool directory；
+- proxy config file；
+- raw capture directory policy。
 
-The daemon owns forwarding, WSS parsing, quota decisions, and active-account
-selection. The app owns account import/export, batch usage checks, settings, and
-visual inspection. This split allows proxy-core debugging and App UI work to run
-in parallel without changing the same hot path.
+daemon 拥有 forwarding、WSS parsing、quota decisions 和 active-account selection。app 拥有 account import/export、batch usage checks、settings 和 visual inspection。该拆分允许 proxy-core debugging 和 App UI work 并行推进，而不修改同一个 hot path。
 
-## UI Areas
+## UI 区域
 
-Recommended main navigation:
+推荐主导航：
 
-- Dashboard: account pool health, active account, recent quota events.
-- Accounts: import, validate, tag, enable or disable, batch actions.
-- Proxy: local endpoint state, certificate status, request mode rejection counts.
-- Requests: searchable request ledger and per-conversation activity.
-- Usage: account-level usage statistics and batch quota query.
-- Settings: Codex config helper, auth placeholder generation, data retention.
+- Dashboard：account pool health、active account、recent quota events。
+- Accounts：import、validate、tag、enable 或 disable、batch actions。
+- Proxy：local endpoint state、certificate status、request mode rejection counts。
+- Requests：可搜索 request ledger 和 per-conversation activity。
+- Usage：account-level usage statistics 和 batch quota query。
+- Settings：Codex config helper、auth placeholder generation、data retention。
 
-## Renderer Stack
+## 渲染器技术栈
 
-The renderer is a React 19 application inside Electron/Vite and must follow a
-source-owned design system layout after the planned UI refactor:
+renderer 是 Electron/Vite 内的 React 19 application，并且在计划中的 UI refactor 后必须遵循 source-owned design system layout：
 
-- `src/renderer/src/components/ui/` contains Coss/shadcn component source;
-- `src/renderer/src/components/` contains app-specific composition;
-- `src/renderer/src/pages/` contains one page module per view;
-- `src/renderer/src/data/` contains derived models and pure formatting helpers;
-- `src/renderer/src/i18n/` contains copy tables and locale routing;
-- `src/renderer/src/assets/main.css` contains only global tokens, layout
-  primitives, and page-scale utilities.
+- `src/renderer/src/components/ui/` 包含 Coss/shadcn component source；
+- `src/renderer/src/components/` 包含 app-specific composition；
+- `src/renderer/src/pages/` 每个 view 一个 page module；
+- `src/renderer/src/data/` 包含 derived models 和 pure formatting helpers；
+- `src/renderer/src/i18n/` 包含 copy tables 和 locale routing；
+- `src/renderer/src/assets/main.css` 只包含 global tokens、layout primitives 和 page-scale utilities。
 
-Current implementation note: the renderer is in initial shell mode. The
-structure above is the target architecture, not the current completion state.
+当前实现说明：renderer 已经进入 V3 desktop-console shell，Dashboard、Accounts、Proxy、
+Requests 和 Usage 已实现并连接。上面的目录结构仍是后续维护 renderer 时的目标边界。
 
-Component policy:
+组件策略：
 
-- use Coss UI first for buttons, cards, tables, toggles, inputs, tabs, and
-  layout primitives;
-- use shadcn/ui only when Coss UI does not provide the needed component or
-  interaction pattern;
-- do not create a parallel custom primitive layer when an existing Coss or
-  shadcn source component can be copied into `components/ui/`.
+- buttons、cards、tables、toggles、inputs、tabs 和 layout primitives 优先使用 Coss UI；
+- 只有当 Coss UI 不提供所需 component 或 interaction pattern 时，才使用 shadcn/ui；
+- 当已有 Coss 或 shadcn source component 可以复制到 `components/ui/` 时，不要创建平行 custom primitive layer。
 
-The shadcn CLI does not auto-detect electron-vite, so this project keeps a
-manual `components.json` configuration. Add components with `bunx shadcn@latest`
-commands, adjusted to the final project structure and the Coss-first policy.
+shadcn CLI 不会自动检测 electron-vite，因此本项目保留手动 `components.json` 配置。使用 `bunx shadcn@latest` 命令添加 components，并按最终项目结构和 Coss-first policy 调整。
 
-## Compatibility Inputs
+## 兼容输入
 
-The following must come from packet captures before implementation is marked
-Ready:
+实现标记为 Ready 前，以下内容必须来自 packet captures：
 
-- account-mode request headers;
-- streaming response shape;
-- quota-exhaustion response body and status;
-- conversation or run identifiers;
-- API-key mode request signal;
-- upstream endpoint paths used by Codex account login.
+- account-mode request headers；
+- streaming response shape；
+- quota-exhaustion response body 和 status；
+- conversation 或 run identifiers；
+- API-key mode request signal；
+- Codex account login 使用的 upstream endpoint paths。

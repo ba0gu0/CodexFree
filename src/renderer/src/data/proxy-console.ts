@@ -12,12 +12,14 @@ export type UsageSummary = Awaited<ReturnType<Api['getUsageSummary']>>
 export type RecentRequest = Awaited<ReturnType<Api['getRecentRequests']>>['items'][number]
 export type ProxyLogEvent = Awaited<ReturnType<Api['getProxyLogEvents']>>['items'][number]
 export type ProtocolMessage = Awaited<ReturnType<Api['getProtocolMessages']>>['items'][number]
+export type TurnSummary = Awaited<ReturnType<Api['getTurnSummaries']>>['items'][number]
 export type UsageProgress = Parameters<Parameters<Api['onAccountUsageProgress']>[0]>[0]
 
 export interface ConsoleActivityHasMore {
   logEvents: boolean
   protocolMessages: boolean
   requests: boolean
+  turnSummaries: boolean
 }
 
 export interface ConsoleSnapshot {
@@ -30,6 +32,7 @@ export interface ConsoleSnapshot {
   requestSummary: RequestSummary
   requests: RecentRequest[]
   status: ProxyStatus
+  turnSummaries: TurnSummary[]
   usageSummary: UsageSummary
   version: string
 }

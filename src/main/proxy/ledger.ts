@@ -14,7 +14,9 @@ import type {
   ManagedAccountRow,
   ProtocolMessageInput,
   ProtocolMessageRow,
-  RoutingEventInput
+  RoutingEventInput,
+  TurnSummaryInput,
+  TurnSummaryRow
 } from './ledger-types'
 import {
   clearLedgerTables,
@@ -74,7 +76,7 @@ export class ProxyLedger {
           response_item_count, request_input_item_count, request_body_encoding, rpc_method,
           rpc_id, analytics_event_types, input_tokens, cached_input_tokens, output_tokens,
           reasoning_tokens, total_tokens, token_usage_source, user_agent, originator,
-          codex_session_id, codex_thread_id, codex_turn_id, codex_turn_started_at,
+          summary_json, codex_session_id, codex_thread_id, codex_turn_id, codex_turn_started_at,
           codex_version, codex_runtime_os, codex_runtime_arch, raw_capture_path, error_message,
           conversation_key,
           started_at, completed_at
@@ -89,8 +91,8 @@ export class ProxyLedger {
           @responseItemCount, @requestInputItemCount, @requestBodyEncoding, @rpcMethod,
           @rpcId, @analyticsEventTypes, @inputTokens, @cachedInputTokens, @outputTokens,
           @reasoningTokens, @totalTokens, @tokenUsageSource, @userAgent, @originator,
-          @codexSessionId, @codexThreadId, @codexTurnId, @codexTurnStartedAt, @codexVersion,
-          @codexRuntimeOs, @codexRuntimeArch, @rawCapturePath, @errorMessage,
+          @summaryJson, @codexSessionId, @codexThreadId, @codexTurnId, @codexTurnStartedAt,
+          @codexVersion, @codexRuntimeOs, @codexRuntimeArch, @rawCapturePath, @errorMessage,
           @conversationKey, @startedAt, @completedAt
         )
       `)
@@ -130,6 +132,7 @@ export class ProxyLedger {
         tokenUsageSource: entry.tokenUsageSource ?? null,
         userAgent: entry.userAgent ?? null,
         originator: entry.originator ?? null,
+        summaryJson: entry.summaryJson ?? null,
         codexSessionId: entry.codexSessionId ?? null,
         codexThreadId: entry.codexThreadId ?? null,
         codexTurnId: entry.codexTurnId ?? null,
@@ -190,6 +193,7 @@ export class ProxyLedger {
           codex_runtime_arch AS codexRuntimeArch,
           user_agent AS userAgent,
           originator,
+          summary_json AS summaryJson,
           streaming,
           upstream_host AS upstreamHost,
           outbound_mode AS outboundMode,
@@ -443,13 +447,15 @@ export class ProxyLedger {
         INSERT INTO proxy_protocol_messages (
           id, request_id, path, account_id, conversation_key, direction, kind, text,
           protocol_type, sequence_number, response_id, model, previous_response_id,
-          input_item_count, tool_count, input_tokens, cached_input_tokens, output_tokens,
-          reasoning_tokens, total_tokens, payload_bytes, truncated, created_at
+          parent_response_id, item_id, call_id, input_item_count, tool_count, input_tokens,
+          cached_input_tokens, output_tokens, reasoning_tokens, total_tokens, payload_bytes,
+          truncated, summary_json, created_at
         ) VALUES (
           @id, @requestId, @path, @accountId, @conversationKey, @direction, @kind, @text,
           @protocolType, @sequenceNumber, @responseId, @model, @previousResponseId,
-          @inputItemCount, @toolCount, @inputTokens, @cachedInputTokens, @outputTokens,
-          @reasoningTokens, @totalTokens, @payloadBytes, @truncated, @createdAt
+          @parentResponseId, @itemId, @callId, @inputItemCount, @toolCount, @inputTokens,
+          @cachedInputTokens, @outputTokens, @reasoningTokens, @totalTokens, @payloadBytes,
+          @truncated, @summaryJson, @createdAt
         )
       `)
       .run({
@@ -466,6 +472,9 @@ export class ProxyLedger {
         responseId: input.responseId ?? null,
         model: input.model ?? null,
         previousResponseId: input.previousResponseId ?? null,
+        parentResponseId: input.parentResponseId ?? null,
+        itemId: input.itemId ?? null,
+        callId: input.callId ?? null,
         inputItemCount: input.inputItemCount ?? null,
         toolCount: input.toolCount ?? null,
         inputTokens: input.inputTokens ?? null,
@@ -475,6 +484,7 @@ export class ProxyLedger {
         totalTokens: input.totalTokens ?? null,
         payloadBytes: input.payloadBytes ?? null,
         truncated: input.truncated === undefined ? null : input.truncated ? 1 : 0,
+        summaryJson: input.summaryJson ?? null,
         createdAt: createdAt.getTime()
       })
   }
@@ -496,6 +506,9 @@ export class ProxyLedger {
           response_id AS responseId,
           model,
           previous_response_id AS previousResponseId,
+          parent_response_id AS parentResponseId,
+          item_id AS itemId,
+          call_id AS callId,
           input_item_count AS inputItemCount,
           tool_count AS toolCount,
           input_tokens AS inputTokens,
@@ -505,12 +518,124 @@ export class ProxyLedger {
           total_tokens AS totalTokens,
           payload_bytes AS payloadBytes,
           truncated,
+          summary_json AS summaryJson,
           created_at AS createdAt
         FROM proxy_protocol_messages
         ORDER BY created_at DESC, id DESC
         LIMIT ?
       `)
       .all(limit) as ProtocolMessageRow[]
+  }
+
+  recordTurnSummary(input: TurnSummaryInput, updatedAt = new Date()): void {
+    const now = updatedAt.getTime()
+    const turnKey = turnSummaryKey(input)
+    this.sqlite
+      .prepare(`
+        INSERT INTO proxy_turn_summaries (
+          id, turn_key, request_id, conversation_key, account_id, codex_thread_id,
+          codex_turn_id, response_id, parent_response_id, user_text, assistant_text,
+          tool_call_count, tool_result_count, input_tokens, cached_input_tokens, output_tokens,
+          reasoning_tokens, total_tokens, status, summary_json, started_at, completed_at,
+          updated_at
+        ) VALUES (
+          @id, @turnKey, @requestId, @conversationKey, @accountId, @codexThreadId,
+          @codexTurnId, @responseId, @parentResponseId, @userText, @assistantText,
+          @toolCallCount, @toolResultCount, @inputTokens, @cachedInputTokens, @outputTokens,
+          @reasoningTokens, @totalTokens, @status, @summaryJson, @startedAt, @completedAt,
+          @updatedAt
+        )
+        ON CONFLICT(turn_key) DO UPDATE SET
+          request_id = excluded.request_id,
+          conversation_key = COALESCE(excluded.conversation_key, proxy_turn_summaries.conversation_key),
+          account_id = COALESCE(excluded.account_id, proxy_turn_summaries.account_id),
+          codex_thread_id = COALESCE(excluded.codex_thread_id, proxy_turn_summaries.codex_thread_id),
+          codex_turn_id = COALESCE(excluded.codex_turn_id, proxy_turn_summaries.codex_turn_id),
+          response_id = COALESCE(excluded.response_id, proxy_turn_summaries.response_id),
+          parent_response_id = COALESCE(
+            excluded.parent_response_id,
+            proxy_turn_summaries.parent_response_id
+          ),
+          user_text = COALESCE(excluded.user_text, proxy_turn_summaries.user_text),
+          assistant_text = COALESCE(excluded.assistant_text, proxy_turn_summaries.assistant_text),
+          tool_call_count = proxy_turn_summaries.tool_call_count + excluded.tool_call_count,
+          tool_result_count = proxy_turn_summaries.tool_result_count + excluded.tool_result_count,
+          input_tokens = COALESCE(excluded.input_tokens, proxy_turn_summaries.input_tokens),
+          cached_input_tokens = COALESCE(
+            excluded.cached_input_tokens,
+            proxy_turn_summaries.cached_input_tokens
+          ),
+          output_tokens = COALESCE(excluded.output_tokens, proxy_turn_summaries.output_tokens),
+          reasoning_tokens = COALESCE(
+            excluded.reasoning_tokens,
+            proxy_turn_summaries.reasoning_tokens
+          ),
+          total_tokens = COALESCE(excluded.total_tokens, proxy_turn_summaries.total_tokens),
+          status = COALESCE(excluded.status, proxy_turn_summaries.status),
+          summary_json = COALESCE(excluded.summary_json, proxy_turn_summaries.summary_json),
+          started_at = COALESCE(proxy_turn_summaries.started_at, excluded.started_at),
+          completed_at = COALESCE(excluded.completed_at, proxy_turn_summaries.completed_at),
+          updated_at = excluded.updated_at
+      `)
+      .run({
+        id: randomLedgerId('turn'),
+        turnKey,
+        requestId: input.requestId,
+        conversationKey: input.conversationKey ?? null,
+        accountId: input.accountId ?? null,
+        codexThreadId: input.codexThreadId ?? null,
+        codexTurnId: input.codexTurnId ?? null,
+        responseId: input.responseId ?? null,
+        parentResponseId: input.parentResponseId ?? null,
+        userText: input.userText ?? null,
+        assistantText: input.assistantText ?? null,
+        toolCallCount: input.toolCallDelta ?? 0,
+        toolResultCount: input.toolResultDelta ?? 0,
+        inputTokens: input.inputTokens ?? null,
+        cachedInputTokens: input.cachedInputTokens ?? null,
+        outputTokens: input.outputTokens ?? null,
+        reasoningTokens: input.reasoningTokens ?? null,
+        totalTokens: input.totalTokens ?? null,
+        status: input.status ?? null,
+        summaryJson: input.summaryJson ?? null,
+        startedAt: input.startedAt ?? now,
+        completedAt: input.completedAt ?? null,
+        updatedAt: now
+      })
+  }
+
+  recentTurnSummaries(limit = 50): TurnSummaryRow[] {
+    return this.sqlite
+      .prepare(`
+        SELECT
+          id,
+          turn_key AS turnKey,
+          request_id AS requestId,
+          conversation_key AS conversationKey,
+          account_id AS accountId,
+          codex_thread_id AS codexThreadId,
+          codex_turn_id AS codexTurnId,
+          response_id AS responseId,
+          parent_response_id AS parentResponseId,
+          user_text AS userText,
+          assistant_text AS assistantText,
+          tool_call_count AS toolCallCount,
+          tool_result_count AS toolResultCount,
+          input_tokens AS inputTokens,
+          cached_input_tokens AS cachedInputTokens,
+          output_tokens AS outputTokens,
+          reasoning_tokens AS reasoningTokens,
+          total_tokens AS totalTokens,
+          status,
+          summary_json AS summaryJson,
+          started_at AS startedAt,
+          completed_at AS completedAt,
+          updated_at AS updatedAt
+        FROM proxy_turn_summaries
+        ORDER BY updated_at DESC, id DESC
+        LIMIT ?
+      `)
+      .all(limit) as TurnSummaryRow[]
   }
 
   recordLogEvent(input: LogEventInput, createdAt = new Date()): void {
@@ -593,11 +718,17 @@ export class ProxyLedger {
         LIMIT ?
       `)
       .all(limit) as QuotaEventRow[]
-    return [
-      ...logRows,
+    const structuredRows = [
       ...routingRows.map(routingEventToLogRow),
       ...quotaRows.map(quotaEventToLogRow)
-    ]
+    ].filter((row) => row.eventType !== 'request')
+    const filteredLogRows = logRows.filter(
+      (row) => !isDuplicatedByStructuredEvent(row, structuredRows)
+    )
+    const filteredStructuredRows = structuredRows.filter(
+      (row) => !isRedundantStructuredRoutingEvent(row, filteredLogRows, structuredRows)
+    )
+    return [...filteredLogRows, ...filteredStructuredRows]
       .sort((left, right) => right.createdAt - left.createdAt || right.id.localeCompare(left.id))
       .slice(0, limit)
   }
@@ -640,7 +771,7 @@ export class ProxyLedger {
 }
 
 function routingEventToLogRow(row: RoutingEventRow): LogEventRow {
-  const eventType = row.eventType.includes('quota') ? 'quota' : 'account_switch'
+  const eventType = routingLogEventType(row.eventType)
   return {
     accountId: row.accountId,
     conversationKey: row.conversationKey,
@@ -651,12 +782,28 @@ function routingEventToLogRow(row: RoutingEventRow): LogEventRow {
     }),
     eventType,
     id: row.id,
-    level: row.eventType === 'all_accounts_exhausted' ? 'warn' : 'info',
+    level:
+      row.eventType === 'all_accounts_exhausted' || row.eventType === 'auth_failed'
+        ? 'warn'
+        : 'info',
     message: 'Routing event',
     method: null,
     path: null,
     requestId: row.requestId
   }
+}
+
+function routingLogEventType(eventType: RoutingEventRow['eventType']): LogEventRow['eventType'] {
+  if (eventType === 'selected') {
+    return 'request'
+  }
+  if (eventType === 'auth_failed') {
+    return 'auth'
+  }
+  if (eventType === 'quota_exhausted' || eventType === 'all_accounts_exhausted') {
+    return 'quota'
+  }
+  return 'account_switch'
 }
 
 function quotaEventToLogRow(row: QuotaEventRow): LogEventRow {
@@ -680,4 +827,80 @@ function quotaEventToLogRow(row: QuotaEventRow): LogEventRow {
     path: null,
     requestId: row.requestId
   }
+}
+
+function isDuplicatedByStructuredEvent(row: LogEventRow, structuredRows: LogEventRow[]): boolean {
+  if (row.message === 'Usage limit reached; marking account exhausted' && !row.requestId) {
+    return true
+  }
+  if (!isStructuredDuplicateCandidate(row)) {
+    return false
+  }
+  return structuredRows.some(
+    (structured) =>
+      row.eventType === structured.eventType &&
+      row.accountId === structured.accountId &&
+      sameRequestOrCloseInTime(row, structured)
+  )
+}
+
+function isRedundantStructuredRoutingEvent(
+  row: LogEventRow,
+  logRows: LogEventRow[],
+  structuredRows: LogEventRow[]
+): boolean {
+  if (row.message !== 'Routing event') {
+    return false
+  }
+  if (row.eventType === 'auth') {
+    return logRows.some(
+      (logRow) =>
+        logRow.eventType === 'auth' &&
+        logRow.accountId === row.accountId &&
+        sameRequestOrCloseInTime(logRow, row)
+    )
+  }
+  if (row.eventType === 'quota' && row.detailJson?.includes('"eventType":"quota_exhausted"')) {
+    return structuredRows.some(
+      (structured) =>
+        structured.message === 'Quota event' &&
+        structured.accountId === row.accountId &&
+        sameRequestOrCloseInTime(structured, row)
+    )
+  }
+  return false
+}
+
+function isStructuredDuplicateCandidate(row: LogEventRow): boolean {
+  return (
+    row.message === 'Usage limit reached; marking account exhausted' ||
+    row.message === 'WSS lifecycle' ||
+    row.message === 'Active account selected' ||
+    row.message === 'Switched active account after usage limit' ||
+    row.message === 'Switched active account after auth failure'
+  )
+}
+
+function sameRequestOrCloseInTime(left: LogEventRow, right: LogEventRow): boolean {
+  if (left.requestId && right.requestId && left.requestId === right.requestId) {
+    return true
+  }
+  return Math.abs(left.createdAt - right.createdAt) <= 2_000
+}
+
+function turnSummaryKey(input: TurnSummaryInput): string {
+  if (input.turnKey) {
+    return input.turnKey
+  }
+  const stableParts = [
+    input.conversationKey,
+    input.codexThreadId,
+    input.codexTurnId,
+    input.responseId,
+    input.parentResponseId
+  ].filter((value): value is string => Boolean(value))
+  if (stableParts.length > 0) {
+    return stableParts.join(':')
+  }
+  return input.requestId
 }
