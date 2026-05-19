@@ -20,7 +20,8 @@ const proxyConfigSchema = v.object({
   authPool: authPoolSchema,
   maxRequestBodyBytes: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(50_000_000)),
   rawCaptureEnabled: v.boolean(),
-  rawCaptureMaxBytes: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(50_000_000))
+  rawCaptureMaxBytes: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(50_000_000)),
+  codexConfigMonitorEnabled: v.boolean()
 })
 
 export const defaultProxyConfig: ProxyConfig = {
@@ -37,7 +38,8 @@ export const defaultProxyConfig: ProxyConfig = {
   },
   maxRequestBodyBytes: 0,
   rawCaptureEnabled: false,
-  rawCaptureMaxBytes: 0
+  rawCaptureMaxBytes: 0,
+  codexConfigMonitorEnabled: false
 }
 
 export function withManagedAuthPoolDirectory(

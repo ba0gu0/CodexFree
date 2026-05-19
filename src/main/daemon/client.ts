@@ -9,7 +9,9 @@ import type {
   ProxyAccountSwitchResult,
   ProxyConfig,
   ProxyStatus,
-  RecentRequest
+  RecentRequest,
+  RequestSummary,
+  UsageSummary
 } from '../proxy/types'
 
 export interface DaemonClientOptions {
@@ -38,30 +40,32 @@ export class DaemonAdminClient {
     return this.getJson('/config')
   }
 
-  updateConfig(config: ProxyConfig): Promise<{ config: ProxyConfig; proxy: ProxyStatus }> {
+  updateConfig(config: ProxyConfig): Promise<{ config: ProxyConfig }> {
     return this.requestJson('/config', {
       body: JSON.stringify(config),
       method: 'PUT'
     })
   }
 
-  start(): Promise<{ proxy: ProxyStatus }> {
-    return this.requestJson('/start', { method: 'POST' })
-  }
-
-  restart(): Promise<{ proxy: ProxyStatus }> {
-    return this.requestJson('/restart', { method: 'POST' })
-  }
-
-  stop(): Promise<{ proxy: ProxyStatus }> {
-    return this.requestJson('/stop', { method: 'POST' })
+  reload(): Promise<{ config: ProxyConfig; proxy: ProxyStatus }> {
+    return this.requestJson('/reload', { method: 'POST' })
   }
 
   accounts(): Promise<{ accounts: ManagedAccountRow[] }> {
     return this.getJson('/accounts')
   }
 
-  syncAccounts(accounts: AccountPoolSnapshot[]): Promise<{ accounts: ManagedAccountRow[] }> {
+  requestSummary(): Promise<{ summary: RequestSummary }> {
+    return this.getJson('/request-summary')
+  }
+
+  usageSummary(): Promise<{ summary: UsageSummary }> {
+    return this.getJson('/usage-summary')
+  }
+
+  syncAccounts(
+    accounts: AccountPoolSnapshot[]
+  ): Promise<{ accounts: ManagedAccountRow[]; status: ProxyStatus }> {
     return this.requestJson('/accounts/sync', {
       body: JSON.stringify({ accounts }),
       method: 'POST'
@@ -70,7 +74,7 @@ export class DaemonAdminClient {
 
   updateAccountUsage(
     results: Array<AccountUsageInput & { error?: string }>
-  ): Promise<{ accounts: ManagedAccountRow[] }> {
+  ): Promise<{ accounts: ManagedAccountRow[]; status: ProxyStatus }> {
     return this.requestJson('/accounts/usage', {
       body: JSON.stringify({ results }),
       method: 'POST'
@@ -80,6 +84,7 @@ export class DaemonAdminClient {
   resetExhaustedAccounts(): Promise<{
     accounts: ManagedAccountRow[]
     resetAccounts: number
+    status: ProxyStatus
   }> {
     return this.requestJson('/accounts/reset-exhausted', { method: 'POST' })
   }
@@ -97,7 +102,7 @@ export class DaemonAdminClient {
   setAccountDisabled(
     accountId: string,
     disabled: boolean
-  ): Promise<{ accounts: ManagedAccountRow[]; updatedAccounts: number }> {
+  ): Promise<{ accounts: ManagedAccountRow[]; status: ProxyStatus; updatedAccounts: number }> {
     return this.requestJson('/accounts/disable', {
       body: JSON.stringify({ accountId, disabled }),
       method: 'POST'
@@ -106,7 +111,7 @@ export class DaemonAdminClient {
 
   deleteAccounts(
     accountIds: string[]
-  ): Promise<{ accounts: ManagedAccountRow[]; deletedAccounts: number }> {
+  ): Promise<{ accounts: ManagedAccountRow[]; deletedAccounts: number; status: ProxyStatus }> {
     return this.requestJson('/accounts/delete', {
       body: JSON.stringify({ accountIds }),
       method: 'POST'

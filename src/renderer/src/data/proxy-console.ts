@@ -1,5 +1,5 @@
 import type { CopyKey, Locale } from '@renderer/i18n/copy'
-import { formatPercent } from './format'
+import { formatBytes, normalizePercent } from './format'
 
 export type Api = Window['api']
 export type DaemonControlSettings = Awaited<ReturnType<Api['getDaemonControlSettings']>>
@@ -7,9 +7,12 @@ export type DaemonControlSaveInput = Parameters<Api['saveDaemonControlSettings']
 export type ProxyConfig = Awaited<ReturnType<Api['getProxyConfig']>>
 export type ProxyStatus = Awaited<ReturnType<Api['getProxyStatus']>>
 export type ManagedAccount = Awaited<ReturnType<Api['getManagedAccounts']>>[number]
+export type RequestSummary = Awaited<ReturnType<Api['getRequestSummary']>>
+export type UsageSummary = Awaited<ReturnType<Api['getUsageSummary']>>
 export type RecentRequest = Awaited<ReturnType<Api['getRecentRequests']>>['items'][number]
 export type ProxyLogEvent = Awaited<ReturnType<Api['getProxyLogEvents']>>['items'][number]
 export type ProtocolMessage = Awaited<ReturnType<Api['getProtocolMessages']>>['items'][number]
+export type UsageProgress = Parameters<Parameters<Api['onAccountUsageProgress']>[0]>[0]
 
 export interface ConsoleActivityHasMore {
   logEvents: boolean
@@ -24,8 +27,10 @@ export interface ConsoleSnapshot {
   logEvents: ProxyLogEvent[]
   managedAuthDirectory: string
   protocolMessages: ProtocolMessage[]
+  requestSummary: RequestSummary
   requests: RecentRequest[]
   status: ProxyStatus
+  usageSummary: UsageSummary
   version: string
 }
 
@@ -69,8 +74,11 @@ export function dashboardMetrics(snapshot: ConsoleSnapshot): MetricItem[] {
     {
       key: 'requests',
       labelKey: 'metric.requests',
-      tone: failedRequests(snapshot.requests) > 0 ? 'warning' : 'default',
-      value: String(snapshot.requests.length)
+      tone:
+        snapshot.requestSummary.failed + snapshot.requestSummary.rejected > 0
+          ? 'warning'
+          : 'default',
+      value: String(snapshot.requestSummary.total)
     },
     {
       key: 'switches',
@@ -110,9 +118,111 @@ export function outcomeKey(outcome: string): CopyKey {
 }
 
 export function accountUsageSummary(account: ManagedAccount, locale: Locale): string {
-  const primary = formatPercent(account.primaryUsedPercent, locale)
-  const secondary = formatPercent(account.secondaryUsedPercent, locale)
+  const primary = formatRemainingPercent(account.primaryUsedPercent, locale)
+  const secondary = formatRemainingPercent(account.secondaryUsedPercent, locale)
   return `${primary} / ${secondary}`
+}
+
+function formatRemainingPercent(value: string | null | undefined, locale: Locale): string {
+  const used = normalizePercent(value)
+  if (used === undefined) {
+    return '-'
+  }
+  const remaining = Math.max(0, Math.min(100, 100 - used))
+  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(remaining)}%`
+}
+
+export function requestPurposeLabel(
+  purpose: string | null | undefined,
+  t: (key: CopyKey, values?: Record<string, string | number>) => string
+): string {
+  const key = requestPurposeKey(purpose)
+  return key ? t(key) : (purpose ?? t('status.empty'))
+}
+
+export function requestPurposeKey(purpose: string | null | undefined): CopyKey | null {
+  switch (purpose) {
+    case 'codex_wss':
+      return 'purpose.codexWss'
+    case 'codex_response_sse':
+      return 'purpose.codexSse'
+    case 'analytics_events':
+      return 'purpose.analytics'
+    case 'models':
+      return 'purpose.models'
+    case 'wham_apps':
+      return 'purpose.whamApps'
+    case 'account_usage':
+      return 'purpose.accountUsage'
+    case 'connector_directory':
+      return 'purpose.connectors'
+    case 'plugin_featured':
+      return 'purpose.plugins'
+    case 'api_key_compat':
+      return 'purpose.apiKeyCompat'
+    default:
+      return null
+  }
+}
+
+export function requestModelLabel(request: RecentRequest): string {
+  return request.responseModel ?? request.requestModel ?? '-'
+}
+
+interface TokenUsageFields {
+  cachedInputTokens: number | null
+  inputTokens: number | null
+  outputTokens: number | null
+  reasoningTokens: number | null
+  totalTokens: number | null
+}
+
+export function requestTokenTotal(request: TokenUsageFields): number {
+  return request.totalTokens ?? 0
+}
+
+export function hasTokenUsage(request: TokenUsageFields): boolean {
+  return (
+    request.inputTokens !== null ||
+    request.cachedInputTokens !== null ||
+    request.outputTokens !== null ||
+    request.reasoningTokens !== null ||
+    request.totalTokens !== null
+  )
+}
+
+export function tokenBreakdownText(request: TokenUsageFields, locale: Locale): string {
+  if (!hasTokenUsage(request)) {
+    return '-'
+  }
+  const format = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 })
+  return [
+    `I ${formatOptionalNumber(request.inputTokens, format)}`,
+    `C ${formatOptionalNumber(request.cachedInputTokens, format)}`,
+    `O ${formatOptionalNumber(request.outputTokens, format)}`,
+    `R ${formatOptionalNumber(request.reasoningTokens, format)}`,
+    `T ${formatOptionalNumber(request.totalTokens, format)}`
+  ].join(' · ')
+}
+
+export function tokenUsageSourceLabel(
+  source: string | null | undefined,
+  t: (key: CopyKey, values?: Record<string, string | number>) => string
+): string {
+  if (source === 'protocol') {
+    return t('source.protocol')
+  }
+  if (source === 'sse') {
+    return t('source.sse')
+  }
+  if (source === 'analytics_event') {
+    return t('source.analyticsEvent')
+  }
+  return source ?? '-'
+}
+
+export function requestByteSummary(request: RecentRequest, locale: Locale): string {
+  return `${formatByteCount(request.requestBytes, locale)} / ${formatByteCount(request.responseBytes, locale)}`
 }
 
 export function accountDisplayName(account: ManagedAccount | undefined, pending = '-'): string {
@@ -181,23 +291,19 @@ export function accountDisplayForPathFromLookup(
 export function codexConfigText(status: ProxyStatus): string {
   return [
     `chatgpt_base_url = "${status.endpoint}"`,
-    `openai_base_url = "${status.openaiBaseUrl}"`
+    `openai_base_url = "${status.openaiBaseUrl}"`,
+    'model_provider = "openai"'
   ].join('\n')
 }
 
 export function codexConfigRows(
   status: ProxyStatus
-): Array<{ key: 'chatgpt_base_url' | 'openai_base_url'; value: string }> {
+): Array<{ key: 'chatgpt_base_url' | 'openai_base_url' | 'model_provider'; value: string }> {
   return [
     { key: 'chatgpt_base_url', value: status.endpoint },
-    { key: 'openai_base_url', value: status.openaiBaseUrl }
+    { key: 'openai_base_url', value: status.openaiBaseUrl },
+    { key: 'model_provider', value: 'openai' }
   ]
-}
-
-function failedRequests(requests: RecentRequest[]): number {
-  return requests.filter(
-    (request) => request.outcome === 'failed' || request.outcome === 'rejected'
-  ).length
 }
 
 function switchEvents(events: ProxyLogEvent[]): number {
@@ -218,4 +324,12 @@ export function isOriginalCodexAccountPath(path: string | null | undefined): boo
   }
   const pathname = path.split(/[?#]/, 1)[0]
   return pathname === '/backend-api/wham/remote' || pathname.startsWith('/backend-api/wham/remote/')
+}
+
+function formatOptionalNumber(value: number | null, format: Intl.NumberFormat): string {
+  return value === null ? '-' : format.format(value)
+}
+
+function formatByteCount(value: number | null | undefined, locale: Locale): string {
+  return value === 0 ? '0 B' : formatBytes(value, locale)
 }

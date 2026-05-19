@@ -1,7 +1,7 @@
 import { Button } from '@renderer/components/ui/button'
 import { formatDateTime } from '@renderer/data/format'
 import { accountDisplayName, type ManagedAccount } from '@renderer/data/proxy-console'
-import type { ReactElement } from 'react'
+import { type ReactElement, useState } from 'react'
 import { remainingQuota } from './dashboard-model'
 import type { PageProps } from './types'
 
@@ -14,16 +14,19 @@ export function ActiveAccountPanel({
   actions,
   busyAction,
   locale,
-  t
+  t,
+  usageProgress
 }: {
   active?: ManagedAccount
   actions: PageProps['actions']
   busyAction: string | null
   locale: PageProps['locale']
   t: PageProps['t']
+  usageProgress: PageProps['usageProgress']
 }): ReactElement {
   const remaining = remainingQuota(active)
   const accountName = active ? accountDisplayName(active, t('accounts.emailPending')) : '-'
+  const [checkingUsage, setCheckingUsage] = useState(false)
   return (
     <section
       className={`${panel} flex h-full min-h-0 flex-col gap-2.5 overflow-hidden p-3.5 min-[1400px]:p-4`}
@@ -63,11 +66,23 @@ export function ActiveAccountPanel({
       <div className="mt-auto grid shrink-0 gap-2">
         <Button
           className="h-8 rounded-lg font-bold text-xs"
-          loading={busyAction === 'usage'}
-          onClick={actions.checkUsage}
+          disabled={!active || busyAction === 'usage'}
+          loading={checkingUsage}
+          onClick={async () => {
+            if (active) {
+              setCheckingUsage(true)
+              try {
+                await actions.checkUsageForAccounts([active.accountId])
+              } finally {
+                setCheckingUsage(false)
+              }
+            }
+          }}
           variant="outline"
         >
-          {t('dashboard.refreshUsage')}
+          {busyAction === 'usage'
+            ? (usageProgressText(usageProgress) ?? t('dashboard.refreshUsage'))
+            : t('dashboard.refreshUsage')}
         </Button>
         <Button
           className="h-8 rounded-lg font-bold text-xs"
@@ -79,6 +94,13 @@ export function ActiveAccountPanel({
       </div>
     </section>
   )
+}
+
+function usageProgressText(progress: PageProps['usageProgress']): string | null {
+  if (!progress) {
+    return null
+  }
+  return progress.total > 0 ? `${progress.completed}/${progress.total}` : '0/0'
 }
 
 function AccountNameText({ value }: { value: string }): ReactElement {

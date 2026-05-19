@@ -1,3 +1,4 @@
+import { logEventDisplayTitle, requestDisplayTitle } from '@renderer/data/activity-display'
 import { formatDateTime, formatDuration, normalizePercent } from '@renderer/data/format'
 import {
   accountDisplayForPathFromLookup,
@@ -64,7 +65,7 @@ export function useActivityRows({ locale, snapshot, t }: PageProps): ActivityRow
       return {
         account,
         duration: formatDuration(request.durationMs, locale),
-        event: `${request.method} ${request.path}`,
+        event: requestDisplayTitle(request, t),
         id: request.id,
         kind: requestKind(request.outcome),
         status: request.statusCode ? String(request.statusCode) : t(outcomeKey(request.outcome)),
@@ -83,7 +84,7 @@ export function useActivityRows({ locale, snapshot, t }: PageProps): ActivityRow
       return {
         account,
         duration: '-',
-        event: event.path ? `${event.message} · ${event.path}` : event.message,
+        event: logEventDisplayTitle(event, t),
         id: event.id,
         kind: logKind(event.level, event.message, event.eventType),
         status: event.level.toUpperCase(),

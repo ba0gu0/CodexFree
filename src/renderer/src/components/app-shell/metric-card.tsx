@@ -25,20 +25,20 @@ export function MetricCard({
   value
 }: MetricCardProps): ReactElement {
   return (
-    <Card className="min-h-24 min-w-0 overflow-hidden rounded-xl border-border/80 shadow-none">
-      <CardHeader className="min-w-0 p-4 pb-2">
-        <CardDescription>{label}</CardDescription>
-        <CardTitle className="min-w-0 truncate text-2xl leading-tight" title={title ?? value}>
+    <Card className="h-full min-h-[92px] min-w-0 overflow-hidden rounded-xl border-border/80 shadow-none">
+      <CardHeader className="min-w-0 p-3 pb-1">
+        <CardDescription className="truncate font-semibold text-xs">{label}</CardDescription>
+        <CardTitle className="min-w-0 truncate text-xl leading-tight" title={title ?? value}>
           {value}
         </CardTitle>
         {detail ? (
-          <CardDescription className="truncate font-semibold" title={detail}>
+          <CardDescription className="truncate font-semibold text-xs" title={detail}>
             {detail}
           </CardDescription>
         ) : null}
       </CardHeader>
-      <CardPanel className="p-4 pt-0">
-        <div className={cn('ml-auto h-2.5 w-10 rounded-full bg-muted', toneClassName(tone))} />
+      <CardPanel className="flex items-end p-3 pt-0">
+        <div className={cn('ml-auto h-1.5 w-9 rounded-full bg-muted', toneClassName(tone))} />
       </CardPanel>
     </Card>
   )

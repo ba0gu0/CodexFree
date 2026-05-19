@@ -17,6 +17,7 @@ export interface DaemonLaunchAgentOptions {
 export interface DaemonLaunchAgentSettings {
   enabled: boolean
   label: string
+  manager: 'launchd' | 'systemd' | 'windows-service' | 'unsupported'
   plistPath: string | null
   programPath: string
   scriptPath: string
@@ -31,7 +32,19 @@ export function readDaemonLaunchAgentSettings(
     return {
       enabled: windowsServiceExists(),
       label: windowsServiceName,
+      manager: 'windows-service',
       plistPath: windowsServiceName,
+      programPath: options.commandPath,
+      scriptPath: options.scriptPath,
+      supported: true
+    }
+  }
+  if (platform === 'linux') {
+    return {
+      enabled: systemdUserServiceExists(),
+      label: systemdServiceName(),
+      manager: 'systemd',
+      plistPath: systemdUserServicePath(),
       programPath: options.commandPath,
       scriptPath: options.scriptPath,
       supported: true
@@ -40,6 +53,7 @@ export function readDaemonLaunchAgentSettings(
   return {
     enabled: Boolean(plistPath && existsSync(plistPath)),
     label: launchAgentLabel,
+    manager: platform === 'darwin' ? 'launchd' : 'unsupported',
     plistPath,
     programPath: options.commandPath,
     scriptPath: options.scriptPath,
@@ -72,6 +86,47 @@ export function setDaemonLaunchAgentEnabled(
   return readDaemonLaunchAgentSettings(options)
 }
 
+export function startDaemonLaunchAgent(options: DaemonLaunchAgentOptions): void {
+  const settings = readDaemonLaunchAgentSettings(options)
+  if (!settings.enabled) {
+    throw new Error('CodexFree daemon startup service is not enabled')
+  }
+  if (platform === 'darwin') {
+    startLaunchdService(settings)
+    return
+  }
+  if (platform === 'win32') {
+    execFileSync('sc.exe', ['start', windowsServiceName], { stdio: 'ignore' })
+    return
+  }
+  if (platform === 'linux') {
+    execFileSync('systemctl', ['--user', 'start', systemdServiceName()], { stdio: 'ignore' })
+  }
+}
+
+export function stopDaemonLaunchAgent(options: DaemonLaunchAgentOptions): void {
+  const settings = readDaemonLaunchAgentSettings(options)
+  if (!settings.enabled) {
+    throw new Error('CodexFree daemon startup service is not enabled')
+  }
+  if (platform === 'darwin') {
+    stopLaunchdService(settings)
+    return
+  }
+  if (platform === 'win32') {
+    execFileSync('sc.exe', ['stop', windowsServiceName], { stdio: 'ignore' })
+    return
+  }
+  if (platform === 'linux') {
+    execFileSync('systemctl', ['--user', 'stop', systemdServiceName()], { stdio: 'ignore' })
+  }
+}
+
+export function restartDaemonLaunchAgent(options: DaemonLaunchAgentOptions): void {
+  stopDaemonLaunchAgent(options)
+  startDaemonLaunchAgent(options)
+}
+
 function windowsServiceExists(): boolean {
   try {
     execFileSync('sc.exe', ['query', windowsServiceName], { stdio: 'ignore' })
@@ -99,6 +154,53 @@ function setWindowsServiceEnabled(options: DaemonLaunchAgentOptions, enabled: bo
   if (windowsServiceExists()) {
     execFileSync('sc.exe', ['delete', windowsServiceName])
   }
+}
+
+function startLaunchdService(settings: DaemonLaunchAgentSettings): void {
+  const serviceTarget = launchdServiceTarget()
+  if (settings.plistPath) {
+    try {
+      execFileSync('launchctl', ['bootstrap', launchdDomain(), settings.plistPath], {
+        stdio: 'ignore'
+      })
+    } catch {
+      // Service may already be bootstrapped; kickstart below is the effective start operation.
+    }
+  }
+  execFileSync('launchctl', ['kickstart', '-k', serviceTarget], { stdio: 'ignore' })
+}
+
+function stopLaunchdService(settings: DaemonLaunchAgentSettings): void {
+  try {
+    execFileSync('launchctl', ['bootout', launchdServiceTarget()], { stdio: 'ignore' })
+    return
+  } catch {
+    if (!settings.plistPath) {
+      throw new Error('CodexFree launch agent plist path is unavailable')
+    }
+  }
+  execFileSync('launchctl', ['unload', settings.plistPath], { stdio: 'ignore' })
+}
+
+function launchdDomain(): string {
+  const uid = process.getuid?.()
+  return typeof uid === 'number' ? `gui/${uid}` : 'gui/0'
+}
+
+function launchdServiceTarget(): string {
+  return `${launchdDomain()}/${launchAgentLabel}`
+}
+
+function systemdServiceName(): string {
+  return 'codexfree-daemon.service'
+}
+
+function systemdUserServicePath(): string {
+  return join(homedir(), '.config', 'systemd', 'user', systemdServiceName())
+}
+
+function systemdUserServiceExists(): boolean {
+  return existsSync(systemdUserServicePath())
 }
 
 function windowsServiceCommand(options: DaemonLaunchAgentOptions): string {

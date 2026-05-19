@@ -74,9 +74,126 @@ describe('proxy ledger account sync', () => {
       rmSync(tempDir, { force: true, recursive: true })
     }
   })
+
+  it('returns full database usage groups independent of request list page size', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'codexfree-ledger-usage-'))
+    try {
+      const ledger = new ProxyLedger(join(tempDir, 'ledger.sqlite'))
+      try {
+        ledger.syncAccountPool([
+          {
+            accountId: 'account-a',
+            email: 'alpha@example.test',
+            fingerprint: 'fingerprint-a',
+            label: 'Account A',
+            sourceFormat: 'codex'
+          },
+          {
+            accountId: 'account-b',
+            email: 'bravo@example.test',
+            fingerprint: 'fingerprint-b',
+            label: 'Account B',
+            sourceFormat: 'codex'
+          }
+        ])
+        ledger.insert(
+          createRequestLedgerEntry(1, {
+            accountId: 'account-a',
+            cachedInputTokens: 3,
+            codexThreadId: 'thread-a',
+            codexTurnId: 'turn-1',
+            inputTokens: 10,
+            outputTokens: 20,
+            reasoningTokens: 4,
+            responseModel: 'gpt-5.5',
+            tokenUsageSource: 'sse',
+            totalTokens: 34
+          })
+        )
+        ledger.insert(
+          createRequestLedgerEntry(2, {
+            accountId: 'account-b',
+            cachedInputTokens: 5,
+            codexThreadId: 'thread-b',
+            codexTurnId: 'turn-2',
+            inputTokens: 40,
+            outputTokens: 50,
+            reasoningTokens: 6,
+            responseModel: 'gpt-5.4',
+            tokenUsageSource: 'analytics_event',
+            totalTokens: 96
+          })
+        )
+
+        const summary = ledger.usageSummary()
+
+        expect(summary.tokenTotal).toBe(130)
+        expect(summary.requestsWithUsage).toBe(2)
+        expect(summary.accountGroups).toEqual([
+          expect.objectContaining({ key: 'bravo@example.test', total: 96 }),
+          expect.objectContaining({ key: 'alpha@example.test', total: 34 })
+        ])
+        expect(summary.modelGroups).toEqual([
+          expect.objectContaining({ key: 'gpt-5.4', total: 96 }),
+          expect.objectContaining({ key: 'gpt-5.5', total: 34 })
+        ])
+        expect(summary.sourceGroups).toEqual([
+          expect.objectContaining({ key: 'analytics_event', total: 96 }),
+          expect.objectContaining({ key: 'sse', total: 34 })
+        ])
+        expect(summary.turnGroups).toEqual([
+          expect.objectContaining({ key: 'thread-b / turn-2', total: 96 }),
+          expect.objectContaining({ key: 'thread-a / turn-1', total: 34 })
+        ])
+      } finally {
+        ledger.close()
+      }
+    } finally {
+      rmSync(tempDir, { force: true, recursive: true })
+    }
+  })
+
+  it('returns full database request purpose groups for overview summaries', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'codexfree-ledger-summary-'))
+    try {
+      const ledger = new ProxyLedger(join(tempDir, 'ledger.sqlite'))
+      try {
+        ledger.insert(
+          createRequestLedgerEntry(1, {
+            requestPurpose: 'analytics_events'
+          })
+        )
+        ledger.insert(
+          createRequestLedgerEntry(2, {
+            requestPurpose: 'codex_response_sse'
+          })
+        )
+        ledger.insert(
+          createRequestLedgerEntry(3, {
+            requestPurpose: 'analytics_events'
+          })
+        )
+
+        const summary = ledger.requestSummary()
+
+        expect(summary.total).toBe(3)
+        expect(summary.purposeGroups).toEqual([
+          { count: 2, key: 'analytics_events' },
+          { count: 1, key: 'codex_response_sse' }
+        ])
+      } finally {
+        ledger.close()
+      }
+    } finally {
+      rmSync(tempDir, { force: true, recursive: true })
+    }
+  })
 })
 
-function createRequestLedgerEntry(index: number): RequestLedgerEntry {
+function createRequestLedgerEntry(
+  index: number,
+  override: Partial<RequestLedgerEntry> = {}
+): RequestLedgerEntry {
   const now = new Date(1_800_000_000_000 + index)
   const largeHeader = JSON.stringify({ sample: 'x'.repeat(10_000) })
 
@@ -98,7 +215,8 @@ function createRequestLedgerEntry(index: number): RequestLedgerEntry {
     startedAt: now,
     statusCode: 200,
     streaming: false,
-    upstreamHost: 'chatgpt.com'
+    upstreamHost: 'chatgpt.com',
+    ...override
   }
 }
 

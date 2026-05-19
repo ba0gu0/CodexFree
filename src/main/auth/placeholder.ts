@@ -49,7 +49,7 @@ export function writePlaceholderAuthFile(homeDirectory = homedir()): Placeholder
 }
 
 export function writeCodexConfigFile(
-  input: { chatgptBaseUrl: string; openaiBaseUrl: string },
+  input: { chatgptBaseUrl: string; openaiBaseUrl: string; modelProvider?: string },
   homeDirectory = homedir()
 ): CodexConfigWriteResult {
   const codexDirectory = join(homeDirectory, '.codex')
@@ -90,25 +90,24 @@ function backupExistingConfigFile(configPath: string): string | null {
 
 function upsertCodexBaseUrls(
   content: string,
-  input: { chatgptBaseUrl: string; openaiBaseUrl: string }
+  input: { chatgptBaseUrl: string; openaiBaseUrl: string; modelProvider?: string }
 ): string {
+  const modelProvider = input.modelProvider ?? 'openai'
   const assignments = new Map([
     ['chatgpt_base_url', `chatgpt_base_url = "${escapeTomlString(input.chatgptBaseUrl)}"`],
-    ['openai_base_url', `openai_base_url = "${escapeTomlString(input.openaiBaseUrl)}"`]
+    ['openai_base_url', `openai_base_url = "${escapeTomlString(input.openaiBaseUrl)}"`],
+    ['model_provider', `model_provider = "${escapeTomlString(modelProvider)}"`]
   ])
   const seen = new Set<string>()
-  const lines = content
-    .split(/\r?\n/)
-    .filter((line) => !/^\s*model_provider\s*=/.test(line))
-    .map((line) => {
-      const match = line.match(/^\s*(chatgpt_base_url|openai_base_url)\s*=/)
-      if (!match) {
-        return line
-      }
-      const key = match[1]
-      seen.add(key)
-      return assignments.get(key) ?? line
-    })
+  const lines = content.split(/\r?\n/).map((line) => {
+    const match = line.match(/^\s*(chatgpt_base_url|openai_base_url|model_provider)\s*=/)
+    if (!match) {
+      return line
+    }
+    const key = match[1]
+    seen.add(key)
+    return assignments.get(key) ?? line
+  })
 
   for (const [key, line] of assignments) {
     if (!seen.has(key)) {

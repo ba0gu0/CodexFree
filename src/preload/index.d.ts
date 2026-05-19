@@ -1,5 +1,6 @@
 import type {
   AccountUsageCheckBatchDto,
+  AccountUsageCheckProgressDto,
   ActivityPageDto,
   AuthExportResultDto,
   AuthImportResultDto,
@@ -17,8 +18,10 @@ import type {
   ProxyStatusDto,
   RawCaptureDetailDto,
   RecentRequestDto,
+  RequestSummaryDto,
   ResetExhaustedAccountsDto,
-  SetAccountDisabledDto
+  SetAccountDisabledDto,
+  UsageSummaryDto
 } from './proxy-api'
 
 declare global {
@@ -40,6 +43,8 @@ declare global {
       openWorkDirectory: () => Promise<void>
       getRecentRequests: (limit?: number) => Promise<ActivityPageDto<RecentRequestDto>>
       getManagedAccounts: () => Promise<ManagedAccountDto[]>
+      getRequestSummary: () => Promise<RequestSummaryDto>
+      getUsageSummary: () => Promise<UsageSummaryDto>
       getProxyLogEvents: (limit?: number) => Promise<ActivityPageDto<ProxyLogEventDto>>
       getProtocolMessages: (limit?: number) => Promise<ActivityPageDto<ProtocolMessageDto>>
       getRawCapture: (requestId: string) => Promise<RawCaptureDetailDto | undefined>
@@ -53,6 +58,9 @@ declare global {
       importAuthFiles: () => Promise<AuthImportResultDto>
       checkAccountUsage: () => Promise<AccountUsageCheckBatchDto>
       checkSelectedAccountUsage: (accountIds: string[]) => Promise<AccountUsageCheckBatchDto>
+      onAccountUsageProgress: (
+        listener: (progress: AccountUsageCheckProgressDto) => void
+      ) => () => void
       exportAuthFiles: () => Promise<AuthExportResultDto>
       writePlaceholderAuth: () => Promise<PlaceholderAuthResultDto>
       writeCodexConfig: () => Promise<CodexConfigWriteResultDto>

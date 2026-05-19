@@ -89,6 +89,21 @@ Core behavior:
 - Electron startup now reads daemon management host, port, and admin token from
   SQLite `proxy_settings`, tries the configured admin endpoint first, and only
   spawns the daemon when that endpoint is not reachable.
+- Daemon lifecycle is owned by the Electron app process or the operating-system
+  service manager, not by daemon admin HTTP endpoints. The admin surface no
+  longer exposes `/admin/start`, `/admin/stop`, or `/admin/restart`; app
+  start/stop/restart controls use the configured LaunchAgent, systemd user
+  service, Windows service, or the app-owned child process and report
+  diagnostics when the daemon was started outside the app.
+- Proxy configuration is durable only in SQLite `proxy_settings`. Saving config
+  from the desktop UI writes SQLite first, then the App process manager restarts
+  the daemon through the configured owner: App child process, LaunchAgent,
+  systemd user service, or Windows service. Direct database edits do not change
+  a running daemon until the App owner restarts it or a local admin client calls
+  the retained `/admin/reload` utility endpoint.
+- Account-management actions write SQLite and then refresh only the daemon's
+  in-memory account-pool cache. They do not restart the proxy service and do not
+  close existing WSS sessions.
 - In-memory conversation bindings are pruned after 24 hours so old sessions do
   not permanently reserve accounts.
 - Proxy forwarding does not refresh managed ChatGPT tokens. It only classifies
@@ -154,6 +169,17 @@ Core behavior:
   Usage with the overview style: compact headers, semantic light/dark borders,
   fixed-height desktop content, virtualized multi-row tables, and no duplicate
   proxy-copy or related-context blocks on the Proxy page.
+  The latest data-display pass aligns renderer DTOs, derived models, Overview,
+  Accounts, Requests, and Usage with `docs/proxy-traffic-analysis.md`: request
+  purpose, model, content metadata, Codex thread/turn/runtime fields, usage
+  source, cached input tokens, token breakdowns, and protocol-message fields are
+  now visible where relevant. Requests keeps time/status/purpose/method-path/
+  account/model/tokens/duration/bytes visible at `1160x720`, and Usage groups
+  real token records by source, model, account, day, and thread/turn without
+  estimating missing usage. The latest interaction pass also gives list views
+  sticky sortable headers, removes request-page auto-polling in favor of manual
+  refresh plus refresh-on-navigation, and keeps account usage checks on explicit
+  buttons with progress rendered on the initiating button.
 
 ## Completed Initialization
 
@@ -193,8 +219,9 @@ Core behavior:
 - Added WebSocket frame capture for upgraded responses traffic, including
   `permessage-deflate` decoding for readable upstream error messages.
 - Added proxy IPC and daemon control surfaces for host, port, upstream,
-  outbound proxy, raw capture, service status, raw capture directory, and recent
-  request observations. The renderer UI for these controls is pending refactor.
+  outbound proxy, raw capture, service status, raw capture directory, daemon
+  lifecycle, full-database request/usage summaries, and recent request
+  observations. The renderer UI is wired to these controls.
 - Added the first auth-file normalization module for Codex native auth files and
   flat Codex/CPA-compatible token records.
 - Added the first in-memory account pool router with per-conversation binding,
@@ -238,6 +265,8 @@ Core behavior:
   - Accounts, Proxy, Requests, and Usage were checked in the live Electron
     window after the shared border/theme pass and now match the overview card
     and table treatment in both light and dark modes;
+  - the dashboard proxy config snippet stays at three lines and hides the
+    horizontal scrollbar while preserving horizontal scrolling;
   - managed auth directory opening succeeds and returns an app notice;
   - account metric cards no longer wrap the auth directory path vertically.
 - Transparent proxy integration test forwards request bodies and records
@@ -341,12 +370,13 @@ Core behavior:
 - Docker smoke on the existing `codex` container passed with
   `codex-cli 0.130.0` against `host.docker.internal`; a later smoke should use
   the preferred `/backend-api` and `/backend-api/codex` config.
-- Current split validation passed: `bun run lint`, `bun run typecheck`,
-  `bun run test`, `bun run build`, `bun run daemon:bundle`, and
-  `bun run build:unpack`. The unpacked macOS app contains the bundled daemon
+- Current split validation passed through the repository runner: `rtk bun run
+  lint`, `rtk bun run typecheck`, `rtk bun run test`, `rtk bun run build`, and
+  `rtk bun run build:unpack`. The unpacked macOS app contains the bundled daemon
   entry at `out/daemon/cli.cjs`.
-- Unpacked app at `dist/mac-arm64/CodexFree.app` launches; Computer Use window
-  inspection timed out in this run.
+- Dev app runtime was inspected with Computer Use. The dashboard rendered the
+  full-database historical request count, purpose distribution, proxy config
+  with `model_provider = "openai"`, and the animated background-service card.
 - Unpacked app includes `app-update.yml`; GitHub update-check failures are logged
   as sanitized summaries.
 - `/backend-api/wham/usage` client responses are now passed through exactly as
@@ -370,8 +400,10 @@ Core behavior:
   SQLite without printing every request; `--debug` prints the same events as a
   readable operator trace.
 - The daemon exposes token-protected admin endpoints for status, config,
-  accounts, usage updates, requests, log events, parsed WSS protocol messages,
-  start, restart, stop, delete/disable/reset account actions, and clear-records.
+  accounts, usage updates, requests, request summaries, usage summaries, log
+  events, parsed WSS protocol messages, delete/disable/reset account actions,
+  and clear-records. It intentionally does not expose daemon lifecycle
+  endpoints.
 - The proxy ledger now stores operator log events in `proxy_log_events` and
   parsed WSS user/assistant/tool/error summaries in `proxy_protocol_messages`.
   Electron preload exposes both surfaces for future app views.
@@ -379,16 +411,17 @@ Core behavior:
 - Request, routing, quota, protocol, and log ledger tables are pruned
   automatically with a 30-day default retention window.
 - Electron main process has been split into runtime, IPC handlers, window
-  bootstrap, and updater bootstrap. It no longer imports the SQLite ledger or
-  embedded proxy service. It talks to the token-protected daemon admin API for
-  status, restart, config-save, import sync, usage updates, reset, and
-  per-account disable/delete actions.
+  bootstrap, and updater bootstrap. It no longer embeds the proxy service. It
+  talks to the token-protected daemon admin API for live daemon data and reads
+  summary aggregates from SQLite when needed so stopped-daemon UI refreshes do
+  not respawn the daemon.
 - Quota-exhausted response classification now has packet-level WebSocket frame
   evidence, automatic WSS parsing, persistent account state, and next-boundary
   account replacement.
 - Daemon control config is wired through the Proxy page. Operators can edit the
-  management host/port/token and enable or disable a macOS LaunchAgent from the
-  same control surface that owns proxy start/stop/restart.
+  management host/port/token, enable or disable OS-specific startup service
+  ownership, and use app controls that start/stop/restart the actual process
+  owner instead of calling admin lifecycle endpoints.
 - API-key OpenAI-compatible forwarding conflicts with the current default
   account-only boundary. It should be added only as an explicit off-by-default
   mode with a separate protocol adapter.

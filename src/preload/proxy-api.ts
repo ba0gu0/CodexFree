@@ -15,6 +15,7 @@ export interface ProxyConfigDto {
   maxRequestBodyBytes: number
   rawCaptureEnabled: boolean
   rawCaptureMaxBytes: number
+  codexConfigMonitorEnabled: boolean
 }
 
 export interface ProxyStatusDto {
@@ -43,9 +44,51 @@ export interface ProxyRuntimeStatusDto {
   uptimeSeconds: number
 }
 
+export interface RequestSummaryDto {
+  captured: number
+  failed: number
+  forwarded: number
+  purposeGroups: RequestPurposeSummaryDto[]
+  quota: number
+  rejected: number
+  total: number
+}
+
+export interface RequestPurposeSummaryDto {
+  count: number
+  key: string
+}
+
+export interface UsageSummaryDto {
+  accountGroups: UsageTokenGroupDto[]
+  averageDurationMs: number | null
+  dayGroups: UsageTokenGroupDto[]
+  failed: number
+  modelGroups: UsageTokenGroupDto[]
+  requestBytes: number
+  requestsWithUsage: number
+  responseBytes: number
+  sourceGroups: UsageTokenGroupDto[]
+  successful: number
+  tokenTotal: number
+  total: number
+  turnGroups: UsageTokenGroupDto[]
+}
+
+export interface UsageTokenGroupDto {
+  cached: number
+  count: number
+  input: number
+  key: string
+  output: number
+  reasoning: number
+  total: number
+}
+
 export interface DaemonLaunchAgentSettingsDto {
   enabled: boolean
   label: string
+  manager: 'launchd' | 'systemd' | 'windows-service' | 'unsupported'
   plistPath: string | null
   programPath: string
   scriptPath: string
@@ -83,6 +126,36 @@ export interface RecentRequestDto {
   durationMs: number
   requestBytes: number
   responseBytes: number
+  requestPurpose: string | null
+  requestContentType: string | null
+  responseContentType: string | null
+  requestBodyEncoding: string | null
+  requestModel: string | null
+  responseModel: string | null
+  responsePlanType: string | null
+  responsePrimaryUsedPercent: string | null
+  responseRateLimitResetAt: number | null
+  responseActiveLimit: string | null
+  responseItemCount: number | null
+  requestInputItemCount: number | null
+  rpcMethod: string | null
+  rpcId: string | null
+  analyticsEventTypes: string | null
+  inputTokens: number | null
+  cachedInputTokens: number | null
+  outputTokens: number | null
+  reasoningTokens: number | null
+  totalTokens: number | null
+  tokenUsageSource: string | null
+  codexSessionId: string | null
+  codexThreadId: string | null
+  codexTurnId: string | null
+  codexTurnStartedAt: number | null
+  codexVersion: string | null
+  codexRuntimeOs: string | null
+  codexRuntimeArch: string | null
+  userAgent: string | null
+  originator: string | null
   streaming: number
   upstreamHost: string
   outboundMode: string
@@ -112,14 +185,28 @@ export interface ProxyLogEventDto {
 
 export interface ProtocolMessageDto {
   accountId: string | null
+  cachedInputTokens: number | null
   conversationKey: string | null
   createdAt: number
   direction: string
   id: string
+  inputItemCount: number | null
+  inputTokens: number | null
   kind: string
+  model: string | null
+  outputTokens: number | null
   path: string
+  payloadBytes: number | null
+  previousResponseId: string | null
+  protocolType: string | null
+  reasoningTokens: number | null
   requestId: string
+  responseId: string | null
+  sequenceNumber: number | null
   text: string
+  toolCount: number | null
+  totalTokens: number | null
+  truncated: number | null
 }
 
 export interface RawCaptureFileDto {
@@ -188,6 +275,13 @@ export interface AccountUsageCheckResultDto {
 export interface AccountUsageCheckBatchDto {
   results: AccountUsageCheckResultDto[]
   accounts: ManagedAccountDto[]
+}
+
+export interface AccountUsageCheckProgressDto {
+  accountId?: string
+  completed: number
+  ok?: boolean
+  total: number
 }
 
 export interface CleanExpiredAccountsDto {

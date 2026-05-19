@@ -16,6 +16,7 @@
 | T9 | Done | Split proxy into standalone daemon controlled by app | T4, T5 |
 | T10 | In Progress | Make proxy logs operator-readable from real Docker Codex traffic | T4 |
 | T11 | In Progress | Polish remaining page layouts and interactions against daemon/admin API | T6, T9 |
+| T12 | Done | Optimize app-wide data displays from latest proxy traffic field contract | T10, T11 |
 
 ## Parallel Work Lines
 
@@ -38,14 +39,22 @@ Immediate tasks:
 1. Done: `bun run proxy` now starts the daemon entrypoint and uses the shared
    `codexfree.sqlite` ledger.
 2. Done: daemon admin API is token-protected and exposes status, config,
-   accounts, usage updates, requests, log events, protocol messages, start,
-   restart, stop, account disable/delete/reset, and clear.
+   accounts, usage updates, requests, request summaries, usage summaries, log
+   events, protocol messages, account disable/delete/reset, and clear. It does
+   not expose `/admin/start`, `/admin/stop`, or `/admin/restart`. Config saves
+   persist to SQLite; the desktop UI applies them through the App process owner
+   rather than admin lifecycle endpoints. `/admin/reload` remains a retained
+   local utility endpoint for daemon/admin clients. Account-management actions
+   refresh only the in-memory account-pool cache and do not close existing WSS
+   sessions.
 3. Done: normal daemon runs write log events to SQLite without request spam;
    `--debug` prints readable lines from the same event stream.
-4. Done: Electron main no longer imports the SQLite ledger or embedded proxy
-   service. Packaged builds include the daemon JS bundle and run it with
-   Electron's Node runtime; development startup uses the same `bun run proxy`
-   path.
+4. Done: Electron main no longer embeds the proxy service. Packaged builds
+   include the daemon JS bundle and run it with Electron's Node runtime;
+   development startup uses the same `bun run proxy` path. Main-process
+   lifecycle controls start/stop/restart the app-owned child process or the
+   configured OS service owner, while summary refreshes can read aggregate
+   SQLite data without respawning a stopped daemon.
 5. Continue reworking `bun run proxy` logs against real Docker Codex
    traffic:
    - daemon startup;
@@ -95,12 +104,11 @@ Owned scope:
 Immediate tasks:
 
 1. Done for main-process control: Electron main has a daemon admin client and
-   does not import the SQLite ledger or embedded proxy service. Runtime startup
-   ensures the daemon is reachable, and status, restart, config-save, import
-   sync, usage updates, reset, and account disable/delete actions go through the
-   daemon admin API. Startup now reads the configured daemon management
-   host/port and admin token from SQLite `proxy_settings`, probes that endpoint
-   first, and spawns a daemon only when the endpoint is unreachable.
+   no embedded proxy service. Runtime startup probes the configured daemon
+   management host/port/token from SQLite `proxy_settings` first and spawns a
+   daemon only when that endpoint is unreachable. Start/stop/restart are owned
+   by the app child process or OS service manager, not by daemon admin HTTP
+   lifecycle endpoints.
 2. Show startup/config helper values:
    - `chatgpt_base_url = "http://127.0.0.1:<port>/backend-api"`;
    - `openai_base_url = "http://127.0.0.1:<port>/backend-api/codex"`.
@@ -114,6 +122,121 @@ Immediate tasks:
 6. Use `docs/proxy-traffic-analysis.md` as the UI data-source contract for the
    next Requests and Usage page optimization pass, especially token source,
    cached-token display, request purpose filtering, and quota fields.
+7. Execute T12 as an app-wide data-display pass. The source of truth is
+   `docs/proxy-traffic-analysis.md`; do not design from older table columns or
+   synthetic labels. The pass must update Overview, Accounts, Proxy/requests
+   context, Requests, and Usage so visible metrics map to the latest persisted
+   fields and explain their source when duplicate token views are possible.
+
+T12 acceptance:
+
+- Overview shows request distribution by `request_purpose`, active account
+  email or label, plan, used percent, reset time, and categorized recent events.
+- Accounts prefers `proxy_accounts.email`, shows usage plan/percent/reset and
+  last usage error, and reads exhaustion state from quota events instead of only
+  the last request row.
+- Requests default columns include time, status, purpose, method/path, account,
+  model, token breakdown, duration, and bytes; request details separate HTTP
+  metadata from WSS/protocol messages.
+- Usage groups by account, model, thread, turn, source, and day. Requests with
+  no usage contribute to request/error statistics but not token totals.
+- Token displays keep `cached_input_tokens` separate and surface
+  `token_usage_source` so protocol, SSE, and analytics-event data are not
+  silently mixed.
+- `/backend-api/wham/remote/*` rows are marked as original Codex-account
+  traffic, and `/v1/*` or non-`/backend-api` probes are kept in the API-key
+  compatibility/probe bucket.
+- Verification includes `bun run lint`, `bun run typecheck:web`,
+  `bun run typecheck:node`, `bun run build`, and live Electron inspection of
+  the affected pages at the minimum `1160x720` window.
+
+T12 implementation slices:
+
+1. Contract surface:
+   - extend `src/preload/proxy-api.ts` DTOs for all existing fields returned by
+     `ProxyRequestLedger.recent()` and `recentProtocolMessages()`;
+   - keep DTO names aligned to ledger camelCase fields;
+   - add focused tests where admin/client serialization currently fixes the
+     exposed shape.
+2. Shared data model:
+   - add renderer helpers for request purpose labels, model fallback,
+     token-breakdown formatting, source labels, byte totals, and account display
+     for original Codex-account paths;
+   - keep helpers in `src/renderer/src/data/` or page model files, not inside
+     large JSX blocks.
+3. Overview:
+   - replace generic recent request count with a purpose distribution;
+   - show active account plan/used/reset details where available;
+   - keep recent log categories based on typed `event_type`.
+4. Accounts:
+   - make email the primary display name;
+   - expose plan, primary/secondary usage, reset time, last check, and last
+     usage error in table/inspector;
+   - show quota history from quota/log events instead of inferring it from only
+     the latest request.
+5. Requests:
+   - rebuild default columns around time, status, purpose, method/path, account,
+     model, tokens, duration, and bytes;
+   - add filters/search for purpose, account, model, thread, turn, source, and
+     outcome;
+   - add a detail layout that separates HTTP metadata, token/source facts,
+     Codex thread/turn/runtime fields, and protocol messages for the request.
+6. Usage:
+   - replace traffic-only analysis with token-aware groups by account, model,
+     thread, turn, source, and day;
+   - keep request/error/latency statistics separate from token totals;
+   - show source-separated totals before any future merged-by-turn view.
+7. Verification and documentation:
+   - update i18n copy for all new labels;
+   - run the required commands;
+   - inspect the live Electron pages in light and dark modes at `1160x720`;
+   - record verification evidence and any remaining risks in this file.
+
+T12 current implementation evidence:
+
+- Done: renderer DTOs now expose the latest request/protocol fields returned by
+  `ProxyRequestLedger.recent()` and `recentProtocolMessages()`.
+- Done: shared display helpers now cover request purpose, model fallback, token
+  breakdown, source labels, byte totals, and original Codex-account paths.
+- Done: Requests now shows time, status, purpose, method/path, account, model,
+  token breakdown, duration, and bytes, with request detail split into HTTP,
+  token/source, Codex context, and protocol messages.
+- Done: Usage now groups real token usage by source, model, account, day, and
+  thread/turn, while keeping request/error/traffic statistics separate from
+  token totals.
+- Done: Overview now includes recent request purpose distribution, and Accounts
+  exposes reset/check/error details while filtering quota history to typed quota
+  events.
+- Done: User-feedback polish pass added full-database request and usage summary
+  cards, manual refresh buttons on all pages, refresh-on-navigation, top-center
+  concise notices, account usage progress on the triggering buttons, per-row
+  usage refresh controls, sticky sortable list headers, and OS-owner-based
+  daemon lifecycle controls with no admin lifecycle endpoints.
+- Done: Visual consistency pass rebalanced page headers, fixed top metric card
+  height, prevented action-bar wrapping, and toned down the dashboard sidebars
+  so dashboard, accounts, proxy, requests, and usage read as one app again.
+- Done: Follow-up layout pass raised the app/page header bands, bottom-aligned
+  page actions, compressed summary cards to a tighter shared height, and reduced
+  the Accounts page header to primary actions only.
+- Passed: `rtk bun run lint`.
+- Passed: `rtk bun run typecheck:web`.
+- Passed: `rtk bun run typecheck:node`.
+- Passed: `rtk bun run typecheck`.
+- Passed: `rtk bun run test`.
+- Passed: `rtk bun run build`.
+- Passed: `rtk bun run build:unpack`.
+- Passed: live dev-app inspection with Computer Use. Current validation should
+  continue through Computer Use and must not rely on system screenshots.
+- Confirmed: Dashboard uses full-database request totals and purpose groups,
+  keeps the batch usage action out of the top toolbar, and renders the complex
+  background-service waveform below the service text.
+- Confirmed: Requests shows all default columns at `1160x720`, including
+  account and bytes; zero-byte request traffic renders as `0 B / 0 B` instead
+  of "unlimited".
+- Confirmed: Usage shows token totals and groups by source, model, account, day,
+  and thread/turn.
+- Confirmed: Accounts shows email-first account names, plan/usage/reset/check
+  fields, and typed quota-event history sections in light and dark modes.
 
 Verification:
 
@@ -412,9 +535,9 @@ Still needed after the account-login proxy core:
   local API key, visible ban/detection warning, and adapter from OpenAI-style
   `/v1/*` requests to short-lived account WSS exchanges.
 
-T7 is complete. Verification: `bun run lint`, `bun run typecheck`,
-`bun run test`, `bun run build`, `bun run build:unpack`, dev UI checked with
-Computer Use, unpacked app checked with Computer Use, and packaged GitHub
+T7 is complete. Verification: `rtk bun run lint`, `rtk bun run typecheck`,
+`rtk bun run test`, `rtk bun run build`, `rtk bun run build:unpack`, dev UI
+checked with Computer Use, and packaged GitHub
 update metadata confirmed with sanitized update-check failure logging.
 
 The latest proxy-response slice is complete for the two client-visible account

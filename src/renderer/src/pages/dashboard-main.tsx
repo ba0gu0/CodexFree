@@ -1,10 +1,10 @@
 import { Button } from '@renderer/components/ui/button'
 import { CodeBlock } from '@renderer/components/ui/code-block'
 import { formatBytes } from '@renderer/data/format'
-import { codexConfigText } from '@renderer/data/proxy-console'
+import { codexConfigText, requestPurposeLabel } from '@renderer/data/proxy-console'
 import { useNearBottomLoadMore } from '@renderer/hooks/use-near-bottom-load-more'
 import { useVirtualRows } from '@renderer/hooks/use-virtual-rows'
-import type { ReactElement, UIEvent } from 'react'
+import { type ReactElement, type UIEvent, useMemo, useState } from 'react'
 import {
   type ActivityFilter,
   type ActivityRow,
@@ -24,10 +24,13 @@ export function ProxyControlPanel({
   t
 }: Pick<PageProps, 'locale' | 'snapshot' | 't'>): ReactElement {
   const runtime = snapshot.status.runtime
-  const traffic = trafficSummary(snapshot.requests)
+  const traffic = {
+    downTotal: snapshot.usageSummary.responseBytes,
+    upTotal: snapshot.usageSummary.requestBytes
+  }
   return (
     <section
-      className={`${panel} flex h-full min-h-0 flex-col gap-2.5 p-4 min-[1400px]:gap-[18px] min-[1400px]:p-5`}
+      className={`${panel} flex h-full min-h-0 flex-col gap-2.5 p-4 min-[1400px]:gap-3 min-[1400px]:p-5`}
     >
       <div className="flex h-9 shrink-0 items-center justify-between gap-4 min-[1400px]:h-12">
         <h2 className={`${title} truncate text-xl min-[1400px]:text-2xl`}>
@@ -38,7 +41,7 @@ export function ProxyControlPanel({
         </span>
       </div>
       <CodeBlock
-        className="max-h-[104px] shrink-0 [&_code]:break-all [&_code]:whitespace-pre-wrap [&_pre]:p-3 [&_pre]:pr-16 [&_pre]:text-[11px] min-[1400px]:max-h-[128px] min-[1400px]:[&_pre]:text-xs"
+        className="code-scrollbar-hidden max-h-[112px] shrink-0 [&_button]:size-7 [&_code]:whitespace-pre [&_pre]:p-3 [&_pre]:text-[10px] min-[1400px]:max-h-[120px] min-[1400px]:[&_pre]:text-[11px]"
         code={codexConfigText(snapshot.status)}
         language="toml"
       />
@@ -66,6 +69,7 @@ export function ProxyControlPanel({
 
 export function AccountPoolPanel({ snapshot, t }: Pick<PageProps, 'snapshot' | 't'>): ReactElement {
   const available = snapshot.status.authPoolAvailableAccounts
+  const purposeStats = topPurposeStats(snapshot.requestSummary.purposeGroups, t)
   return (
     <section
       className={`${panel} flex h-full min-h-0 flex-col gap-2.5 p-4 min-[1400px]:gap-3 min-[1400px]:p-5`}
@@ -86,8 +90,9 @@ export function AccountPoolPanel({ snapshot, t }: Pick<PageProps, 'snapshot' | '
           label={t('account.disabled')}
           value={String(snapshot.status.authPoolDisabledAccounts)}
         />
-        <SmallStat label={t('dashboard.totalTokens')} value="-" />
-        <SmallStat label={t('dashboard.totalCost')} tone="warn" value="-" />
+        {purposeStats.map((item) => (
+          <SmallStat key={item.label} label={item.label} value={String(item.count)} />
+        ))}
       </div>
     </section>
   )
@@ -108,7 +113,9 @@ export function RecentActivityPanel({
   setFilter: (filter: ActivityFilter) => void
   t: PageProps['t']
 }): ReactElement {
-  const virtualRows = useVirtualRows({ rowHeight: 48, rows })
+  const [sort, setSort] = useState<ActivitySort>({ direction: 'desc', key: 'time' })
+  const sortedRows = useMemo(() => sortActivityRows(rows, sort), [rows, sort])
+  const virtualRows = useVirtualRows({ rowHeight: 48, rows: sortedRows })
   const maybeLoadMore = useNearBottomLoadMore({
     enabled: hasMoreActivity.requests || hasMoreActivity.logEvents,
     onLoadMore: actions.loadMoreActivity
@@ -150,7 +157,7 @@ export function RecentActivityPanel({
         ref={virtualRows.containerRef}
       >
         <table
-          aria-rowcount={rows.length}
+          aria-rowcount={sortedRows.length}
           className="w-full table-fixed border-separate border-spacing-0 text-left text-xs leading-tight min-[1400px]:text-sm"
         >
           <colgroup>
@@ -163,25 +170,25 @@ export function RecentActivityPanel({
           </colgroup>
           <thead className="sticky top-0 z-10">
             <tr className="bg-muted/60 text-muted-foreground">
-              {[
-                t('table.startedAt'),
-                t('table.mode'),
-                t('dashboard.pathEvent'),
-                t('table.account'),
-                t('table.status'),
-                t('dashboard.latency')
-              ].map((head) => (
+              {activityColumns(t).map((column) => (
                 <th
                   className="h-9 overflow-hidden px-2 font-bold first:rounded-l-lg last:rounded-r-lg min-[1400px]:px-3"
-                  key={head}
+                  key={column.key}
                 >
-                  <span className="block truncate">{head}</span>
+                  <button
+                    className="block w-full truncate text-left"
+                    onClick={() => setSort(nextActivitySort(sort, column.key))}
+                    type="button"
+                  >
+                    {column.label}
+                    {sort.key === column.key ? (sort.direction === 'asc' ? ' ↑' : ' ↓') : ''}
+                  </button>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {sortedRows.length === 0 ? (
               <tr>
                 <td className={`${muted} h-12 px-2 font-semibold min-[1400px]:px-3`} colSpan={6}>
                   {t('status.empty')}
@@ -231,6 +238,46 @@ export function RecentActivityPanel({
   )
 }
 
+type SortDirection = 'asc' | 'desc'
+type ActivitySortKey = 'account' | 'duration' | 'event' | 'kind' | 'status' | 'time'
+
+interface ActivitySort {
+  direction: SortDirection
+  key: ActivitySortKey
+}
+
+function activityColumns(t: PageProps['t']): Array<{ key: ActivitySortKey; label: string }> {
+  return [
+    { key: 'time', label: t('table.startedAt') },
+    { key: 'kind', label: t('table.mode') },
+    { key: 'event', label: t('dashboard.pathEvent') },
+    { key: 'account', label: t('table.account') },
+    { key: 'status', label: t('table.status') },
+    { key: 'duration', label: t('dashboard.latency') }
+  ]
+}
+
+function nextActivitySort(current: ActivitySort, key: ActivitySortKey): ActivitySort {
+  return {
+    direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc',
+    key
+  }
+}
+
+function sortActivityRows(rows: ActivityRow[], sort: ActivitySort): ActivityRow[] {
+  return [...rows].sort((left, right) => compareActivityRows(left, right, sort))
+}
+
+function compareActivityRows(left: ActivityRow, right: ActivityRow, sort: ActivitySort): number {
+  const direction = sort.direction === 'asc' ? 1 : -1
+  if (sort.key === 'time') {
+    return (left.timestamp - right.timestamp) * direction
+  }
+  const leftValue = left[sort.key]
+  const rightValue = right[sort.key]
+  return String(leftValue).localeCompare(String(rightValue)) * direction
+}
+
 function PlainSpacerRow({
   colSpan,
   height
@@ -250,7 +297,7 @@ function PlainSpacerRow({
 
 function RuntimeStat({ label, value }: { label: string; value: string }): ReactElement {
   return (
-    <div className="min-w-0 rounded-[10px] bg-muted/60 p-2">
+    <div className="min-w-0 rounded-lg bg-muted/45 p-2">
       <div className="truncate font-bold text-[10px] text-muted-foreground min-[1400px]:text-xs">
         {label}
       </div>
@@ -261,17 +308,13 @@ function RuntimeStat({ label, value }: { label: string; value: string }): ReactE
   )
 }
 
-function trafficSummary(requests: PageProps['snapshot']['requests']): {
-  downTotal: number
-  upTotal: number
-} {
-  let upTotal = 0
-  let downTotal = 0
-  for (const request of requests) {
-    upTotal += request.requestBytes ?? 0
-    downTotal += request.responseBytes ?? 0
-  }
-  return { downTotal, upTotal }
+function topPurposeStats(
+  groups: PageProps['snapshot']['requestSummary']['purposeGroups'],
+  t: PageProps['t']
+): Array<{ count: number; label: string }> {
+  return groups
+    .slice(0, 3)
+    .map((group) => ({ count: group.count, label: requestPurposeLabel(group.key, t) }))
 }
 
 function formatTrafficBytes(value: number, locale: PageProps['locale']): string {
@@ -294,8 +337,8 @@ function SmallStat({
         ? 'bg-warning/12 text-warning'
         : 'bg-muted/60 text-foreground'
   return (
-    <div className={`min-h-0 rounded-[10px] p-1.5 text-center ${className}`}>
-      <div className="font-bold text-xl leading-none">{value}</div>
+    <div className={`min-h-0 rounded-lg p-1.5 text-center ${className}`}>
+      <div className="font-bold text-lg leading-none min-[1400px]:text-xl">{value}</div>
       <div className="mt-1 font-semibold text-[10px] text-muted-foreground leading-tight">
         {label}
       </div>

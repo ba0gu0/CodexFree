@@ -1,6 +1,7 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, type IpcRendererEvent, ipcRenderer } from 'electron'
 import type {
   AccountUsageCheckBatchDto,
+  AccountUsageCheckProgressDto,
   ActivityPageDto,
   AuthExportResultDto,
   AuthImportResultDto,
@@ -18,8 +19,10 @@ import type {
   ProxyStatusDto,
   RawCaptureDetailDto,
   RecentRequestDto,
+  RequestSummaryDto,
   ResetExhaustedAccountsDto,
-  SetAccountDisabledDto
+  SetAccountDisabledDto,
+  UsageSummaryDto
 } from './proxy-api'
 
 const electronBridge = {
@@ -55,6 +58,8 @@ const api = {
   getRecentRequests: (limit?: number): Promise<ActivityPageDto<RecentRequestDto>> =>
     ipcRenderer.invoke('proxy:recent-requests', limit),
   getManagedAccounts: (): Promise<ManagedAccountDto[]> => ipcRenderer.invoke('proxy:accounts'),
+  getRequestSummary: (): Promise<RequestSummaryDto> => ipcRenderer.invoke('proxy:request-summary'),
+  getUsageSummary: (): Promise<UsageSummaryDto> => ipcRenderer.invoke('proxy:usage-summary'),
   getProxyLogEvents: (limit?: number): Promise<ActivityPageDto<ProxyLogEventDto>> =>
     ipcRenderer.invoke('proxy:log-events', limit),
   getProtocolMessages: (limit?: number): Promise<ActivityPageDto<ProtocolMessageDto>> =>
@@ -77,6 +82,15 @@ const api = {
     ipcRenderer.invoke('proxy:check-account-usage'),
   checkSelectedAccountUsage: (accountIds: string[]): Promise<AccountUsageCheckBatchDto> =>
     ipcRenderer.invoke('proxy:check-selected-account-usage', accountIds),
+  onAccountUsageProgress: (
+    listener: (progress: AccountUsageCheckProgressDto) => void
+  ): (() => void) => {
+    const handler = (_event: IpcRendererEvent, progress: AccountUsageCheckProgressDto) => {
+      listener(progress)
+    }
+    ipcRenderer.on('proxy:account-usage-progress', handler)
+    return () => ipcRenderer.off('proxy:account-usage-progress', handler)
+  },
   exportAuthFiles: (): Promise<AuthExportResultDto> =>
     ipcRenderer.invoke('proxy:export-auth-files'),
   writePlaceholderAuth: (): Promise<PlaceholderAuthResultDto> =>

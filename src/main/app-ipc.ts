@@ -52,23 +52,37 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
   )
   ipcMain.handle('app:open-work-directory', () => openPathOrThrow(process.cwd()))
   ipcMain.handle('proxy:recent-requests', async (_, limit: unknown) => {
-    await runtime.ensureDaemon()
+    if (!(await tryEnsureDaemon(runtime))) {
+      return { hasMore: false, items: [] }
+    }
     const page = await runtime.daemonClient.requests(normalizeActivityLimit(limit))
     return { hasMore: page.hasMore, items: page.requests }
   })
   ipcMain.handle('proxy:log-events', async (_, limit: unknown) => {
-    await runtime.ensureDaemon()
+    if (!(await tryEnsureDaemon(runtime))) {
+      return { hasMore: false, items: [] }
+    }
     const page = await runtime.daemonClient.logEvents(normalizeActivityLimit(limit))
     return { hasMore: page.hasMore, items: page.events }
   })
   ipcMain.handle('proxy:protocol-messages', async (_, limit: unknown) => {
-    await runtime.ensureDaemon()
+    if (!(await tryEnsureDaemon(runtime))) {
+      return { hasMore: false, items: [] }
+    }
     const page = await runtime.daemonClient.protocolMessages(normalizeActivityLimit(limit))
     return { hasMore: page.hasMore, items: page.messages }
   })
   ipcMain.handle('proxy:accounts', async () => {
-    await runtime.ensureDaemon()
+    if (!(await tryEnsureDaemon(runtime))) {
+      return []
+    }
     return (await runtime.daemonClient.accounts()).accounts
+  })
+  ipcMain.handle('proxy:request-summary', async () => {
+    return runtime.requestSummary()
+  })
+  ipcMain.handle('proxy:usage-summary', async () => {
+    return runtime.usageSummary()
   })
   ipcMain.handle('proxy:raw-capture', async (_, requestId: string) =>
     readRawCaptureDetail(await runtime.rawCaptureDir(), requestId)
@@ -95,21 +109,27 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     }
 
     const result = importAuthFilesToDirectory(selection.filePaths, runtime.importedAuthPoolPath)
-    await runtime.restartProxy()
+    await runtime.ensureDaemon()
     await runtime.daemonClient.syncAccounts(result.accounts)
     const usageResults = await checkAuthDirectoryUsage(runtime.importedAuthPoolPath)
     await runtime.daemonClient.updateAccountUsage(usageResults)
-    await runtime.restartProxy()
     return result
   })
-  ipcMain.handle('proxy:check-account-usage', async () => {
-    const results = await checkAuthDirectoryUsage(runtime.importedAuthPoolPath)
+  ipcMain.handle('proxy:check-account-usage', async (event) => {
+    const results = await checkAuthDirectoryUsage(runtime.importedAuthPoolPath, {
+      onProgress: (progress) => {
+        event.sender.send('proxy:account-usage-progress', progress)
+      }
+    })
     await runtime.ensureDaemon()
     const { accounts } = await runtime.daemonClient.updateAccountUsage(results)
     return { results, accounts }
   })
-  ipcMain.handle('proxy:check-selected-account-usage', async (_, accountIds: string[]) => {
-    const results = await checkAuthDirectoryUsage(runtime.importedAuthPoolPath, accountIds)
+  ipcMain.handle('proxy:check-selected-account-usage', async (event, accountIds: string[]) => {
+    const results = await checkAuthDirectoryUsage(runtime.importedAuthPoolPath, {
+      accountIds,
+      onProgress: (progress) => event.sender.send('proxy:account-usage-progress', progress)
+    })
     await runtime.ensureDaemon()
     const { accounts } = await runtime.daemonClient.updateAccountUsage(results)
     return { results, accounts }
@@ -145,22 +165,21 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     const status = await runtime.proxyStatus()
     return writeCodexConfigFile({
       chatgptBaseUrl: status.endpoint,
+      modelProvider: 'openai',
       openaiBaseUrl: status.openaiBaseUrl
     })
   })
   ipcMain.handle('proxy:reset-exhausted-accounts', async () => {
     await runtime.ensureDaemon()
-    const { accounts, resetAccounts } = await runtime.daemonClient.resetExhaustedAccounts()
-    const status = await runtime.restartProxy()
+    const { accounts, resetAccounts, status } = await runtime.daemonClient.resetExhaustedAccounts()
     return { resetAccounts, accounts, status }
   })
   ipcMain.handle('proxy:set-account-disabled', async (_, accountId: string, disabled: boolean) => {
     await runtime.ensureDaemon()
-    const { accounts, updatedAccounts } = await runtime.daemonClient.setAccountDisabled(
+    const { accounts, status, updatedAccounts } = await runtime.daemonClient.setAccountDisabled(
       accountId,
       disabled
     )
-    const status = await runtime.restartProxy()
     return { updatedAccounts, accounts, status }
   })
   ipcMain.handle(
@@ -168,13 +187,14 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     async (_, accountIds: string[], disabled: boolean) => {
       await runtime.ensureDaemon()
       let accounts = (await runtime.daemonClient.accounts()).accounts
+      let status = (await runtime.daemonClient.status()).proxy
       let updatedAccounts = 0
       for (const accountId of accountIds) {
         const result = await runtime.daemonClient.setAccountDisabled(accountId, disabled)
         accounts = result.accounts
+        status = result.status
         updatedAccounts += result.updatedAccounts
       }
-      const status = await runtime.restartProxy()
       return { updatedAccounts, accounts, status }
     }
   )
@@ -193,8 +213,7 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
         }
       }
     }
-    const status = await runtime.restartProxy()
-    return { ...deleted, status }
+    return deleted
   })
   ipcMain.handle('proxy:clean-expired-accounts', async () => {
     await runtime.ensureDaemon()
@@ -202,7 +221,6 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     const expiredAccountIds = currentAccounts
       .filter((account) => account.lastUsageError?.includes('401'))
       .map((account) => account.accountId)
-    const deleted = await runtime.daemonClient.deleteAccounts(expiredAccountIds)
     let deletedFiles = 0
 
     if (existsSync(runtime.importedAuthPoolPath)) {
@@ -218,6 +236,7 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
       }
     }
 
+    const deleted = await runtime.daemonClient.deleteAccounts(expiredAccountIds)
     return { deletedAccounts: deleted.deletedAccounts, deletedFiles, accounts: deleted.accounts }
   })
   ipcMain.handle('proxy:save-config', async (_, config: ProxyConfig) => {
@@ -229,6 +248,18 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
   ipcMain.handle('proxy:start', async () => runtime.startDaemonProxy())
   ipcMain.handle('proxy:stop', async () => runtime.stopProxy())
   ipcMain.handle('proxy:restart', async () => runtime.restartProxy())
+}
+
+async function tryEnsureDaemon(runtime: MainRuntime): Promise<boolean> {
+  try {
+    await runtime.ensureDaemon()
+    return true
+  } catch (error) {
+    if (String(error).includes('stopped by the app control')) {
+      return false
+    }
+    throw error
+  }
 }
 
 function normalizeActivityLimit(value: unknown): number {

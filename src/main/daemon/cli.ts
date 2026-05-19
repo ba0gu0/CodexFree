@@ -1,6 +1,9 @@
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { exit, stderr, stdout } from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { writeCodexConfigFile } from '../auth/placeholder'
 import { readManagedProxyConfig, writeProxyConfig } from '../proxy/config'
 import { createProxyLogger } from '../proxy/event-log'
 import { ProxyLedger } from '../proxy/ledger'
@@ -34,7 +37,8 @@ export async function runDaemonCli(args: string[]): Promise<void> {
   mkdirSync(paths.authPoolDir, { recursive: true, mode: 0o700 })
 
   const startupConfig = applyDaemonCliProxyOptions(options, paths)
-  const readConfig = (): ProxyConfig => buildDaemonCliConfig(options, paths)
+  const readConfig = (): ProxyConfig =>
+    readManagedProxyConfig(paths.databasePath, paths.authPoolDir)
   const writeConfig = (config: ProxyConfig): ProxyConfig =>
     writeProxyConfig(paths.databasePath, config, paths.authPoolDir)
   const control = applyDaemonCliControlOptions(options, paths.databasePath)
@@ -46,20 +50,33 @@ export async function runDaemonCli(args: string[]): Promise<void> {
     paths.rawCaptureDir
   )
   const proxyStatus = await service.start(startupConfig)
+  const adminService = {
+    rawCaptureDir: service.rawCaptureDir,
+    refreshAccountPool: (): ProxyStatus => service.refreshAccountPool(),
+    refreshAccountState: (): ProxyStatus => service.refreshAccountState(),
+    reload: (config: ProxyConfig): Promise<ProxyStatus> => service.start(config),
+    removeAccountsFromPool: (accountIds: string[]): ProxyStatus =>
+      service.removeAccountsFromPool(accountIds),
+    status: (): ProxyStatus => service.status(),
+    switchActiveAccountAndCloseWebSockets: (accountId?: string) =>
+      service.switchActiveAccountAndCloseWebSockets(accountId)
+  }
   const admin = new DaemonAdminServer({
     host: control.config.adminHost,
     ledger,
     port: control.config.adminPort,
     readConfig,
-    service,
+    service: adminService,
     token: control.config.adminToken,
     writeConfig
   })
   const adminStatus = await admin.start()
+  const configMonitor = startCodexConfigMonitor(readConfig)
   printStarted(proxyStatus, adminStatus, paths.databasePath, control.generatedAdminToken)
 
   const stop = async (signal: string) => {
     stdout.write(`\nReceived ${signal}; stopping CodexFree daemon...\n`)
+    configMonitor.stop()
     await admin.stop()
     await service.stop()
     exit(0)
@@ -68,6 +85,60 @@ export async function runDaemonCli(args: string[]): Promise<void> {
   process.once('SIGTERM', () => void stop('SIGTERM'))
 
   await new Promise(() => undefined)
+}
+
+function startCodexConfigMonitor(readConfig: () => ProxyConfig): { stop: () => void } {
+  const run = (): void => {
+    const config = readConfig()
+    if (!config.codexConfigMonitorEnabled) {
+      return
+    }
+    const input = codexConfigInput(config)
+    if (codexConfigLooksCurrent(input)) {
+      return
+    }
+    writeCodexConfigFile(input)
+  }
+  run()
+  const timer = setInterval(run, 60 * 60 * 1000)
+  return {
+    stop: () => clearInterval(timer)
+  }
+}
+
+function codexConfigInput(config: ProxyConfig): {
+  chatgptBaseUrl: string
+  modelProvider: string
+  openaiBaseUrl: string
+} {
+  const baseUrl = `http://${config.listenHost}:${config.listenPort}/backend-api`
+  return {
+    chatgptBaseUrl: baseUrl,
+    modelProvider: 'openai',
+    openaiBaseUrl: `${baseUrl}/codex`
+  }
+}
+
+function codexConfigLooksCurrent(input: ReturnType<typeof codexConfigInput>): boolean {
+  const configPath = join(homedir(), '.codex', 'config.toml')
+  if (!existsSync(configPath)) {
+    return false
+  }
+  const content = readFileSync(configPath, 'utf8')
+  return (
+    hasTomlAssignment(content, 'chatgpt_base_url', input.chatgptBaseUrl) &&
+    hasTomlAssignment(content, 'openai_base_url', input.openaiBaseUrl) &&
+    hasTomlAssignment(content, 'model_provider', input.modelProvider)
+  )
+}
+
+function hasTomlAssignment(content: string, key: string, value: string): boolean {
+  const escaped = escapeRegExp(value)
+  return new RegExp(`^\\s*${key}\\s*=\\s*"${escaped}"\\s*$`, 'm').test(content)
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 export function resolveDaemonCliPaths(

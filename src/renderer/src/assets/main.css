@@ -217,3 +217,11 @@
 .app-no-drag * {
   -webkit-app-region: no-drag;
 }
+
+.code-scrollbar-hidden pre {
+  scrollbar-width: none;
+}
+
+.code-scrollbar-hidden pre::-webkit-scrollbar {
+  display: none;
+}

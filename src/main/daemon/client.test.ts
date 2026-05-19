@@ -30,6 +30,7 @@ const proxyConfig: ProxyConfig = {
   authPool: { directory: '/tmp/auth-pool', enabled: true },
   listenHost: '127.0.0.1',
   listenPort: 33333,
+  codexConfigMonitorEnabled: false,
   outboundProxy: { mode: 'direct', url: '' },
   maxRequestBodyBytes: 0,
   rawCaptureEnabled: false,
@@ -53,12 +54,6 @@ describe('daemon admin client', () => {
 
     try {
       await expect(client.status()).resolves.toMatchObject({
-        proxy: { endpoint: 'http://127.0.0.1:33333/backend-api' }
-      })
-      await expect(client.start()).resolves.toMatchObject({
-        proxy: { endpoint: 'http://127.0.0.1:33333/backend-api' }
-      })
-      await expect(client.stop()).resolves.toMatchObject({
         proxy: { endpoint: 'http://127.0.0.1:33333/backend-api' }
       })
       await expect(client.logEvents()).resolves.toMatchObject({ events: [] })
@@ -110,6 +105,39 @@ describe('daemon admin client', () => {
     }
   })
 
+  it('saves config separately from proxy reload', async () => {
+    let currentConfig = proxyConfig
+    const service = fakeService()
+    const server = new DaemonAdminServer({
+      host: '127.0.0.1',
+      ledger: fakeLedger(),
+      port: 0,
+      readConfig: () => currentConfig,
+      service,
+      token: 'secret-token',
+      writeConfig: (config) => {
+        currentConfig = config
+        return currentConfig
+      }
+    })
+    const status = await server.start()
+    const client = new DaemonAdminClient({ endpoint: status.endpoint, token: 'secret-token' })
+
+    try {
+      await expect(
+        client.updateConfig({ ...proxyConfig, listenPort: 44444 })
+      ).resolves.toMatchObject({ config: { listenPort: 44444 } })
+      expect(service.reloads).toHaveLength(0)
+      await expect(client.reload()).resolves.toMatchObject({
+        config: { listenPort: 44444 },
+        proxy: { endpoint: 'http://127.0.0.1:33333/backend-api' }
+      })
+      expect(service.reloads).toEqual([expect.objectContaining({ listenPort: 44444 })])
+    } finally {
+      await server.stop()
+    }
+  })
+
   it('includes admin response bodies in request errors', async () => {
     const server = new DaemonAdminServer({
       host: '127.0.0.1',
@@ -132,11 +160,18 @@ describe('daemon admin client', () => {
 })
 
 function fakeService() {
+  const reloads: ProxyConfig[] = []
   return {
     rawCaptureDir: '/tmp/codexfree-test',
-    start: async () => proxyStatus,
+    refreshAccountPool: () => proxyStatus,
+    refreshAccountState: () => proxyStatus,
+    reloads,
+    reload: async (config: ProxyConfig) => {
+      reloads.push(config)
+      return proxyStatus
+    },
+    removeAccountsFromPool: () => proxyStatus,
     status: () => proxyStatus,
-    stop: async () => undefined,
     switchActiveAccountAndCloseWebSockets: (accountId?: string) => ({
       accountId: accountId ?? 'account-2',
       closedWebSockets: 1,
@@ -159,6 +194,15 @@ function fakeLedger(): AdminLedger {
     recent: () => [],
     recentLogEvents: (): LogEventRow[] => [],
     recentProtocolMessages: (): ProtocolMessageRow[] => [],
+    requestSummary: () => ({
+      captured: 0,
+      failed: 0,
+      forwarded: 0,
+      purposeGroups: [],
+      quota: 0,
+      rejected: 0,
+      total: 0
+    }),
     recordLogEvent: () => undefined,
     resetExhaustedAccounts: () => {
       const exhausted = accounts.filter((account) => account.status === 'exhausted').length
@@ -194,7 +238,22 @@ function fakeLedger(): AdminLedger {
             }
           : account
       )
-    }
+    },
+    usageSummary: () => ({
+      accountGroups: [],
+      averageDurationMs: null,
+      dayGroups: [],
+      failed: 0,
+      modelGroups: [],
+      requestBytes: 0,
+      requestsWithUsage: 0,
+      responseBytes: 0,
+      sourceGroups: [],
+      successful: 0,
+      tokenTotal: 0,
+      total: 0,
+      turnGroups: []
+    })
   }
 }
 

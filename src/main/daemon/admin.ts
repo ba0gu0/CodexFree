@@ -15,16 +15,20 @@ import type {
   ProxyAccountSwitchResult,
   ProxyConfig,
   ProxyStatus,
-  RecentRequest
+  RecentRequest,
+  RequestSummary,
+  UsageSummary
 } from '../proxy/types'
 
 const maxJsonBodyBytes = 1_048_576
 
 export interface AdminProxyService {
   readonly rawCaptureDir: string
-  start(config?: ProxyConfig): Promise<ProxyStatus>
+  reload(config: ProxyConfig): Promise<ProxyStatus>
+  refreshAccountPool(): ProxyStatus
+  refreshAccountState(): ProxyStatus
+  removeAccountsFromPool(accountIds: string[]): ProxyStatus
   status(): ProxyStatus
-  stop(): Promise<void>
   switchActiveAccountAndCloseWebSockets(accountId?: string): ProxyAccountSwitchResult
 }
 
@@ -35,11 +39,13 @@ export interface AdminLedger {
   recentLogEvents(limit?: number): LogEventRow[]
   recentProtocolMessages(limit?: number): ProtocolMessageRow[]
   recent(limit?: number): RecentRequest[]
+  requestSummary(): RequestSummary
   recordLogEvent(input: LogEventInput): void
   resetExhaustedAccounts(accountIds?: string[]): number
   setAccountDisabled(accountId: string, disabled: boolean): number
   syncAccountPool(accounts: AccountPoolSnapshot[]): void
   updateAccountUsage(input: AccountUsageInput): void
+  usageSummary(): UsageSummary
 }
 
 export interface DaemonAdminServerOptions {
@@ -132,44 +138,35 @@ export class DaemonAdminServer {
     if (request.method === 'PUT' && url.pathname === '/admin/config') {
       const config = (await readJsonBody(request)) as ProxyConfig
       const saved = this.options.writeConfig(config)
-      const proxy = await this.options.service.start(saved)
-      this.auditMutation(request.method, url.pathname, {
-        authPoolEnabled: saved.authPool.enabled,
-        listenHost: saved.listenHost,
-        listenPort: saved.listenPort,
-        outboundMode: saved.outboundProxy.mode,
-        rawCaptureEnabled: saved.rawCaptureEnabled
-      })
-      writeJson(response, 200, { config: saved, proxy })
+      this.auditMutation(request.method, url.pathname, configAuditDetail(saved))
+      writeJson(response, 200, { config: saved })
       return
     }
-    if (request.method === 'POST' && url.pathname === '/admin/start') {
-      const proxy = await this.options.service.start(this.options.readConfig())
-      this.auditMutation(request.method, url.pathname)
-      writeJson(response, 200, { proxy })
-      return
-    }
-    if (request.method === 'POST' && url.pathname === '/admin/restart') {
-      const proxy = await this.options.service.start(this.options.readConfig())
-      this.auditMutation(request.method, url.pathname)
-      writeJson(response, 200, { proxy })
-      return
-    }
-    if (request.method === 'POST' && url.pathname === '/admin/stop') {
-      await this.options.service.stop()
-      this.auditMutation(request.method, url.pathname)
-      writeJson(response, 200, { proxy: this.options.service.status() })
+    if (request.method === 'POST' && url.pathname === '/admin/reload') {
+      const config = this.options.readConfig()
+      const proxy = await this.options.service.reload(config)
+      this.auditMutation(request.method, url.pathname, configAuditDetail(config))
+      writeJson(response, 200, { config, proxy })
       return
     }
     if (request.method === 'GET' && url.pathname === '/admin/accounts') {
       writeJson(response, 200, { accounts: this.options.ledger.accounts() })
       return
     }
+    if (request.method === 'GET' && url.pathname === '/admin/request-summary') {
+      writeJson(response, 200, { summary: this.options.ledger.requestSummary() })
+      return
+    }
+    if (request.method === 'GET' && url.pathname === '/admin/usage-summary') {
+      writeJson(response, 200, { summary: this.options.ledger.usageSummary() })
+      return
+    }
     if (request.method === 'POST' && url.pathname === '/admin/accounts/sync') {
       const body = (await readJsonBody(request)) as { accounts?: AccountPoolSnapshot[] }
       this.options.ledger.syncAccountPool(body.accounts ?? [])
+      const status = this.options.service.refreshAccountPool()
       this.auditMutation(request.method, url.pathname, { accountCount: body.accounts?.length ?? 0 })
-      writeJson(response, 200, { accounts: this.options.ledger.accounts() })
+      writeJson(response, 200, { accounts: this.options.ledger.accounts(), status })
       return
     }
     if (request.method === 'POST' && url.pathname === '/admin/accounts/usage') {
@@ -188,14 +185,16 @@ export class DaemonAdminServer {
           secondaryUsedPercent: result.secondaryUsedPercent
         })
       }
+      const status = this.options.service.refreshAccountState()
       this.auditMutation(request.method, url.pathname, { resultCount: body.results?.length ?? 0 })
-      writeJson(response, 200, { accounts: this.options.ledger.accounts() })
+      writeJson(response, 200, { accounts: this.options.ledger.accounts(), status })
       return
     }
     if (request.method === 'POST' && url.pathname === '/admin/accounts/reset-exhausted') {
       const resetAccounts = this.options.ledger.resetExhaustedAccounts()
+      const status = this.options.service.refreshAccountState()
       this.auditMutation(request.method, url.pathname, { resetAccounts })
-      writeJson(response, 200, { accounts: this.options.ledger.accounts(), resetAccounts })
+      writeJson(response, 200, { accounts: this.options.ledger.accounts(), resetAccounts, status })
       return
     }
     if (request.method === 'POST' && url.pathname === '/admin/accounts/switch') {
@@ -223,17 +222,28 @@ export class DaemonAdminServer {
         disabled: body.disabled === true,
         updatedAccounts
       })
-      writeJson(response, 200, { accounts: this.options.ledger.accounts(), updatedAccounts })
+      const status = this.options.service.refreshAccountState()
+      writeJson(response, 200, {
+        accounts: this.options.ledger.accounts(),
+        status,
+        updatedAccounts
+      })
       return
     }
     if (request.method === 'POST' && url.pathname === '/admin/accounts/delete') {
       const body = (await readJsonBody(request)) as { accountIds?: string[] }
-      const deletedAccounts = this.options.ledger.deleteAccounts(body.accountIds ?? [])
+      const accountIds = body.accountIds ?? []
+      const deletedAccounts = this.options.ledger.deleteAccounts(accountIds)
+      const status = this.options.service.removeAccountsFromPool(accountIds)
       this.auditMutation(request.method, url.pathname, {
-        requestedAccounts: body.accountIds?.length ?? 0,
+        requestedAccounts: accountIds.length,
         deletedAccounts
       })
-      writeJson(response, 200, { accounts: this.options.ledger.accounts(), deletedAccounts })
+      writeJson(response, 200, {
+        accounts: this.options.ledger.accounts(),
+        deletedAccounts,
+        status
+      })
       return
     }
     if (request.method === 'GET' && url.pathname === '/admin/requests') {
@@ -325,6 +335,26 @@ function pageFromRows<T>(rows: T[], limit: number): ActivityPage<T> {
   return {
     hasMore: rows.length > limit,
     items: rows.slice(0, limit)
+  }
+}
+
+function configAuditDetail(config: ProxyConfig): {
+  authPoolEnabled: boolean
+  codexConfigMonitorEnabled: boolean
+  listenHost: string
+  listenPort: number
+  maxRequestBodyBytes: number
+  outboundMode: string
+  rawCaptureEnabled: boolean
+} {
+  return {
+    authPoolEnabled: config.authPool.enabled,
+    codexConfigMonitorEnabled: config.codexConfigMonitorEnabled,
+    listenHost: config.listenHost,
+    listenPort: config.listenPort,
+    maxRequestBodyBytes: config.maxRequestBodyBytes,
+    outboundMode: config.outboundProxy.mode,
+    rawCaptureEnabled: config.rawCaptureEnabled
   }
 }
 

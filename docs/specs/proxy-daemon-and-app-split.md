@@ -32,7 +32,8 @@ Codex CLI
 
 CodexFree Desktop App
   -> local admin API / IPC
-  -> start/stop/status/config/logs
+  -> status/config/logs
+  -> daemon lifecycle through App-owned child process or OS service manager
   -> SQLite ledger + auth-pool directory
 ```
 
@@ -73,7 +74,7 @@ The desktop app owns:
 - batch usage checks;
 - enable/disable/reset account controls;
 - config editing;
-- daemon start/stop/restart controls;
+- daemon start/stop/restart controls through the actual process owner;
 - live status display;
 - request, WSS, and quota event views;
 - raw capture cleanup;
@@ -91,21 +92,49 @@ The daemon should expose a local-only admin surface. Preferred first version:
 - use a random local admin token stored in the app data directory;
 - expose JSON endpoints or IPC methods for:
   - `GET /admin/status`;
-  - `POST /admin/start`;
-  - `POST /admin/stop`;
-  - `POST /admin/restart`;
   - `GET /admin/config`;
   - `PUT /admin/config`;
+  - `POST /admin/reload`;
   - `GET /admin/accounts`;
   - `POST /admin/accounts/sync`;
   - `POST /admin/accounts/usage`;
   - `POST /admin/accounts/reset-exhausted`;
   - `POST /admin/accounts/disable`;
   - `POST /admin/accounts/delete`;
+  - `GET /admin/request-summary`;
+  - `GET /admin/usage-summary`;
   - `GET /admin/requests`;
   - `GET /admin/log-events`;
   - `GET /admin/protocol-messages`;
   - `POST /admin/clear-records`.
+
+The admin surface must not expose daemon lifecycle endpoints such as
+`/admin/start`, `/admin/stop`, or `/admin/restart`. Starting, stopping, and
+restarting the daemon must be handled by the desktop app through the current
+process owner: an App-spawned child process, macOS LaunchAgent, Linux
+`systemctl --user`, or Windows Service Control Manager. This prevents the UI
+from reporting “stopped” while the actual daemon process still owns the listen
+ports.
+
+Configuration persistence and application are intentionally separate:
+`PUT /admin/config` only saves the configuration to SQLite. `POST /admin/reload`
+is retained as a local daemon/admin utility that makes the daemon read SQLite
+again and restart the proxy service in place. The desktop UI does not use admin
+endpoints for process lifecycle. UI saves write SQLite, then ask the app process
+manager to restart the daemon through the configured owner: App child process,
+macOS LaunchAgent, Linux `systemctl --user`, or Windows `sc`.
+
+The database is the only durable configuration source, but directly editing it
+does not affect a running daemon until the app process owner restarts the daemon
+or a local admin client explicitly calls reload. Runtime settings such as raw
+capture, listen host/port, upstream URL, outbound proxy, auth-pool directory,
+body limits, and config monitoring all follow this rule.
+
+Account-management actions are not proxy configuration changes. Admin actions
+such as usage updates, enable/disable, reset exhausted, import sync, and delete
+write the database first, then refresh only the daemon's in-memory account-pool
+cache. They must not restart the proxy service or close existing upgraded WSS
+sessions.
 
 ## Packaged Daemon Startup
 
@@ -264,7 +293,7 @@ Current focus:
 - show daemon status instead of assuming in-process proxy state;
 - import accounts and batch query usage;
 - show active account, quota, reset time, exhausted count;
-- expose start/stop/restart controls;
+- expose start/stop/restart controls backed by the actual daemon process owner;
 - show request and WSS event ledger;
 - keep UI usable while daemon code changes.
 

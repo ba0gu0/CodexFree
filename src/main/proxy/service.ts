@@ -144,6 +144,31 @@ export class TransparentProxyService {
     return { accountId: account.accountId, closedWebSockets, switched: true }
   }
 
+  refreshAccountPool(): ProxyStatus {
+    this.accountPool = this.loadAccountPool(this.config)
+    this.log.info('Account pool refreshed from database and auth files', this.status())
+    return this.status()
+  }
+
+  refreshAccountState(): ProxyStatus {
+    this.accountPool.applyRuntimeState({
+      activeAccountId: this.ledger.activeAccountId(),
+      disabledAccountIds: this.ledger.disabledAccountIds(),
+      exhaustedAccountIds: this.ledger.exhaustedAccountIds()
+    })
+    this.log.info('Account pool runtime state refreshed from database', this.status())
+    return this.status()
+  }
+
+  removeAccountsFromPool(accountIds: string[]): ProxyStatus {
+    this.accountPool.removeAccountIds(accountIds)
+    this.refreshAccountState()
+    this.log.info('Accounts removed from in-memory account pool', {
+      accountCount: accountIds.length
+    })
+    return this.status()
+  }
+
   status(): ProxyStatus {
     const address = this.server?.address()
     const host =

@@ -1,5 +1,6 @@
 import { Button } from '@renderer/components/ui/button'
 import { formatDateTime } from '@renderer/data/format'
+import { motion } from 'motion/react'
 import type { ReactElement } from 'react'
 import { type ActivityRow, rowTone, typeLabel } from './dashboard-model'
 import type { PageProps } from './types'
@@ -11,12 +12,9 @@ const title = 'font-extrabold text-foreground'
 export function ServicePanel({ snapshot, t }: Pick<PageProps, 'snapshot' | 't'>): ReactElement {
   const connected = snapshot.status.running
   return (
-    <section
-      className={`${panel} flex h-[144px] shrink-0 flex-col justify-center gap-2 min-[1400px]:h-[158px]`}
-    >
+    <section className={`${panel} flex h-[168px] shrink-0 flex-col gap-2 min-[1400px]:h-[188px]`}>
       <div className={`${muted} font-bold text-xs`}>{t('dashboard.service')}</div>
-      <div className="flex min-w-0 items-center gap-2">
-        <ConnectionWaves connected={connected} />
+      <div className="min-w-0">
         <div
           className={`truncate font-extrabold text-xl min-[1400px]:text-2xl ${
             connected ? 'text-success' : 'text-warning'
@@ -24,11 +22,11 @@ export function ServicePanel({ snapshot, t }: Pick<PageProps, 'snapshot' | 't'>)
         >
           {connected ? t('dashboard.daemonConnected') : t('dashboard.daemonDisconnected')}
         </div>
+        <div className="font-bold text-foreground text-xs">
+          {t('dashboard.daemonHistoryRequests', { requests: snapshot.requestSummary.total })}
+        </div>
       </div>
-      <div className="font-bold text-foreground text-xs">
-        {t('dashboard.daemonHistoryRequests', { requests: snapshot.requests.length })}
-      </div>
-      <div className={`${muted} font-semibold text-xs`}>{t('dashboard.daemonHint')}</div>
+      <ConnectionWaves connected={connected} />
     </section>
   )
 }
@@ -40,11 +38,11 @@ export function DirectoryPanel({ actions, t }: Pick<PageProps, 'actions' | 't'>)
     ['dashboard.workDirectory', actions.openWorkDirectory, 'bg-success/12 text-success']
   ] as const
   return (
-    <section className={`${panel} flex h-[160px] shrink-0 flex-col gap-2.5 min-[1400px]:h-[188px]`}>
+    <section className={`${panel} flex h-[196px] shrink-0 flex-col gap-3 min-[1400px]:h-[216px]`}>
       <div className={`${muted} font-bold text-xs`}>{t('dashboard.directories')}</div>
       {rows.map(([key, action, className]) => (
         <Button
-          className={`h-9 justify-between border-0 px-2.5 font-extrabold text-sm min-[1400px]:h-10 ${className}`}
+          className={`h-11 justify-between border-0 px-3 font-extrabold text-sm min-[1400px]:h-12 ${className}`}
           key={key}
           onClick={action}
           size="sm"
@@ -99,7 +97,7 @@ export function VersionPanel({
 }: Pick<PageProps, 'lastRefresh' | 'locale' | 'snapshot' | 't'>): ReactElement {
   return (
     <section
-      className={`${panel} flex h-[132px] shrink-0 flex-col justify-center gap-2 min-[1400px]:h-[146px]`}
+      className={`${panel} mt-auto flex h-[132px] shrink-0 flex-col justify-center gap-2 min-[1400px]:h-[146px]`}
     >
       <div className={`${muted} font-bold text-xs`}>{t('dashboard.versionUpdate')}</div>
       <div className="flex items-center justify-between gap-2">
@@ -118,19 +116,57 @@ export function VersionPanel({
 }
 
 function ConnectionWaves({ connected }: { connected: boolean }): ReactElement {
-  const tone = connected ? 'bg-success' : 'bg-warning'
+  const primary = connected ? '#0b7cff' : '#f59e0b'
+  const secondary = connected ? '#ffb199' : '#f97316'
   return (
-    <div className="flex h-5 w-8 shrink-0 items-end gap-1" aria-hidden>
-      {[0, 1, 2].map((index) => (
-        <span
-          className={`w-1.5 rounded-full ${tone} opacity-70 motion-safe:animate-pulse`}
-          key={index}
-          style={{
-            animationDelay: `${index * 160}ms`,
-            height: `${8 + index * 4}px`
+    <div
+      className="relative mt-auto min-h-0 flex-1 overflow-hidden rounded-lg border bg-muted/25 shadow-inner"
+      aria-hidden
+    >
+      <svg className="size-full" viewBox="0 0 154 72" role="img">
+        <title>{connected ? 'connected network waveform' : 'disconnected network waveform'}</title>
+        <path d="M0 20H154" stroke="currentColor" className="text-border/80" />
+        <path d="M0 44H154" stroke="currentColor" className="text-border/80" />
+        <motion.path
+          animate={{
+            pathLength: [0.68, 1, 0.78],
+            pathOffset: [0, 0.08, 0.16],
+            y: connected ? [0, -4, 2, 0] : [5, 2, 7, 5]
+          }}
+          d="M-8 47 C3 12 18 10 30 35 S52 31 63 30 75 45 83 23 99 50 110 50 119 22 132 35 142 19 160 31"
+          fill="none"
+          initial={false}
+          stroke={primary}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="3"
+          transition={{
+            duration: connected ? 2.6 : 3.4,
+            ease: 'easeInOut',
+            repeat: Number.POSITIVE_INFINITY
           }}
         />
-      ))}
+        <motion.path
+          animate={{
+            pathLength: [0.58, 0.92, 0.7],
+            pathOffset: [0.12, 0.02, 0.18],
+            y: connected ? [3, 0, -3, 3] : [8, 5, 9, 8]
+          }}
+          d="M-6 55 C2 47 5 64 14 42 S27 62 36 39 50 68 63 31 76 21 86 30 98 25 109 25 121 19 132 22 143 20 153 22 160 62"
+          fill="none"
+          initial={false}
+          opacity={connected ? 0.9 : 0.58}
+          stroke={secondary}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="3"
+          transition={{
+            duration: connected ? 3.1 : 4,
+            ease: 'easeInOut',
+            repeat: Number.POSITIVE_INFINITY
+          }}
+        />
+      </svg>
     </div>
   )
 }

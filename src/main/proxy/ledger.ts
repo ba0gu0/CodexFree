@@ -4,6 +4,7 @@ import {
   updateAccountUsageInLedger
 } from './ledger-account-state'
 import { initializeLedgerSchema } from './ledger-schema'
+import { readRequestSummary, readUsageSummary } from './ledger-summary'
 import type {
   AccountPoolSnapshot,
   AccountUsageInput,
@@ -23,7 +24,31 @@ import {
   serializeLogDetail
 } from './ledger-utils'
 import type { QuotaExhaustionEvent } from './quota'
-import type { RecentRequest, RequestLedgerEntry } from './types'
+import type { RecentRequest, RequestLedgerEntry, RequestSummary, UsageSummary } from './types'
+
+interface RoutingEventRow {
+  accountId: string | null
+  conversationKey: string | null
+  createdAt: number
+  eventType: string
+  id: string
+  reason: string
+  requestId: string | null
+}
+
+interface QuotaEventRow {
+  accountId: string | null
+  activeLimit: string | null
+  conversationKey: string | null
+  createdAt: number
+  id: string
+  message: string
+  planType: string | null
+  primaryUsedPercent: string | null
+  requestId: string | null
+  resetsAt: number | null
+  statusCode: number | null
+}
 
 export class ProxyLedger {
   private static readonly defaultRetentionMs = 30 * 24 * 60 * 60 * 1000
@@ -136,6 +161,9 @@ export class ProxyLedger {
           request_bytes AS requestBytes,
           response_bytes AS responseBytes,
           request_purpose AS requestPurpose,
+          request_content_type AS requestContentType,
+          response_content_type AS responseContentType,
+          request_body_encoding AS requestBodyEncoding,
           request_model AS requestModel,
           response_model AS responseModel,
           response_plan_type AS responsePlanType,
@@ -145,6 +173,7 @@ export class ProxyLedger {
           response_item_count AS responseItemCount,
           request_input_item_count AS requestInputItemCount,
           rpc_method AS rpcMethod,
+          rpc_id AS rpcId,
           analytics_event_types AS analyticsEventTypes,
           input_tokens AS inputTokens,
           cached_input_tokens AS cachedInputTokens,
@@ -152,9 +181,15 @@ export class ProxyLedger {
           reasoning_tokens AS reasoningTokens,
           total_tokens AS totalTokens,
           token_usage_source AS tokenUsageSource,
+          codex_session_id AS codexSessionId,
           codex_thread_id AS codexThreadId,
           codex_turn_id AS codexTurnId,
+          codex_turn_started_at AS codexTurnStartedAt,
           codex_version AS codexVersion,
+          codex_runtime_os AS codexRuntimeOs,
+          codex_runtime_arch AS codexRuntimeArch,
+          user_agent AS userAgent,
+          originator,
           streaming,
           upstream_host AS upstreamHost,
           outbound_mode AS outboundMode,
@@ -166,6 +201,14 @@ export class ProxyLedger {
         LIMIT ?
       `)
       .all(limit) as RecentRequest[]
+  }
+
+  requestSummary(): RequestSummary {
+    return readRequestSummary(this.sqlite.name)
+  }
+
+  usageSummary(): UsageSummary {
+    return readUsageSummary(this.sqlite.name)
   }
 
   markQuotaExhausted(id: string, errorMessage: string, completedAt: Date): void {
@@ -497,7 +540,7 @@ export class ProxyLedger {
   }
 
   recentLogEvents(limit = 50): LogEventRow[] {
-    return this.sqlite
+    const logRows = this.sqlite
       .prepare(`
         SELECT
           id,
@@ -516,6 +559,47 @@ export class ProxyLedger {
         LIMIT ?
       `)
       .all(limit) as LogEventRow[]
+    const routingRows = this.sqlite
+      .prepare(`
+        SELECT
+          id,
+          request_id AS requestId,
+          conversation_key AS conversationKey,
+          account_id AS accountId,
+          event_type AS eventType,
+          reason,
+          created_at AS createdAt
+        FROM proxy_routing_events
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+      `)
+      .all(limit) as RoutingEventRow[]
+    const quotaRows = this.sqlite
+      .prepare(`
+        SELECT
+          id,
+          request_id AS requestId,
+          conversation_key AS conversationKey,
+          account_id AS accountId,
+          status_code AS statusCode,
+          plan_type AS planType,
+          active_limit AS activeLimit,
+          primary_used_percent AS primaryUsedPercent,
+          resets_at AS resetsAt,
+          message,
+          created_at AS createdAt
+        FROM proxy_quota_events
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+      `)
+      .all(limit) as QuotaEventRow[]
+    return [
+      ...logRows,
+      ...routingRows.map(routingEventToLogRow),
+      ...quotaRows.map(quotaEventToLogRow)
+    ]
+      .sort((left, right) => right.createdAt - left.createdAt || right.id.localeCompare(left.id))
+      .slice(0, limit)
   }
 
   markAccountQuotaExhausted(
@@ -552,5 +636,48 @@ export class ProxyLedger {
 
   close(): void {
     this.sqlite.close()
+  }
+}
+
+function routingEventToLogRow(row: RoutingEventRow): LogEventRow {
+  const eventType = row.eventType.includes('quota') ? 'quota' : 'account_switch'
+  return {
+    accountId: row.accountId,
+    conversationKey: row.conversationKey,
+    createdAt: row.createdAt,
+    detailJson: serializeLogDetail({
+      eventType: row.eventType,
+      reason: row.reason
+    }),
+    eventType,
+    id: row.id,
+    level: row.eventType === 'all_accounts_exhausted' ? 'warn' : 'info',
+    message: 'Routing event',
+    method: null,
+    path: null,
+    requestId: row.requestId
+  }
+}
+
+function quotaEventToLogRow(row: QuotaEventRow): LogEventRow {
+  return {
+    accountId: row.accountId,
+    conversationKey: row.conversationKey,
+    createdAt: row.createdAt,
+    detailJson: serializeLogDetail({
+      activeLimit: row.activeLimit,
+      message: row.message,
+      planType: row.planType,
+      primaryUsedPercent: row.primaryUsedPercent,
+      resetsAt: row.resetsAt,
+      statusCode: row.statusCode
+    }),
+    eventType: 'quota',
+    id: row.id,
+    level: 'warn',
+    message: 'Quota event',
+    method: null,
+    path: null,
+    requestId: row.requestId
   }
 }

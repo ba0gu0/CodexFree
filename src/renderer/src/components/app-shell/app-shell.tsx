@@ -56,7 +56,7 @@ export function AppShell({
     themeMode === 'dark' ? MoonIcon : themeMode === 'light' ? SunIcon : MonitorCogIcon
   return (
     <div className="h-full min-w-[1160px] overflow-hidden bg-background text-foreground">
-      <header className="app-drag-region flex h-14 items-center justify-between border-b border-border bg-popover pr-5 pl-[76px]">
+      <header className="app-drag-region flex h-16 items-center justify-between border-b border-border bg-popover pr-5 pl-[76px]">
         <div className="flex items-center gap-2.5">
           <div className="grid size-7 place-items-center rounded-lg bg-success text-success-foreground">
             <NetworkIcon className="size-3.5" />
@@ -85,7 +85,7 @@ export function AppShell({
           />
         </nav>
       </header>
-      <main key={activeView} className="h-[calc(100%-56px)] min-w-0 overflow-hidden">
+      <main key={activeView} className="h-[calc(100%-64px)] min-w-0 overflow-hidden">
         {children}
       </main>
     </div>

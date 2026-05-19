@@ -1,5 +1,6 @@
-import { type ChildProcess, spawn } from 'node:child_process'
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { join } from 'node:path'
+import { platform } from 'node:process'
 import { app } from 'electron'
 import { DaemonAdminClient } from './daemon/client'
 import {
@@ -13,11 +14,15 @@ import {
 import {
   type DaemonLaunchAgentSettings,
   readDaemonLaunchAgentSettings,
-  setDaemonLaunchAgentEnabled
+  restartDaemonLaunchAgent,
+  setDaemonLaunchAgentEnabled,
+  startDaemonLaunchAgent,
+  stopDaemonLaunchAgent
 } from './daemon/launch-agent'
 import { resolveDaemonPaths } from './daemon/paths'
 import { readManagedProxyConfig, writeProxyConfig } from './proxy/config'
-import type { ProxyConfig, ProxyStatus } from './proxy/types'
+import { readRequestSummary, readUsageSummary } from './proxy/ledger-summary'
+import type { ProxyConfig, ProxyStatus, RequestSummary, UsageSummary } from './proxy/types'
 
 export interface DaemonControlView {
   adminHost: string
@@ -37,6 +42,7 @@ export interface MainRuntime {
   proxyStatus: () => Promise<ProxyStatus>
   rawCaptureDir: () => Promise<string>
   readRuntimeConfig: () => ProxyConfig
+  requestSummary: () => RequestSummary
   saveDaemonControlSettings: (
     input: DaemonControlSaveInput
   ) => Promise<{ proxy?: ProxyStatus; restarted: boolean; settings: DaemonControlView }>
@@ -44,6 +50,7 @@ export interface MainRuntime {
   saveProxyConfig: (config: ProxyConfig) => Promise<{ config: ProxyConfig; status: ProxyStatus }>
   startDaemonProxy: () => Promise<ProxyStatus>
   stopProxy: () => Promise<ProxyStatus>
+  usageSummary: () => UsageSummary
 }
 
 export function createMainRuntime(): MainRuntime {
@@ -53,6 +60,7 @@ export function createMainRuntime(): MainRuntime {
   let daemonClient = createDaemonClient(daemonControl)
   let daemonProcess: ChildProcess | undefined
   let ensureDaemonPromise: Promise<void> | undefined
+  let appAutoStartEnabled = true
   app.once('before-quit', () => {
     daemonProcess?.kill()
   })
@@ -76,40 +84,84 @@ export function createMainRuntime(): MainRuntime {
     if (await daemonReachable()) {
       return
     }
+    if (!appAutoStartEnabled) {
+      throw new Error('CodexFree daemon is stopped by the app control')
+    }
     if (!daemonProcess || daemonProcess.killed || daemonProcess.exitCode !== null) {
       daemonProcess = spawnDaemon(paths.dataDir)
     }
     await waitForDaemon()
   }
   const proxyStatus = async (): Promise<ProxyStatus> => {
+    if (!appAutoStartEnabled && !(await daemonReachable())) {
+      return stoppedProxyStatus(readRuntimeConfig(), paths.rawCaptureDir)
+    }
     await ensureDaemon()
     return (await daemonClient.status()).proxy
   }
   const restartProxy = async (): Promise<ProxyStatus> => {
-    await ensureDaemon()
-    return (await daemonClient.restart()).proxy
+    appAutoStartEnabled = true
+    if (readDaemonLaunchAgentSettings(launchAgentOptions()).enabled) {
+      restartDaemonLaunchAgent(launchAgentOptions())
+      await waitForDaemon()
+      return (await daemonClient.status()).proxy
+    }
+    if (daemonProcess && isChildProcessRunning(daemonProcess)) {
+      await stopOwnedDaemon(daemonProcess)
+      daemonProcess = undefined
+    } else if (await daemonReachable()) {
+      throw new Error(nonAppStartedDaemonMessage(readRuntimeConfig(), daemonControl))
+    }
+    daemonProcess = spawnDaemon(paths.dataDir)
+    await waitForDaemon()
+    return (await daemonClient.status()).proxy
   }
   const startDaemonProxy = async (): Promise<ProxyStatus> => {
-    await ensureDaemon()
-    const current = (await daemonClient.status()).proxy
-    if (current.running) {
-      return current
+    appAutoStartEnabled = true
+    if (await daemonReachable()) {
+      return (await daemonClient.status()).proxy
     }
-    return (await daemonClient.start()).proxy
+    if (readDaemonLaunchAgentSettings(launchAgentOptions()).enabled) {
+      startDaemonLaunchAgent(launchAgentOptions())
+    } else {
+      daemonProcess = spawnDaemon(paths.dataDir)
+    }
+    await waitForDaemon()
+    return (await daemonClient.status()).proxy
   }
   const stopProxy = async (): Promise<ProxyStatus> => {
-    await ensureDaemon()
-    return (await daemonClient.stop()).proxy
+    appAutoStartEnabled = false
+    const launchAgent = readDaemonLaunchAgentSettings(launchAgentOptions())
+    if (launchAgent.enabled) {
+      stopDaemonLaunchAgent(launchAgentOptions())
+      daemonProcess = undefined
+      await waitForDaemonStop()
+      return stoppedProxyStatus(readRuntimeConfig(), paths.rawCaptureDir)
+    }
+    if (daemonProcess && isChildProcessRunning(daemonProcess)) {
+      await stopOwnedDaemon(daemonProcess)
+      daemonProcess = undefined
+      await waitForDaemonStop()
+      return stoppedProxyStatus(readRuntimeConfig(), paths.rawCaptureDir)
+    }
+    if (await daemonReachable()) {
+      throw new Error(nonAppStartedDaemonMessage(readRuntimeConfig(), daemonControl))
+    }
+    return stoppedProxyStatus(readRuntimeConfig(), paths.rawCaptureDir)
   }
   const saveProxyConfig = async (
     config: ProxyConfig
   ): Promise<{ config: ProxyConfig; status: ProxyStatus }> => {
     const saved = writeManagedConfig(config)
-    await ensureDaemon()
-    const updated = await daemonClient.updateConfig(saved)
-    return { config: updated.config, status: updated.proxy }
+    try {
+      return { config: saved, status: await restartProxy() }
+    } catch (error) {
+      throw new Error(`配置已保存，但服务重启失败：${errorMessage(error)}`)
+    }
   }
   const rawCaptureDir = async (): Promise<string> => (await proxyStatus()).rawCaptureDir
+  const requestSummary = (): RequestSummary => readRequestSummary(paths.databasePath)
+  const usageSummary = (): UsageSummary => readUsageSummary(paths.databasePath)
   const saveDaemonControlSettings = async (
     input: DaemonControlSaveInput
   ): Promise<{ proxy?: ProxyStatus; restarted: boolean; settings: DaemonControlView }> => {
@@ -158,11 +210,13 @@ export function createMainRuntime(): MainRuntime {
     proxyStatus,
     rawCaptureDir,
     readRuntimeConfig,
+    requestSummary,
     saveDaemonControlSettings,
     restartProxy,
     saveProxyConfig,
     startDaemonProxy,
-    stopProxy
+    stopProxy,
+    usageSummary
   }
 
   function writeManagedConfig(config: ProxyConfig): ProxyConfig {
@@ -187,6 +241,17 @@ export function createMainRuntime(): MainRuntime {
     throw new Error('CodexFree daemon did not start within 10 seconds')
   }
 
+  async function waitForDaemonStop(): Promise<void> {
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline) {
+      if (!(await daemonReachable())) {
+        return
+      }
+      await delay(200)
+    }
+    throw new Error(nonAppStartedDaemonMessage(readRuntimeConfig(), daemonControl))
+  }
+
   function launchAgentOptions() {
     return {
       commandPath: process.execPath,
@@ -194,6 +259,107 @@ export function createMainRuntime(): MainRuntime {
       scriptPath: daemonScriptPath(),
       workingDirectory: app.isPackaged ? app.getAppPath() : process.cwd()
     }
+  }
+}
+
+function stoppedProxyStatus(config: ProxyConfig, rawCaptureDir: string): ProxyStatus {
+  const hostPort = `${config.listenHost}:${config.listenPort}`
+  const endpoint = `http://${hostPort}/backend-api`
+  const openaiBaseUrl = `${endpoint}/codex`
+  return {
+    authPoolAccounts: 0,
+    authPoolAvailableAccounts: 0,
+    authPoolDisabledAccounts: 0,
+    authPoolEnabled: config.authPool.enabled,
+    authPoolExhaustedAccounts: 0,
+    endpoint,
+    openaiBaseUrl,
+    openaiCompatibleEndpoint: `${openaiBaseUrl}/v1`,
+    outboundMode: config.outboundProxy.mode,
+    rawCaptureDir,
+    rawCaptureEnabled: config.rawCaptureEnabled,
+    running: false,
+    upstreamBaseUrl: config.upstreamBaseUrl
+  }
+}
+
+function nonAppStartedDaemonMessage(config: ProxyConfig, control: DaemonControlConfig): string {
+  return [
+    '当前 daemon 不是由 App 启动的子进程，App 不能安全停止它。',
+    '请自行检查并停止占用端口的代理进程。',
+    collectDaemonDiagnostics(config, control)
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+function collectDaemonDiagnostics(config: ProxyConfig, control: DaemonControlConfig): string {
+  const keywords = [
+    String(config.listenPort),
+    String(control.adminPort),
+    'codexfree',
+    'CodexFree',
+    'daemon/cli'
+  ]
+  return [
+    renderDiagnosticBlock('ps', collectPsDiagnostics(keywords)),
+    renderDiagnosticBlock('lsof', collectPortDiagnostics(config.listenPort)),
+    renderDiagnosticBlock('admin lsof', collectPortDiagnostics(control.adminPort)),
+    renderDiagnosticBlock('netstat', collectNetstatDiagnostics(config.listenPort))
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+function renderDiagnosticBlock(label: string, value: string): string {
+  return value ? `[${label}]\n${value}` : ''
+}
+
+function collectPsDiagnostics(keywords: string[]): string {
+  if (platform === 'win32') {
+    return runCommand('tasklist.exe', ['/v'])
+      .split('\n')
+      .filter((line) => keywords.some((keyword) => line.includes(keyword)))
+      .slice(0, 12)
+      .join('\n')
+  }
+  return runCommand('ps', ['-axo', 'pid,ppid,command'])
+    .split('\n')
+    .filter((line) => keywords.some((keyword) => line.includes(keyword)))
+    .slice(0, 12)
+    .join('\n')
+}
+
+function collectPortDiagnostics(port: number): string {
+  if (platform === 'win32') {
+    return runCommand('netstat.exe', ['-ano'])
+      .split('\n')
+      .filter((line) => line.includes(`:${port}`))
+      .slice(0, 12)
+      .join('\n')
+  }
+  return runCommand('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'])
+}
+
+function collectNetstatDiagnostics(port: number): string {
+  if (platform === 'win32') {
+    return ''
+  }
+  return runCommand('netstat', ['-anv'])
+    .split('\n')
+    .filter((line) => line.includes(`.${port}`) || line.includes(`:${port}`))
+    .slice(0, 12)
+    .join('\n')
+}
+
+function runCommand(command: string, args: string[]): string {
+  try {
+    return execFileSync(command, args, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim()
+  } catch {
+    return ''
   }
 }
 
@@ -226,6 +392,10 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
   })
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function isChildProcessRunning(child: ChildProcess): boolean {

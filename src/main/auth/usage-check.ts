@@ -16,7 +16,19 @@ export interface AccountUsageCheckResult {
   error?: string
 }
 
-const usageCheckConcurrency = 5
+const usageCheckConcurrency = 10
+
+export interface AccountUsageCheckProgress {
+  accountId?: string
+  completed: number
+  ok?: boolean
+  total: number
+}
+
+export interface AccountUsageCheckOptions {
+  accountIds?: string[]
+  onProgress?: (progress: AccountUsageCheckProgress) => void
+}
 
 interface UsageResponse {
   account?: unknown
@@ -33,10 +45,11 @@ interface UsageResponse {
 
 export async function checkAuthDirectoryUsage(
   directory: string,
-  accountIds?: string[]
+  options: AccountUsageCheckOptions = {}
 ): Promise<AccountUsageCheckResult[]> {
   mkdirSync(directory, { recursive: true, mode: 0o700 })
-  const accountIdSet = accountIds && accountIds.length > 0 ? new Set(accountIds) : null
+  const accountIdSet =
+    options.accountIds && options.accountIds.length > 0 ? new Set(options.accountIds) : null
   const files = readdirSync(directory)
     .filter((name) => name.endsWith('.json'))
     .sort()
@@ -59,14 +72,16 @@ export async function checkAuthDirectoryUsage(
       }
     })
 
+  let completed = 0
   return mapWithConcurrency(files, usageCheckConcurrency, async (filePath) => {
+    let result: AccountUsageCheckResult
     try {
       const normalized = normalizeAuthFile(JSON.parse(readFileSync(filePath, 'utf8')) as unknown, {
         fileName: filePath
       })
-      return checkAccountUsage(normalized, filePath)
+      result = await checkAccountUsage(normalized, filePath)
     } catch (error) {
-      return {
+      result = {
         accountId: filePath,
         label: filePath,
         ok: false,
@@ -74,6 +89,14 @@ export async function checkAuthDirectoryUsage(
         error: error instanceof Error ? error.message : String(error)
       }
     }
+    completed += 1
+    options.onProgress?.({
+      accountId: result.accountId,
+      completed,
+      ok: result.ok,
+      total: files.length
+    })
+    return result
   })
 }
 

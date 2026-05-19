@@ -7,9 +7,10 @@ import type {
   ConsoleActivityHasMore,
   ConsoleSnapshot,
   DaemonControlSaveInput,
-  ProxyConfig
+  ProxyConfig,
+  UsageProgress
 } from '@renderer/data/proxy-console'
-import { createTranslator, type Locale, resolveLocale } from '@renderer/i18n/copy'
+import { type CopyKey, createTranslator, type Locale, resolveLocale } from '@renderer/i18n/copy'
 import { AccountsPage } from '@renderer/pages/accounts'
 import { DashboardPage } from '@renderer/pages/dashboard'
 import { ProxyPage } from '@renderer/pages/proxy'
@@ -17,7 +18,7 @@ import { RequestsPage } from '@renderer/pages/requests'
 import type { PageActions } from '@renderer/pages/types'
 import { UsagePage } from '@renderer/pages/usage'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { RawCaptureDetailDto } from '../../preload/proxy-api'
+import type { AccountUsageCheckBatchDto, RawCaptureDetailDto } from '../../preload/proxy-api'
 
 const ACTIVITY_INITIAL_LIMIT = 160
 const ACTIVITY_PAGE_SIZE = 160
@@ -41,8 +42,10 @@ function App(): React.JSX.Element {
   const [lastRefresh, setLastRefresh] = useState<number | null>(null)
   const [locale, setLocale] = useState<Locale>(resolveInitialLocale)
   const [notice, setNotice] = useState<string | null>(null)
+  const [requestSearchQuery, setRequestSearchQuery] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<ConsoleSnapshot | null>(null)
   const [themeMode, setThemeMode] = useState<ThemeMode>(resolveInitialThemeMode)
+  const [usageProgress, setUsageProgress] = useState<UsageProgress | null>(null)
   const lastLoadMoreAt = useRef(0)
   const usageTaskRef = useRef(false)
   const t = useMemo(() => createTranslator(locale), [locale])
@@ -57,8 +60,10 @@ function App(): React.JSX.Element {
       managedAuthDirectory,
       requestPage,
       accounts,
+      requestSummary,
       logEventPage,
-      protocolMessagePage
+      protocolMessagePage,
+      usageSummary
     ] = await Promise.all([
       window.api.getVersion(),
       window.api.getProxyConfig(),
@@ -67,8 +72,10 @@ function App(): React.JSX.Element {
       window.api.getManagedAuthDirectory(),
       window.api.getRecentRequests(activityLimit),
       window.api.getManagedAccounts(),
+      window.api.getRequestSummary(),
       window.api.getProxyLogEvents(activityLimit),
-      window.api.getProtocolMessages(activityLimit)
+      window.api.getProtocolMessages(activityLimit),
+      window.api.getUsageSummary()
     ])
     setSnapshot({
       accounts,
@@ -77,8 +84,10 @@ function App(): React.JSX.Element {
       logEvents: logEventPage.items,
       managedAuthDirectory,
       protocolMessages: protocolMessagePage.items,
+      requestSummary,
       requests: requestPage.items,
       status,
+      usageSummary,
       version
     })
     setHasMoreActivity({
@@ -91,10 +100,7 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     refresh().catch((refreshError: unknown) => setError(toErrorMessage(refreshError)))
-    const timer = window.setInterval(() => {
-      refresh().catch((refreshError: unknown) => setError(toErrorMessage(refreshError)))
-    }, 8_000)
-    return () => window.clearInterval(timer)
+    return undefined
   }, [refresh])
 
   useEffect(() => {
@@ -126,10 +132,23 @@ function App(): React.JSX.Element {
     return () => window.clearTimeout(timer)
   }, [notice])
 
-  const switchView = useCallback((view: ViewId): void => {
-    setNotice(null)
-    setActiveView(view)
+  useEffect(() => {
+    return window.api.onAccountUsageProgress((progress) => setUsageProgress(progress))
   }, [])
+
+  const switchView = useCallback(
+    (view: ViewId, options?: { requestSearchQuery?: string | null }): void => {
+      setNotice(null)
+      if (view === 'requests') {
+        setRequestSearchQuery(options?.requestSearchQuery ?? null)
+      } else {
+        setRequestSearchQuery(null)
+      }
+      setActiveView(view)
+      refresh().catch((refreshError: unknown) => setError(toErrorMessage(refreshError)))
+    },
+    [refresh]
+  )
 
   const loadMoreActivity = useCallback((): void => {
     if (!Object.values(hasMoreActivity).some(Boolean)) {
@@ -171,36 +190,104 @@ function App(): React.JSX.Element {
   )
 
   const runUsageTask = useCallback(
-    async (task: () => Promise<unknown>) => {
+    async (task: () => Promise<AccountUsageCheckBatchDto>) => {
       if (usageTaskRef.current) {
         setNotice(t('accounts.usageTaskRunning'))
         return
       }
       usageTaskRef.current = true
-      await runAction('usage', task)
-      usageTaskRef.current = false
+      setUsageProgress({ completed: 0, total: 0 })
+      setBusyAction('usage')
+      setError(null)
+      setNotice(null)
+      try {
+        const result = await task()
+        setNotice(usageDoneText(result, t))
+        await refresh()
+      } catch (usageError) {
+        setError(toErrorMessage(usageError))
+      } finally {
+        setUsageProgress(null)
+        setBusyAction(null)
+        usageTaskRef.current = false
+      }
     },
-    [runAction, t]
+    [refresh, t]
+  )
+
+  const runSingleUsageTask = useCallback(
+    async (accountIds: string[]) => {
+      if (usageTaskRef.current) {
+        setNotice(t('accounts.usageTaskRunning'))
+        return
+      }
+      usageTaskRef.current = true
+      setError(null)
+      setNotice(null)
+      setUsageProgress(null)
+      try {
+        const result =
+          accountIds.length > 0
+            ? await window.api.checkSelectedAccountUsage(accountIds)
+            : await window.api.checkAccountUsage()
+        setNotice(usageDoneText(result, t))
+        await refresh()
+      } catch (usageError) {
+        setError(toErrorMessage(usageError))
+      } finally {
+        setUsageProgress(null)
+        usageTaskRef.current = false
+      }
+    },
+    [refresh, t]
   )
 
   const actions: PageActions = {
     checkUsage: () => runUsageTask(() => window.api.checkAccountUsage()),
-    checkUsageForAccounts: (accountIds) =>
-      runUsageTask(() =>
-        accountIds.length > 0
-          ? window.api.checkSelectedAccountUsage(accountIds)
-          : window.api.checkAccountUsage()
+    checkUsageForAccounts: runSingleUsageTask,
+    cleanExpired: () =>
+      runAction(
+        'clean',
+        () => window.api.cleanExpiredAccounts(),
+        () => t('notice.cleaned')
       ),
-    cleanExpired: () => runAction('clean', () => window.api.cleanExpiredAccounts()),
-    clearRecords: () => runAction('clear', () => window.api.clearProxyRecords()),
-    exportAuthFiles: () => runAction('export', () => window.api.exportAuthFiles()),
-    importAuthFiles: () => runAction('import', () => window.api.importAuthFiles()),
+    clearRecords: () =>
+      runAction(
+        'clear',
+        () => window.api.clearProxyRecords(),
+        () => t('notice.recordsCleared')
+      ),
+    exportAuthFiles: () =>
+      runAction(
+        'export',
+        () => window.api.exportAuthFiles(),
+        () => t('notice.exported')
+      ),
+    importAuthFiles: () =>
+      runAction(
+        'import',
+        () => window.api.importAuthFiles(),
+        () => t('notice.imported')
+      ),
     loadMoreActivity,
     openManagedAuthDirectory: () =>
-      runAction('openAuthDir', () => window.api.openManagedAuthDirectory()),
+      runAction(
+        'openAuthDir',
+        () => window.api.openManagedAuthDirectory(),
+        () => t('notice.directoryOpened')
+      ),
     openRawCaptureDirectory: () =>
-      runAction('openRawDir', () => window.api.openRawCaptureDirectory()),
-    openWorkDirectory: () => runAction('openWorkDir', () => window.api.openWorkDirectory()),
+      runAction(
+        'openRawDir',
+        () => window.api.openRawCaptureDirectory(),
+        () => t('notice.directoryOpened')
+      ),
+    openWorkDirectory: () =>
+      runAction(
+        'openWorkDir',
+        () => window.api.openWorkDirectory(),
+        () => t('notice.directoryOpened')
+      ),
     openCapture: async (requestId) => {
       setBusyAction(`capture:${requestId}`)
       setError(null)
@@ -212,24 +299,79 @@ function App(): React.JSX.Element {
         setBusyAction(null)
       }
     },
-    refresh: () => runAction('refresh', refresh),
-    resetExhausted: () => runAction('reset', () => window.api.resetExhaustedAccounts()),
-    restartProxy: () => runAction('restart', () => window.api.restartProxy()),
+    refresh: () => runAction('refresh', refresh, () => t('notice.refreshed')),
+    resetExhausted: () =>
+      runAction(
+        'reset',
+        () => window.api.resetExhaustedAccounts(),
+        () => t('notice.accountsUpdated')
+      ),
+    restartProxy: () =>
+      runAction(
+        'restart',
+        () => window.api.restartProxy(),
+        () => t('notice.proxyRestarted')
+      ),
     saveConfig: (config: ProxyConfig) =>
-      runAction('save', () => window.api.saveProxyConfig(config)),
+      runAction(
+        'save',
+        () => window.api.saveProxyConfig(config),
+        () => t('notice.configSaved')
+      ),
     saveDaemonControlSettings: (input: DaemonControlSaveInput) =>
-      runAction('saveDaemonControl', () => window.api.saveDaemonControlSettings(input)),
+      runAction(
+        'saveDaemonControl',
+        () => window.api.saveDaemonControlSettings(input),
+        () => t('notice.configSaved')
+      ),
+    saveProxyPageConfig: (config: ProxyConfig, input: DaemonControlSaveInput) =>
+      runAction(
+        'save',
+        async () => {
+          await window.api.saveDaemonControlSettings(input)
+          return window.api.saveProxyConfig(config)
+        },
+        () => t('notice.configSaved')
+      ),
     setAccountDisabled: (accountId, disabled) =>
-      runAction('account', () => window.api.setAccountDisabled(accountId, disabled)),
+      runAction(
+        'account',
+        () => window.api.setAccountDisabled(accountId, disabled),
+        () => (disabled ? t('notice.accountDisabled') : t('notice.accountEnabled'))
+      ),
     setAccountsDisabled: (accountIds, disabled) =>
-      runAction('account', () => window.api.setAccountsDisabled(accountIds, disabled)),
+      runAction(
+        'account',
+        () => window.api.setAccountsDisabled(accountIds, disabled),
+        () => (disabled ? t('notice.accountsDisabled') : t('notice.accountsEnabled'))
+      ),
     deleteAccounts: (accountIds) =>
-      runAction('account', () => window.api.deleteAccounts(accountIds)),
-    showRequests: () => switchView('requests'),
+      runAction(
+        'account',
+        () => window.api.deleteAccounts(accountIds),
+        () => t('notice.accountsDeleted')
+      ),
+    showRequests: (searchQuery) =>
+      switchView('requests', { requestSearchQuery: searchQuery ?? null }),
     showUsage: () => switchView('usage'),
-    startProxy: () => runAction('start', () => window.api.startProxy()),
-    stopProxy: () => runAction('stop', () => window.api.stopProxy()),
-    writeCodexConfig: () => runAction('config', () => window.api.writeCodexConfig())
+    startProxy: () =>
+      runAction(
+        'start',
+        () => window.api.startProxy(),
+        () => t('notice.proxyStarted')
+      ),
+    stopProxy: () =>
+      runAction(
+        'stop',
+        () => window.api.stopProxy(),
+        () => t('notice.proxyStopped')
+      ),
+    writeCodexConfig: () =>
+      runAction(
+        'config',
+        () => window.api.writeCodexConfig(),
+        () => t('notice.codexConfigWritten')
+      )
   }
 
   if (!snapshot) {
@@ -260,7 +402,7 @@ function App(): React.JSX.Element {
     >
       {error ? (
         <Alert
-          className="fixed bottom-6 left-1/2 z-50 w-[min(520px,calc(100vw-48px))] -translate-x-1/2 border-destructive/35 bg-popover/95 shadow-xl backdrop-blur"
+          className="fixed top-[76px] left-1/2 z-50 w-[min(300px,calc(100vw-48px))] -translate-x-1/2 rounded-lg border-destructive/35 bg-popover/95 px-3 py-2 text-xs shadow-lg backdrop-blur [&_[data-slot=alert-description]]:text-xs [&_[data-slot=alert-title]]:text-sm"
           variant="error"
         >
           <AlertTitle>{t('shell.error')}</AlertTitle>
@@ -269,10 +411,10 @@ function App(): React.JSX.Element {
       ) : null}
       {notice ? (
         <Alert
-          className="fixed bottom-6 left-1/2 z-50 w-[min(520px,calc(100vw-48px))] -translate-x-1/2 border-success/35 bg-popover/95 shadow-xl backdrop-blur"
+          className="fixed top-[76px] left-1/2 z-50 w-[min(300px,calc(100vw-48px))] -translate-x-1/2 rounded-lg border-success/35 bg-popover/95 px-3 py-2 text-xs shadow-lg backdrop-blur [&_[data-slot=alert-description]]:text-xs [&_[data-slot=alert-title]]:text-sm"
           variant="success"
         >
-          <AlertTitle>{t('shell.notice')}</AlertTitle>
+          <AlertTitle>{t('shell.success')}</AlertTitle>
           <AlertDescription>{notice}</AlertDescription>
         </Alert>
       ) : null}
@@ -284,8 +426,10 @@ function App(): React.JSX.Element {
         lastRefresh,
         locale,
         onCaptureClose: () => setCapture(null),
+        requestSearchQuery,
         snapshot,
-        t
+        t,
+        usageProgress
       })}
     </AppShell>
   )
@@ -301,13 +445,23 @@ function resolveInitialThemeMode(): ThemeMode {
   return stored === 'dark' || stored === 'light' || stored === 'system' ? stored : 'system'
 }
 
+function usageDoneText(
+  result: AccountUsageCheckBatchDto,
+  t: (key: CopyKey, values?: Record<string, string | number>) => string
+): string {
+  return t('accounts.usageCheckDone', {
+    failed: result.results.filter((item) => !item.ok).length,
+    total: result.results.length
+  })
+}
+
 function renderPage(view: ViewId, props: Parameters<typeof DashboardPage>[0]): React.JSX.Element {
   if (view === 'dashboard') {
     return <DashboardPage {...props} />
   }
 
   const page = renderSecondaryPage(view, props)
-  return <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden px-6 py-2">{page}</div>
+  return <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden px-6 py-1">{page}</div>
 }
 
 function renderSecondaryPage(

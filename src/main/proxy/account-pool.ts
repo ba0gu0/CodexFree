@@ -42,9 +42,15 @@ export interface AccountPoolLoadWarning {
   reason: 'invalid_auth_file'
 }
 
+export interface AccountPoolRuntimeState {
+  activeAccountId?: string
+  disabledAccountIds: Iterable<string>
+  exhaustedAccountIds: Iterable<string>
+}
+
 export class AccountPool {
   private static readonly bindingRetentionMs = 24 * 60 * 60 * 1000
-  private readonly accounts: NormalizedAuthFile[]
+  private accounts: NormalizedAuthFile[]
   private readonly accountsById = new Map<string, NormalizedAuthFile>()
   private readonly exhaustedAccountIds = new Set<string>()
   private readonly disabledAccountIds = new Set<string>()
@@ -121,6 +127,35 @@ export class AccountPool {
     return this.activeAccountId
   }
 
+  applyRuntimeState(state: AccountPoolRuntimeState): void {
+    this.exhaustedAccountIds.clear()
+    this.disabledAccountIds.clear()
+    this.applyExhaustedAccountIds(state.exhaustedAccountIds)
+    this.applyDisabledAccountIds(state.disabledAccountIds)
+    this.activeAccountId = undefined
+    this.applyActiveAccountId(state.activeAccountId)
+    this.pruneUnavailableConversationBindings()
+  }
+
+  removeAccountIds(accountIds: Iterable<string>): void {
+    const removedIds = new Set(accountIds)
+    if (removedIds.size === 0) {
+      return
+    }
+
+    this.accounts = this.accounts.filter((account) => !removedIds.has(account.accountId))
+    for (const accountId of removedIds) {
+      this.accountsById.delete(accountId)
+      this.exhaustedAccountIds.delete(accountId)
+      this.disabledAccountIds.delete(accountId)
+      if (this.activeAccountId === accountId) {
+        this.activeAccountId = undefined
+      }
+    }
+    this.pruneUnavailableConversationBindings()
+    this.nextAccountIndex = Math.min(this.nextAccountIndex, Math.max(this.accounts.length - 1, 0))
+  }
+
   selectActiveAccount(accountId?: string): RoutedAccount | undefined {
     const available = this.availableAccounts()
     if (available.length === 0) {
@@ -159,6 +194,15 @@ export class AccountPool {
       }
     }
   }
+
+  private pruneUnavailableConversationBindings(): void {
+    for (const [conversationKey, binding] of this.conversationBindings.entries()) {
+      if (!this.accountsById.has(binding.accountId)) {
+        this.conversationBindings.delete(conversationKey)
+      }
+    }
+  }
+
   select(request: AccountRouteRequest): RoutedAccount | undefined {
     if (this.accounts.length === 0) {
       return undefined

@@ -5,11 +5,11 @@ import icon from '../../../resources/icon.png?asset'
 
 export function createMainWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
-    width: 1160,
-    height: 720,
+    width: 1300,
+    height: 800,
     minWidth: 1160,
     minHeight: 720,
-    show: false,
+    show: is.dev,
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 18, y: 18 },
     transparent: true,
@@ -34,9 +34,13 @@ export function createMainWindow(): BrowserWindow {
     })
   })
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
-  })
+  const showMainWindow = (): void => {
+    if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show()
+    }
+  }
+  mainWindow.on('ready-to-show', showMainWindow)
+  mainWindow.webContents.on('did-finish-load', showMainWindow)
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     if (isAllowedExternalUrl(details.url)) {

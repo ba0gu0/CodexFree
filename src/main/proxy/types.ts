@@ -21,6 +21,7 @@ export interface ProxyConfig {
   maxRequestBodyBytes: number
   rawCaptureEnabled: boolean
   rawCaptureMaxBytes: number
+  codexConfigMonitorEnabled: boolean
 }
 
 export interface ProxyStatus {
@@ -58,6 +59,47 @@ export interface ProxyAccountSwitchResult {
 export interface ActivityPage<T> {
   hasMore: boolean
   items: T[]
+}
+
+export interface RequestSummary {
+  captured: number
+  failed: number
+  forwarded: number
+  purposeGroups: RequestPurposeSummary[]
+  quota: number
+  rejected: number
+  total: number
+}
+
+export interface RequestPurposeSummary {
+  count: number
+  key: string
+}
+
+export interface UsageSummary {
+  averageDurationMs: number | null
+  accountGroups: UsageTokenGroup[]
+  dayGroups: UsageTokenGroup[]
+  failed: number
+  modelGroups: UsageTokenGroup[]
+  requestBytes: number
+  requestsWithUsage: number
+  responseBytes: number
+  sourceGroups: UsageTokenGroup[]
+  successful: number
+  tokenTotal: number
+  total: number
+  turnGroups: UsageTokenGroup[]
+}
+
+export interface UsageTokenGroup {
+  cached: number
+  count: number
+  input: number
+  key: string
+  output: number
+  reasoning: number
+  total: number
 }
 
 export interface RequestLedgerEntry {
@@ -132,6 +174,9 @@ export interface RecentRequest {
   requestBytes: number
   responseBytes: number
   requestPurpose: string | null
+  requestContentType: string | null
+  responseContentType: string | null
+  requestBodyEncoding: string | null
   requestModel: string | null
   responseModel: string | null
   responsePlanType: string | null
@@ -141,6 +186,7 @@ export interface RecentRequest {
   responseItemCount: number | null
   requestInputItemCount: number | null
   rpcMethod: string | null
+  rpcId: string | null
   analyticsEventTypes: string | null
   inputTokens: number | null
   cachedInputTokens: number | null
@@ -148,9 +194,15 @@ export interface RecentRequest {
   reasoningTokens: number | null
   totalTokens: number | null
   tokenUsageSource: string | null
+  codexSessionId: string | null
   codexThreadId: string | null
   codexTurnId: string | null
+  codexTurnStartedAt: number | null
   codexVersion: string | null
+  codexRuntimeOs: string | null
+  codexRuntimeArch: string | null
+  userAgent: string | null
+  originator: string | null
   streaming: number
   upstreamHost: string
   outboundMode: string

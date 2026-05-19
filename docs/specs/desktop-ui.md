@@ -2,9 +2,9 @@
 
 ## Status
 
-Initial mode. The current renderer is only a shell placeholder while the app UI
-is planned for a clean refactor. This document describes the target structure
-for that refactor, not a completed renderer implementation.
+V3 desktop console is implemented. The next UI pass is not another shell
+rewrite; it is a data-display optimization pass that aligns all visible request,
+usage, overview, and account metrics with `docs/proxy-traffic-analysis.md`.
 
 ## Main Layout
 
@@ -64,6 +64,16 @@ Show:
 - recent switching events;
 - request volume summary.
 
+Data-display requirements:
+
+- Show recent request volume by `request_purpose`, not only by outcome.
+- Show active account by email when present, then label, then masked fallback.
+- Show account plan, primary used percent, and rate-limit reset time when the
+  latest usage query has persisted those fields.
+- Keep quota, auth, network, and system log categories visually distinct.
+- Mark `/backend-api/wham/remote/*` as original Codex-account traffic because
+  that path intentionally bypasses account-pool auth replacement.
+
 ## Accounts
 
 Support:
@@ -77,6 +87,16 @@ Support:
 - masked secret details;
 - per-account request and quota history.
 
+Data-display requirements:
+
+- Prefer `proxy_accounts.email` for the account name. Avoid synthetic
+  `codex:<account-id>` labels in primary UI when email is available.
+- Show plan, primary used percent, secondary used percent, reset time, last
+  usage check, and last usage error from the persisted account row.
+- Treat quota exhaustion as account state plus quota/log history, not merely the
+  status of the most recent request row.
+- Keep auth fingerprints and token-bearing material masked.
+
 ## Requests
 
 Support:
@@ -87,6 +107,44 @@ Support:
 - quota detection marker;
 - API-key rejection marker;
 - conversation or run grouping after packet evidence confirms identifiers.
+
+Data-display requirements:
+
+- Default columns are time, status, purpose, method/path, account, model,
+  token breakdown, duration, and bytes.
+- Purpose uses `request_purpose`; API-key probes and non-`/backend-api`
+  traffic stay grouped separately from the default account-login path.
+- Token display shows input, cached input, output, reasoning, and total tokens.
+  Cached input tokens must not be folded into ordinary input.
+- Surface `token_usage_source` in the row or detail panel so `protocol`, `sse`,
+  and `analytics_event` usage are not silently mixed.
+- Request detail separates HTTP metadata from protocol messages. HTTP metadata
+  includes content type, body encoding, request/response model, item counts,
+  JSON-RPC fields, Codex thread/turn identifiers, runtime version, duration,
+  bytes, upstream host, and error text.
+- Protocol message detail uses `proxy_protocol_messages` for WSS/request-stream
+  timelines, including direction, kind, protocol type, sequence, response ids,
+  model, tool/input counts, per-message tokens, payload size, and truncation.
+
+## Usage
+
+Support:
+
+- request and error statistics;
+- traffic statistics;
+- token usage statistics;
+- source-aware analysis of client and proxy usage records.
+
+Data-display requirements:
+
+- Aggregate by account, model, thread, turn, source, and day.
+- Requests with no usage contribute to request volume, traffic, latency, and
+  error-rate statistics, but not to token totals.
+- Default token totals are source-separated. A future "merge by turn" view must
+  be explicit because analytics events and protocol/SSE usage can describe the
+  same turn.
+- `analytics_event` is the Codex client view. `protocol` and `sse` are the
+  proxy-observed upstream response views.
 
 ## Settings
 
