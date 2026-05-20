@@ -13,6 +13,7 @@ import {
   UsersIcon
 } from 'lucide-react'
 import type { ReactElement, ReactNode } from 'react'
+import appLogo from '../../../../../resources/icon.png'
 
 export type ViewId = 'dashboard' | 'accounts' | 'proxy' | 'requests' | 'usage'
 export type ThemeMode = 'system' | 'light' | 'dark'
@@ -56,12 +57,25 @@ export function AppShell({
     themeMode === 'dark' ? MoonIcon : themeMode === 'light' ? SunIcon : MonitorCogIcon
   return (
     <div className="h-full min-w-[1160px] overflow-hidden bg-background text-foreground">
-      <header className="app-drag-region flex h-16 items-center justify-between border-b border-border bg-popover pr-5 pl-[76px]">
-        <div className="flex items-center gap-2.5">
-          <div className="grid size-7 place-items-center rounded-lg bg-success text-success-foreground">
-            <NetworkIcon className="size-3.5" />
+      <header className="app-drag-region flex h-16 items-center justify-between border-b border-border bg-popover pr-5 pl-[88px]">
+        <div className="flex min-w-[260px] items-center gap-3">
+          <div className="grid size-10 place-items-center overflow-hidden rounded-xl bg-white shadow-[0_8px_22px_rgba(15,23,42,0.10)] ring-1 ring-border/70 dark:bg-card dark:shadow-none">
+            <img
+              alt=""
+              aria-hidden="true"
+              className="size-9 object-contain"
+              draggable={false}
+              src={appLogo}
+            />
           </div>
-          <div className="font-bold text-lg">{t('app.name')}</div>
+          <div className="min-w-0 leading-none">
+            <div className="truncate font-extrabold text-[19px] text-foreground tracking-normal">
+              {t('app.name')}
+            </div>
+            <div className="mt-1 truncate font-semibold text-[11px] text-muted-foreground">
+              {t('app.subtitle')}
+            </div>
+          </div>
         </div>
         <nav className="app-no-drag flex items-center gap-2" aria-label={t('app.name')}>
           {navItems.map((item) => (

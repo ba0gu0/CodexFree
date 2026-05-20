@@ -1,5 +1,6 @@
 appId: com.baoguo.codexfree
 productName: CodexFree
+copyright: Copyright © 2026 BaoGuo
 directories:
   buildResources: build
 files:
@@ -17,12 +18,25 @@ extraResources:
     to: app-update.yml
 win:
   executableName: CodexFree
+  icon: icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  icon: icon.icns
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
   timestamp: null
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
@@ -32,16 +46,18 @@ mac:
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
   notarize: false
 dmg:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: ${productName}-${version}-${arch}.${ext}
 linux:
+  icon: icon.png
   target:
-    - AppImage
-    - snap
-    - deb
-  maintainer: electronjs.org
-  category: Utility
+    - target: AppImage
+      arch:
+        - x64
+        - arm64
+  maintainer: BaoGuo
+  category: Development
 appImage:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: ${productName}-${version}-${arch}.${ext}
 publish:
   provider: github
   owner: ba0gu0

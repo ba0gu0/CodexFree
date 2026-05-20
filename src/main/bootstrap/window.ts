@@ -16,7 +16,7 @@ export function createMainWindow(): BrowserWindow {
     backgroundColor: '#00000000',
     hasShadow: true,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    ...(process.platform === 'darwin' ? {} : { icon }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
