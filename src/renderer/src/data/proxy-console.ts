@@ -14,6 +14,7 @@ export type ProxyLogEvent = Awaited<ReturnType<Api['getProxyLogEvents']>>['items
 export type ProtocolMessage = Awaited<ReturnType<Api['getProtocolMessages']>>['items'][number]
 export type TurnSummary = Awaited<ReturnType<Api['getTurnSummaries']>>['items'][number]
 export type UsageProgress = Parameters<Parameters<Api['onAccountUsageProgress']>[0]>[0]
+export type SetupAssistantState = Awaited<ReturnType<Api['getSetupAssistantState']>>
 
 export interface ConsoleActivityHasMore {
   logEvents: boolean

@@ -22,6 +22,7 @@ import type {
   RequestSummaryDto,
   ResetExhaustedAccountsDto,
   SetAccountDisabledDto,
+  SetupAssistantStateDto,
   TurnSummaryDto,
   UsageSummaryDto
 } from './proxy-api'
@@ -41,6 +42,7 @@ declare global {
       getDaemonControlSettings: () => Promise<DaemonControlSettingsDto>
       getManagedAuthDirectory: () => Promise<string>
       openManagedAuthDirectory: () => Promise<void>
+      openCodexDirectory: () => Promise<void>
       openRawCaptureDirectory: () => Promise<void>
       openWorkDirectory: () => Promise<void>
       getRecentRequests: (limit?: number) => Promise<ActivityPageDto<RecentRequestDto>>
@@ -71,6 +73,8 @@ declare global {
       exportAuthFiles: () => Promise<AuthExportResultDto>
       writePlaceholderAuth: () => Promise<PlaceholderAuthResultDto>
       writeCodexConfig: () => Promise<CodexConfigWriteResultDto>
+      getSetupAssistantState: () => Promise<SetupAssistantStateDto>
+      renameCodexAuthForRelogin: () => Promise<SetupAssistantStateDto['auth']>
       resetExhaustedAccounts: () => Promise<ResetExhaustedAccountsDto>
       setAccountDisabled: (accountId: string, disabled: boolean) => Promise<SetAccountDisabledDto>
       setAccountsDisabled: (

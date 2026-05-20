@@ -359,3 +359,69 @@ export interface CodexConfigWriteResultDto {
   backupPath: string | null
   changed: boolean
 }
+
+export type CodexConfigHealthDto =
+  | 'current'
+  | 'missing'
+  | 'missing_values'
+  | 'port_mismatch'
+  | 'wrong_table'
+  | 'model_provider_present'
+  | 'mismatch'
+
+export type CodexAuthHealthDto =
+  | 'missing'
+  | 'codex_login_like'
+  | 'placeholder'
+  | 'api_key_mode'
+  | 'unrecognized'
+
+export type DaemonRunModeDto = 'app_child' | 'system_service' | 'stopped' | 'external_or_unknown'
+
+export interface SetupAssistantStateDto {
+  accounts: {
+    available: number
+    disabled: number
+    exhausted: number
+    lastUsageCheckedAt: number | null
+    total: number
+    usageCheckedAvailable: number
+  }
+  auth: {
+    backupFileName: string
+    exists: boolean
+    health: CodexAuthHealthDto
+    lastModifiedAt: number | null
+    path: string
+  }
+  availableModelCount: number | null
+  checkedAt: number
+  codexConfig: {
+    chatgptBaseUrl: string | null
+    hasModelProvider: boolean
+    health: CodexConfigHealthDto
+    openaiBaseUrl: string | null
+    path: string
+    target: {
+      chatgptBaseUrl: string
+      openaiBaseUrl: string
+    }
+  }
+  daemon: {
+    endpoint: string
+    error: string | null
+    mode: DaemonRunModeDto
+    outboundMode: string
+    running: boolean
+  }
+  ready: boolean
+  recentSuccess: {
+    kind: 'models' | 'usage' | null
+    requestId: string | null
+    seenAt: number | null
+  }
+  target: {
+    chatgptBaseUrl: string
+    openaiBaseUrl: string
+  }
+}

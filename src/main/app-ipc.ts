@@ -1,4 +1,5 @@
 import { copyFileSync, existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, dialog, ipcMain, shell } from 'electron'
 import { importAuthFilesToDirectory } from './auth/import'
@@ -7,6 +8,7 @@ import { checkAuthDirectoryUsage } from './auth/usage-check'
 import { readRawCaptureDetail } from './proxy/raw-capture'
 import type { ProxyConfig } from './proxy/types'
 import type { DaemonControlSaveInput, MainRuntime } from './runtime'
+import { readSetupAssistantState, renameCodexAuthForRelogin } from './setup-assistant'
 
 const CONSOLE_ACTIVITY_DEFAULT_LIMIT = 160
 const CONSOLE_ACTIVITY_MAX_LIMIT = 1_000
@@ -47,6 +49,7 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
   ipcMain.handle('app:open-managed-auth-directory', () =>
     openPathOrThrow(runtime.importedAuthPoolPath)
   )
+  ipcMain.handle('app:open-codex-directory', () => openPathOrThrow(join(homedir(), '.codex')))
   ipcMain.handle('app:open-raw-capture-directory', async () =>
     openPathOrThrow(await runtime.rawCaptureDir())
   )
@@ -176,6 +179,8 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
       openaiBaseUrl: `${endpoint}/codex`
     })
   })
+  ipcMain.handle('setup:state', () => readSetupAssistantState(runtime))
+  ipcMain.handle('setup:rename-codex-auth', () => renameCodexAuthForRelogin())
   ipcMain.handle('proxy:reset-exhausted-accounts', async () => {
     await runtime.ensureDaemon()
     const { accounts, resetAccounts, status } = await runtime.daemonClient.resetExhaustedAccounts()

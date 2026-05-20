@@ -17,6 +17,8 @@
 | T10 | 进行中 | 让真实 Docker Codex 流量下的 proxy logs 可供操作员阅读 | T4 |
 | T11 | 进行中 | 依据 daemon/admin API 打磨剩余页面 layout 和 interactions | T6、T9 |
 | T12 | 已完成 | 按最新 proxy traffic field contract 优化全 app 数据展示 | T10、T11 |
+| T13 | 已完成 | 实现首次引导与配置助手首版 | T11、onboarding spec |
+| T14 | 已完成 | 编写中英文 README | 当前项目状态文档 |
 
 ## 并行工作线
 
@@ -212,6 +214,33 @@ T12 当前实现证据：
 - Confirmed：Usage 显示 token totals，并按 source、model、account、day 和 thread/turn 分组。
 - Confirmed：Accounts 在 light 和 dark modes 下显示 email-first account names、
   plan/usage/reset/check fields，以及 typed quota-event history sections。
+
+T13 当前实现证据：
+
+- 已完成：主进程新增 setup assistant 检测模型，检查 daemon、目标代理入口、Codex
+  `config.toml`、本地 `auth.json`、账号池数量和最近成功 models/usage 记录。
+- 已完成：`config.toml` 检测区分 current、missing、missing values、port mismatch、wrong
+  table、model_provider cleanup 和 mismatch；写入仍复用已有安全 writer，正确时不重复备份。
+- 已完成：`auth.json` 检测区分 missing、Codex login-like、placeholder、API-key mode 和
+  unrecognized，不显示 token；重新登录辅助只做二次确认后的 rename，不写替代文件，且缺少
+  auth 文件时按钮置灰。
+- 已完成：renderer 顶部新增“助手”入口，配置助手 Sheet 与首次引导 Dialog 复用同一状态模型；
+  Sheet 展示检查时间，并提供 raw capture 和工作目录诊断入口。异常状态项会显示“去处理”，
+  点击后打开引导并跳到对应步骤；“打开引导”每次从工作方式开始。
+- 已完成：首次引导补齐目标 config 预览，重写工作方式说明，账号池步骤把查量动作改为“查询
+  所有用户用量信息”，并要求所有可用账号完成用量查询后才能下一步。
+- 已完成：账户空状态和请求无 turn summary 提示改为面向用户的下一步说明，不引导修改本地
+  `auth.json`，并说明可能的 SSE/WSS 解析原因。
+- Passed：`rtk bun run lint`、`rtk bun run typecheck`、`rtk bun run test`、`rtk bun run build`。
+- Confirmed：Computer Use 在 dev Electron 最小窗口检查了“助手”入口、配置助手 Sheet、首次引导
+  Dialog 的工作方式、代理、Codex config 和 Codex 登录步骤；未见遮挡或文本溢出。
+
+T14 当前实现证据：
+
+- 已完成：`README.md` 改为默认中文入口，覆盖项目定位、工作原理、当前功能、快速使用、
+  安全边界、本地开发、项目结构和当前限制。
+- 已完成：新增 `README_EN.md`，与中文 README 保持同等结构，并从中文 README 提供英文入口。
+- Passed：`rtk bun run lint`。
 
 验证：
 

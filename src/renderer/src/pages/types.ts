@@ -17,6 +17,7 @@ export interface PageActions {
   importAuthFiles: () => Promise<void>
   loadMoreActivity: () => void
   openCapture: (requestId: string) => Promise<void>
+  openCodexDirectory: () => Promise<void>
   openManagedAuthDirectory: () => Promise<void>
   openRawCaptureDirectory: () => Promise<void>
   openWorkDirectory: () => Promise<void>

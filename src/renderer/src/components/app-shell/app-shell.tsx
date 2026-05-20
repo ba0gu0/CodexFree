@@ -9,6 +9,7 @@ import {
   MonitorCogIcon,
   MoonIcon,
   NetworkIcon,
+  Settings2Icon,
   SunIcon,
   UsersIcon
 } from 'lucide-react'
@@ -29,6 +30,7 @@ interface AppShellProps {
   children: ReactNode
   locale: Locale
   onLocaleChange: (locale: Locale) => void
+  onSetupOpen: () => void
   onThemeCycle: () => void
   onViewChange: (view: ViewId) => void
   t: (key: CopyKey, values?: Record<string, string | number>) => string
@@ -48,6 +50,7 @@ export function AppShell({
   children,
   locale,
   onLocaleChange,
+  onSetupOpen,
   onThemeCycle,
   onViewChange,
   t,
@@ -87,6 +90,7 @@ export function AppShell({
               onClick={() => onViewChange(item.id)}
             />
           ))}
+          <HeaderUtilityButton icon={Settings2Icon} label={t('nav.setup')} onClick={onSetupOpen} />
           <HeaderUtilityButton
             icon={LanguagesIcon}
             label={t(`locale.${locale}`)}

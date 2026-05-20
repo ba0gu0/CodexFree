@@ -23,6 +23,7 @@ import type {
   RequestSummaryDto,
   ResetExhaustedAccountsDto,
   SetAccountDisabledDto,
+  SetupAssistantStateDto,
   TurnSummaryDto,
   UsageSummaryDto
 } from './proxy-api'
@@ -54,6 +55,7 @@ const api = {
     ipcRenderer.invoke('proxy:managed-auth-directory'),
   openManagedAuthDirectory: (): Promise<void> =>
     ipcRenderer.invoke('app:open-managed-auth-directory'),
+  openCodexDirectory: (): Promise<void> => ipcRenderer.invoke('app:open-codex-directory'),
   openRawCaptureDirectory: (): Promise<void> =>
     ipcRenderer.invoke('app:open-raw-capture-directory'),
   openWorkDirectory: (): Promise<void> => ipcRenderer.invoke('app:open-work-directory'),
@@ -106,6 +108,9 @@ const api = {
     ipcRenderer.invoke('proxy:write-placeholder-auth'),
   writeCodexConfig: (): Promise<CodexConfigWriteResultDto> =>
     ipcRenderer.invoke('proxy:write-codex-config'),
+  getSetupAssistantState: (): Promise<SetupAssistantStateDto> => ipcRenderer.invoke('setup:state'),
+  renameCodexAuthForRelogin: (): Promise<SetupAssistantStateDto['auth']> =>
+    ipcRenderer.invoke('setup:rename-codex-auth'),
   resetExhaustedAccounts: (): Promise<ResetExhaustedAccountsDto> =>
     ipcRenderer.invoke('proxy:reset-exhausted-accounts'),
   setAccountDisabled: (accountId: string, disabled: boolean): Promise<SetAccountDisabledDto> =>

@@ -1,4 +1,8 @@
 import { AppShell, type ThemeMode, type ViewId } from '@renderer/components/app-shell/app-shell'
+import {
+  SetupAssistant,
+  type SetupAssistantActions
+} from '@renderer/components/setup/setup-assistant'
 import { Alert, AlertDescription, AlertTitle } from '@renderer/components/ui/alert'
 import { Card, CardPanel } from '@renderer/components/ui/card'
 import { Spinner } from '@renderer/components/ui/spinner'
@@ -8,8 +12,10 @@ import type {
   ConsoleSnapshot,
   DaemonControlSaveInput,
   ProxyConfig,
+  SetupAssistantState,
   UsageProgress
 } from '@renderer/data/proxy-console'
+import { needsOnboarding } from '@renderer/data/setup-assistant'
 import { type CopyKey, createTranslator, type Locale, resolveLocale } from '@renderer/i18n/copy'
 import { AccountsPage } from '@renderer/pages/accounts'
 import { DashboardPage } from '@renderer/pages/dashboard'
@@ -24,6 +30,9 @@ const ACTIVITY_INITIAL_LIMIT = 50
 const ACTIVITY_PAGE_SIZE = 50
 const ACTIVITY_MAX_LIMIT = 1_000
 const LOCALE_STORAGE_KEY = 'codexfree.locale'
+const ONBOARDING_COMPLETED_KEY = 'onboarding.completedAt'
+const SETUP_DISMISSED_WARNINGS_KEY = 'setupAssistant.dismissedWarnings'
+const SETUP_LAST_CHECKED_KEY = 'setupAssistant.lastCheckedAt'
 const THEME_STORAGE_KEY = 'codexfree.theme'
 const EMPTY_ACTIVITY_HAS_MORE: ConsoleActivityHasMore = {
   logEvents: false,
@@ -44,9 +53,12 @@ function App(): React.JSX.Element {
   const [locale, setLocale] = useState<Locale>(resolveInitialLocale)
   const [notice, setNotice] = useState<string | null>(null)
   const [requestSearchQuery, setRequestSearchQuery] = useState<string | null>(null)
+  const [setupOpen, setSetupOpen] = useState(false)
+  const [setupState, setSetupState] = useState<SetupAssistantState | null>(null)
   const [snapshot, setSnapshot] = useState<ConsoleSnapshot | null>(null)
   const [themeMode, setThemeMode] = useState<ThemeMode>(resolveInitialThemeMode)
   const [usageProgress, setUsageProgress] = useState<UsageProgress | null>(null)
+  const [wizardOpen, setWizardOpen] = useState(false)
   const lastLoadMoreAt = useRef(0)
   const usageTaskRef = useRef(false)
   const t = useMemo(() => createTranslator(locale), [locale])
@@ -65,7 +77,8 @@ function App(): React.JSX.Element {
       logEventPage,
       protocolMessagePage,
       turnSummaryPage,
-      usageSummary
+      usageSummary,
+      setupAssistant
     ] = await Promise.all([
       window.api.getVersion(),
       window.api.getProxyConfig(),
@@ -78,7 +91,8 @@ function App(): React.JSX.Element {
       window.api.getProxyLogEvents(activityLimit),
       window.api.getProtocolMessages(activityLimit),
       window.api.getTurnSummaries(activityLimit),
-      window.api.getUsageSummary()
+      window.api.getUsageSummary(),
+      window.api.getSetupAssistantState()
     ])
     setSnapshot({
       accounts,
@@ -100,6 +114,8 @@ function App(): React.JSX.Element {
       requests: activityLimit < ACTIVITY_MAX_LIMIT && requestPage.hasMore,
       turnSummaries: activityLimit < ACTIVITY_MAX_LIMIT && turnSummaryPage.hasMore
     })
+    setSetupState(setupAssistant)
+    localStorage.setItem(SETUP_LAST_CHECKED_KEY, String(setupAssistant.checkedAt))
     setLastRefresh(Date.now())
   }, [activityLimit])
 
@@ -147,6 +163,21 @@ function App(): React.JSX.Element {
   useEffect(() => {
     return window.api.onAccountUsageProgress((progress) => setUsageProgress(progress))
   }, [])
+
+  useEffect(() => {
+    if (!localStorage.getItem(SETUP_DISMISSED_WARNINGS_KEY)) {
+      localStorage.setItem(SETUP_DISMISSED_WARNINGS_KEY, '[]')
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!setupState || localStorage.getItem(ONBOARDING_COMPLETED_KEY)) {
+      return
+    }
+    if (needsOnboarding(setupState)) {
+      setWizardOpen(true)
+    }
+  }, [setupState])
 
   const switchView = useCallback(
     (view: ViewId, options?: { requestSearchQuery?: string | null }): void => {
@@ -291,6 +322,12 @@ function App(): React.JSX.Element {
         () => window.api.openManagedAuthDirectory(),
         () => t('notice.directoryOpened')
       ),
+    openCodexDirectory: () =>
+      runAction(
+        'openCodexDir',
+        () => window.api.openCodexDirectory(),
+        () => t('notice.directoryOpened')
+      ),
     openRawCaptureDirectory: () =>
       runAction(
         'openRawDir',
@@ -387,6 +424,26 @@ function App(): React.JSX.Element {
       )
   }
 
+  const setupActions: SetupAssistantActions = {
+    checkUsage: actions.checkUsage,
+    importAuthFiles: actions.importAuthFiles,
+    markOnboardingComplete: () =>
+      localStorage.setItem(ONBOARDING_COMPLETED_KEY, new Date().toISOString()),
+    openCodexDirectory: actions.openCodexDirectory,
+    openRawCaptureDirectory: actions.openRawCaptureDirectory,
+    openWorkDirectory: actions.openWorkDirectory,
+    refresh: () => runAction('setupRefresh', refresh, () => t('notice.refreshed')),
+    renameCodexAuth: () =>
+      runAction(
+        'setupRenameAuth',
+        () => window.api.renameCodexAuthForRelogin(),
+        () => t('notice.codexAuthRenamed')
+      ),
+    restartProxy: actions.restartProxy,
+    startProxy: actions.startProxy,
+    writeCodexConfig: actions.writeCodexConfig
+  }
+
   if (!snapshot) {
     return (
       <main className="flex h-full items-center justify-center bg-background p-6 text-foreground">
@@ -408,6 +465,7 @@ function App(): React.JSX.Element {
       activeView={activeView}
       locale={locale}
       onLocaleChange={setLocale}
+      onSetupOpen={() => setSetupOpen(true)}
       onThemeCycle={cycleTheme}
       onViewChange={switchView}
       t={t}
@@ -444,6 +502,17 @@ function App(): React.JSX.Element {
         t,
         usageProgress
       })}
+      <SetupAssistant
+        actions={setupActions}
+        busyAction={busyAction}
+        locale={locale}
+        onOpenChange={setSetupOpen}
+        onWizardOpenChange={setWizardOpen}
+        open={setupOpen}
+        state={setupState}
+        t={t}
+        wizardOpen={wizardOpen}
+      />
     </AppShell>
   )
 }

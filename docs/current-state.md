@@ -181,6 +181,21 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   marking，以及 next-boundary replacement。
 - Renderer 已进入 V3 desktop-console 模式。Dashboard、Accounts、Proxy、Requests 和 Usage
   页面已经实现并连接；`docs/CodexFree-v2.pen` 和 preview assets 只是设计参考。
+- 首次引导与配置助手首版已实现。新增入口位于顶部导航“助手”，会基于真实 daemon
+  status、`config.toml`、`~/.codex/auth.json`、账号池和最近成功请求/用量结果生成状态。
+  配置助手 Sheet 可重复打开；每个状态项展示本次检查时间，面板提供代理、Codex config、
+  Codex 登录、账号池和诊断目录动作。首次引导 Dialog 复用同一检测模型，按工作方式、代理、
+  Codex config、Codex 登录、账号池和完成检查推进；Codex config 步骤展示目标配置预览，
+  账号池步骤要求导入后查询所有可用账号用量，完成检查展示可用模型数。配置助手中异常状态项会
+  显示“去处理”并跳到对应引导步骤；“打开引导”每次从工作方式开始，不恢复上次步骤。`auth.json`
+  只支持二次确认后的重命名重新登录辅助；缺少 auth 文件时重命名按钮置灰，API-key 模式会提示
+  重命名后重新走 ChatGPT 账号登录。不会自动覆盖、复制或从账号池写入本地 Codex 登录文件。
+  工作方式说明明确区分本地 Codex 登录、CodexFree 代理转发、账号池授权和未来 API-key
+  compatibility。UI 状态使用 `onboarding.completedAt`、`setupAssistant.lastCheckedAt` 和
+  `setupAssistant.dismissedWarnings` 本地键，不能作为健康状态依据。
+- README 已更新为默认中文入口，并新增英文 `README_EN.md`。两份 README 覆盖 CodexFree
+  的定位、工作原理、账号池使用流程、`auth.json` 和 `config.toml` 配置边界、安全注意事项、
+  本地开发命令、项目结构和当前限制。
 
 ## 已知缺失输入
 
@@ -202,6 +217,13 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - `bun run test`
 - `bun run build`
 - `bun run build:unpack`
+- setup assistant slice 验证：
+  - `rtk bun run lint`
+  - `rtk bun run typecheck`
+  - `rtk bun run test`
+  - `rtk bun run build`
+  - Computer Use 检查 dev Electron 最小窗口：顶部“助手”入口、配置助手 Sheet、首次引导
+    Dialog 的工作方式、代理、Codex config 和 Codex 登录步骤均可见，没有明显遮挡或溢出。
 - V3 shell 的手动 Electron 验证：
   - dashboard 在默认 desktop window 中渲染三列 mockup layout；
   - `账户` 和 `代理` tabs 可以正确切换；
