@@ -92,13 +92,6 @@ export async function handleProxyHttpRequest(
     request.headers,
     requestBody
   )
-  const requestAnalysis = analyzeHttpTraffic({
-    method: request.method,
-    path: request.url,
-    requestBody,
-    requestHeaders: request.headers
-  })
-
   const authHeader = firstHeaderValue(request.headers.authorization)
   const cookieHeader = firstHeaderValue(request.headers.cookie)
   const accountId = firstHeaderValue(request.headers['chatgpt-account-id'])
@@ -239,27 +232,6 @@ export async function handleProxyHttpRequest(
   let routedAccountId = routedAccount?.accountId ?? accountId
   rawCapture?.writeOutboundRequest(ctx.createRequestOptions(request, targetUrl), requestBody)
 
-  ctx.log.info('HTTP forward', {
-    id: requestId,
-    method: request.method,
-    path: request.url,
-    requestPurpose: requestAnalysis.requestPurpose,
-    requestModel: requestAnalysis.requestModel,
-    requestBodyEncoding: requestAnalysis.requestBodyEncoding,
-    requestInputItemCount: requestAnalysis.requestInputItemCount,
-    rpcMethod: requestAnalysis.rpcMethod,
-    analyticsEventTypes: requestAnalysis.analyticsEventTypes,
-    codexThreadId: requestAnalysis.codexThreadId,
-    codexTurnId: requestAnalysis.codexTurnId,
-    targetHost: targetUrl.host,
-    outboundMode,
-    accountId: routedAccountId,
-    accountLabel: routedAccount?.label,
-    conversationKey,
-    body: summarizeBuffer(requestBody),
-    usage: ctx.accountUsageText(routedAccountId)
-  })
-
   const shouldTransformClientResponse =
     useAccountRules && shouldRewriteClientJsonResponse(request.url)
   const shouldDeferResponse =
@@ -399,6 +371,7 @@ export async function handleProxyHttpRequest(
       conversationKey,
       path: request.url ?? '/',
       requestBody,
+      requestBodyEncoding: trafficAnalysis.requestBodyEncoding,
       requestId,
       responseBody: clientResult.deferredBody ?? clientResult.responseSample
     })
@@ -419,6 +392,10 @@ export async function handleProxyHttpRequest(
     path: request.url,
     requestPurpose: trafficAnalysis.requestPurpose,
     requestModel: trafficAnalysis.requestModel,
+    requestBodyEncoding: trafficAnalysis.requestBodyEncoding,
+    requestInputItemCount: trafficAnalysis.requestInputItemCount,
+    rpcMethod: trafficAnalysis.rpcMethod,
+    analyticsEventTypes: trafficAnalysis.analyticsEventTypes,
     responseModel: trafficAnalysis.responseModel,
     responsePlanType: trafficAnalysis.responsePlanType,
     responsePrimaryUsedPercent: trafficAnalysis.responsePrimaryUsedPercent,
@@ -435,7 +412,13 @@ export async function handleProxyHttpRequest(
     statusCode: clientResult.statusCode,
     durationMs: completedAt.getTime() - startedAt.getTime(),
     bytes: clientResult.responseBytes,
+    targetHost: targetUrl.host,
+    outboundMode,
+    accountId: routedAccountId,
+    accountLabel: routedAccount?.label,
+    conversationKey,
     errorMessage: clientResult.errorMessage,
+    requestBody: summarizeBuffer(requestBody),
     body: summarizeBuffer(
       clientResult.deferredBody ?? clientResult.responseSample ?? Buffer.alloc(0)
     ),

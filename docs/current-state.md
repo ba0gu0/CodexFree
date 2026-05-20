@@ -299,8 +299,7 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   `rtk bun run test`、`rtk bun run build` 和 `rtk bun run build:unpack`。unpacked macOS app
   在 `out/daemon/cli.cjs` 包含 bundled daemon entry。
 - Dev app runtime 已用 Computer Use 检查。dashboard 渲染 full-database historical request
-  count、purpose distribution、带 `model_provider = "openai"` 的 proxy config，以及 animated
-  background-service card。
+  count、purpose distribution、proxy config，以及 animated background-service card。
 - Unpacked app 包含 `app-update.yml`；GitHub update-check failures 会作为 sanitized summaries
   记录。
 - `/backend-api/wham/usage` client responses 现在在内部 usage parsing 后按上游返回原样透传。

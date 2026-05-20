@@ -1,6 +1,7 @@
 import type { IncomingHttpHeaders } from 'node:http'
 import {
   arrayField,
+  decodeBodyBuffer,
   isRecord,
   numberField,
   parseJsonRecord,
@@ -53,7 +54,10 @@ export function analyzeHttpTraffic(input: {
   responseHeaders?: IncomingHttpHeaders
 }): HttpTrafficAnalysis {
   const path = input.path ?? '/'
-  const requestBody = parseJsonRecord(input.requestBody.toString('utf8'))
+  const requestBodyEncoding = firstHeaderValue(input.requestHeaders['content-encoding'])
+  const requestBody = parseJsonRecord(
+    decodeBodyBuffer(input.requestBody, requestBodyEncoding).toString('utf8')
+  )
   const responseBody = input.responseBody
     ? parseJsonRecord(input.responseBody.toString('utf8'))
     : undefined
@@ -90,7 +94,7 @@ export function analyzeHttpTraffic(input: {
     originator: firstHeaderValue(input.requestHeaders.originator),
     outputTokens: tokenUsage.outputTokens,
     reasoningTokens: tokenUsage.reasoningTokens,
-    requestBodyEncoding: firstHeaderValue(input.requestHeaders['content-encoding']),
+    requestBodyEncoding,
     requestContentType: firstHeaderValue(input.requestHeaders['content-type']),
     requestInputItemCount: arrayField(requestBody, 'input')?.length,
     requestModel: stringField(requestBody, 'model') ?? firstAnalyticsModel(requestBody),

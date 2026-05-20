@@ -20,8 +20,8 @@ import { UsagePage } from '@renderer/pages/usage'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AccountUsageCheckBatchDto, RawCaptureDetailDto } from '../../preload/proxy-api'
 
-const ACTIVITY_INITIAL_LIMIT = 160
-const ACTIVITY_PAGE_SIZE = 160
+const ACTIVITY_INITIAL_LIMIT = 50
+const ACTIVITY_PAGE_SIZE = 50
 const ACTIVITY_MAX_LIMIT = 1_000
 const LOCALE_STORAGE_KEY = 'codexfree.locale'
 const THEME_STORAGE_KEY = 'codexfree.theme'
@@ -105,7 +105,6 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     refresh().catch((refreshError: unknown) => setError(toErrorMessage(refreshError)))
-    return undefined
   }, [refresh])
 
   useEffect(() => {
@@ -130,12 +129,20 @@ function App(): React.JSX.Element {
   }, [themeMode])
 
   useEffect(() => {
-    if (!notice) {
-      return undefined
+    if (notice) {
+      const timer = window.setTimeout(() => setNotice(null), 2_500)
+      return () => window.clearTimeout(timer)
     }
-    const timer = window.setTimeout(() => setNotice(null), 2_500)
-    return () => window.clearTimeout(timer)
+    return undefined
   }, [notice])
+
+  useEffect(() => {
+    if (error) {
+      const timer = window.setTimeout(() => setError(null), 8_000)
+      return () => window.clearTimeout(timer)
+    }
+    return undefined
+  }, [error])
 
   useEffect(() => {
     return window.api.onAccountUsageProgress((progress) => setUsageProgress(progress))
@@ -149,10 +156,11 @@ function App(): React.JSX.Element {
       } else {
         setRequestSearchQuery(null)
       }
+      lastLoadMoreAt.current = 0
+      setActivityLimit(ACTIVITY_INITIAL_LIMIT)
       setActiveView(view)
-      refresh().catch((refreshError: unknown) => setError(toErrorMessage(refreshError)))
     },
-    [refresh]
+    []
   )
 
   const loadMoreActivity = useCallback((): void => {
@@ -229,7 +237,8 @@ function App(): React.JSX.Element {
       usageTaskRef.current = true
       setError(null)
       setNotice(null)
-      setUsageProgress(null)
+      setUsageProgress({ completed: 0, total: accountIds.length })
+      setBusyAction('usage')
       try {
         const result =
           accountIds.length > 0
@@ -241,6 +250,7 @@ function App(): React.JSX.Element {
         setError(toErrorMessage(usageError))
       } finally {
         setUsageProgress(null)
+        setBusyAction(null)
         usageTaskRef.current = false
       }
     },
@@ -332,10 +342,7 @@ function App(): React.JSX.Element {
     saveProxyPageConfig: (config: ProxyConfig, input: DaemonControlSaveInput) =>
       runAction(
         'save',
-        async () => {
-          await window.api.saveDaemonControlSettings(input)
-          return window.api.saveProxyConfig(config)
-        },
+        () => window.api.saveProxyPageConfig(config, input),
         () => t('notice.configSaved')
       ),
     setAccountDisabled: (accountId, disabled) =>
@@ -375,7 +382,8 @@ function App(): React.JSX.Element {
       runAction(
         'config',
         () => window.api.writeCodexConfig(),
-        () => t('notice.codexConfigWritten')
+        (result) =>
+          result.changed ? t('notice.codexConfigWritten') : t('notice.codexConfigAlreadyCurrent')
       )
   }
 
@@ -407,7 +415,7 @@ function App(): React.JSX.Element {
     >
       {error ? (
         <Alert
-          className="fixed top-[76px] left-1/2 z-50 w-[min(300px,calc(100vw-48px))] -translate-x-1/2 rounded-lg border-destructive/35 bg-popover/95 px-3 py-2 text-xs shadow-lg backdrop-blur [&_[data-slot=alert-description]]:text-xs [&_[data-slot=alert-title]]:text-sm"
+          className="app-error-alert fixed top-[76px] left-1/2 z-50 w-[min(520px,calc(100vw-48px))] -translate-x-1/2 rounded-lg border-destructive/35 bg-popover/95 px-3 py-2 text-xs shadow-lg backdrop-blur [&_[data-slot=alert-description]]:text-xs [&_[data-slot=alert-title]]:text-sm"
           variant="error"
         >
           <AlertTitle>{t('shell.error')}</AlertTitle>

@@ -54,14 +54,10 @@ export interface ActivityRow {
 export const activityFilters: [ActivityFilter, CopyKey][] = [
   ['all', 'dashboard.filterAll'],
   ['dialogue', 'dashboard.filterDialogue'],
-  ['tool', 'dashboard.filterTool'],
   ['request', 'dashboard.kindRequest'],
-  ['quota', 'dashboard.filterQuota'],
   ['switch', 'dashboard.filterSwitch'],
   ['network', 'dashboard.filterNetwork'],
-  ['auth', 'dashboard.filterAuth'],
-  ['error', 'dashboard.filterError'],
-  ['rejected', 'dashboard.filterRejected']
+  ['error', 'dashboard.filterError']
 ]
 
 export function useActivityRows({ locale, snapshot, t }: PageProps): ActivityRow[] {
@@ -93,6 +89,7 @@ export function useActivityRows({ locale, snapshot, t }: PageProps): ActivityRow
         .map((message) => message.id)
     )
     const protocolRows = snapshot.protocolMessages
+      .filter((message) => !isWhamAppsPath(message.path))
       .filter((message) => !coveredMessageIds.has(message.id))
       .filter(isDashboardProtocolMessage)
       .map((message): ActivityRow => {
@@ -113,44 +110,49 @@ export function useActivityRows({ locale, snapshot, t }: PageProps): ActivityRow
           timestamp: message.createdAt
         })
       })
-    const requestRows = snapshot.requests.map((request): ActivityRow => {
-      const view = requestActivityViewModel(request, context)
-      return viewRow(view, {
-        duration: formatDuration(request.durationMs, locale),
-        fallbackAccount: accountDisplayForPathFromLookup(
-          accountLabels,
-          request.accountId,
-          request.path,
-          pendingEmail,
-          t('accounts.originalAccount')
-        ),
-        id: `request:${request.id}`,
-        includeInAll: !isLowValueRequest(request),
-        kind: requestKind(request.outcome),
-        locale,
-        tags: tagsForRequest(request.outcome),
-        timestamp: request.startedAt
+    const requestRows = snapshot.requests
+      .filter((request) => !isWhamAppsPath(request.path))
+      .map((request): ActivityRow => {
+        const view = requestActivityViewModel(request, context)
+        return viewRow(view, {
+          duration: formatDuration(request.durationMs, locale),
+          fallbackAccount: accountDisplayForPathFromLookup(
+            accountLabels,
+            request.accountId,
+            request.path,
+            pendingEmail,
+            t('accounts.originalAccount')
+          ),
+          id: `request:${request.id}`,
+          includeInAll: !isLowValueRequest(request),
+          kind: requestKind(request.outcome),
+          locale,
+          tags: tagsForRequest(request.outcome),
+          timestamp: request.startedAt
+        })
       })
-    })
-    const eventRows = snapshot.logEvents.filter(isVisibleLogEvent).map((event): ActivityRow => {
-      const view = logActivityViewModel(event, context)
-      const kind = logKind(event.level, event.message, event.eventType)
-      return viewRow(view, {
-        duration: '-',
-        fallbackAccount: accountDisplayForPathFromLookup(
-          accountLabels,
-          event.accountId,
-          event.path,
-          pendingEmail,
-          t('accounts.originalAccount')
-        ),
-        id: `event:${event.id}`,
-        kind,
-        locale,
-        tags: tagsForLogKind(kind),
-        timestamp: event.createdAt
+    const eventRows = snapshot.logEvents
+      .filter((event) => !isWhamAppsPath(event.path))
+      .filter(isVisibleLogEvent)
+      .map((event): ActivityRow => {
+        const view = logActivityViewModel(event, context)
+        const kind = logKind(event.level, event.message, event.eventType)
+        return viewRow(view, {
+          duration: '-',
+          fallbackAccount: accountDisplayForPathFromLookup(
+            accountLabels,
+            event.accountId,
+            event.path,
+            pendingEmail,
+            t('accounts.originalAccount')
+          ),
+          id: `event:${event.id}`,
+          kind,
+          locale,
+          tags: tagsForLogKind(kind),
+          timestamp: event.createdAt
+        })
       })
-    })
     return [...turnRows, ...protocolRows, ...requestRows, ...eventRows].sort(
       (left, right) => right.timestamp - left.timestamp
     )
@@ -387,6 +389,10 @@ function isLowValueRequest(request: {
     'codex_wss',
     'codex_response_sse'
   ].includes(request.requestPurpose ?? '')
+}
+
+function isWhamAppsPath(path: string | null): boolean {
+  return path?.includes('/backend-api/wham/apps') ?? false
 }
 
 function isDashboardProtocolMessage(message: { kind: string }): boolean {

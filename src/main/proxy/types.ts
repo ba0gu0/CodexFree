@@ -81,6 +81,7 @@ export interface UsageSummary {
   accountGroups: UsageTokenGroup[]
   dayGroups: UsageTokenGroup[]
   failed: number
+  hourGroups: UsageTokenGroup[]
   modelGroups: UsageTokenGroup[]
   requestBytes: number
   requestsWithUsage: number

@@ -1,9 +1,9 @@
 import { Button } from '@renderer/components/ui/button'
 import { CodeBlock } from '@renderer/components/ui/code-block'
-import { formatBytes } from '@renderer/data/format'
-import { codexConfigText, requestPurposeLabel } from '@renderer/data/proxy-console'
+import { formatTokenCost, formatTokenCount } from '@renderer/data/format'
+import { codexConfigText } from '@renderer/data/proxy-console'
 import { useNearBottomLoadMore } from '@renderer/hooks/use-near-bottom-load-more'
-import { useVirtualRows } from '@renderer/hooks/use-virtual-rows'
+import { useVirtualRows, VIRTUAL_ROW_BATCH_SIZE } from '@renderer/hooks/use-virtual-rows'
 import { type ReactElement, type UIEvent, useMemo, useState } from 'react'
 import {
   type ActivityFilter,
@@ -19,15 +19,9 @@ const muted = 'text-muted-foreground'
 const title = 'font-extrabold text-foreground'
 
 export function ProxyControlPanel({
-  locale,
   snapshot,
   t
-}: Pick<PageProps, 'locale' | 'snapshot' | 't'>): ReactElement {
-  const runtime = snapshot.status.runtime
-  const traffic = {
-    downTotal: snapshot.usageSummary.responseBytes,
-    upTotal: snapshot.usageSummary.requestBytes
-  }
+}: Pick<PageProps, 'snapshot' | 't'>): ReactElement {
   return (
     <section
       className={`${panel} flex h-full min-h-0 flex-col gap-2.5 p-4 min-[1400px]:gap-3 min-[1400px]:p-5`}
@@ -48,6 +42,7 @@ export function ProxyControlPanel({
       <div className="grid min-h-0 flex-1 grid-cols-3 gap-2 text-xs">
         <RuntimeStat
           label={t('dashboard.runMode')}
+          tone="info"
           value={
             snapshot.daemonControl.launchAgent.enabled
               ? t('dashboard.runModeService')
@@ -55,21 +50,29 @@ export function ProxyControlPanel({
           }
         />
         <RuntimeStat
-          label={t('dashboard.totalPackets')}
-          value={`${formatTrafficBytes(traffic.upTotal, locale)} / ${formatTrafficBytes(traffic.downTotal, locale)}`}
+          label={t('dashboard.startupService')}
+          tone={snapshot.daemonControl.launchAgent.enabled ? 'success' : 'muted'}
+          value={
+            snapshot.daemonControl.launchAgent.enabled ? t('status.enabled') : t('status.disabled')
+          }
         />
         <RuntimeStat
-          label={t('dashboard.activeSessions')}
-          value={String(runtime?.activeWebSocketSessions ?? 0)}
+          label={t('dashboard.upstreamMode')}
+          tone={snapshot.status.outboundMode === 'direct' ? 'success' : 'warning'}
+          value={t(`mode.${snapshot.status.outboundMode}`)}
         />
       </div>
     </section>
   )
 }
 
-export function AccountPoolPanel({ snapshot, t }: Pick<PageProps, 'snapshot' | 't'>): ReactElement {
+export function AccountPoolPanel({
+  locale,
+  snapshot,
+  t
+}: Pick<PageProps, 'locale' | 'snapshot' | 't'>): ReactElement {
   const available = snapshot.status.authPoolAvailableAccounts
-  const purposeStats = topPurposeStats(snapshot.requestSummary.purposeGroups, t)
+  const totalTokens = snapshot.usageSummary.tokenTotal
   return (
     <section
       className={`${panel} flex h-full min-h-0 flex-col gap-2.5 p-4 min-[1400px]:gap-3 min-[1400px]:p-5`}
@@ -80,7 +83,7 @@ export function AccountPoolPanel({ snapshot, t }: Pick<PageProps, 'snapshot' | '
         </h2>
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-3 gap-2">
-        <SmallStat label={t('metric.available')} value={String(available)} />
+        <SmallStat label={t('metric.available')} tone="success" value={String(available)} />
         <SmallStat
           label={t('metric.exhausted')}
           tone="warn"
@@ -88,11 +91,24 @@ export function AccountPoolPanel({ snapshot, t }: Pick<PageProps, 'snapshot' | '
         />
         <SmallStat
           label={t('account.disabled')}
+          tone="muted"
           value={String(snapshot.status.authPoolDisabledAccounts)}
         />
-        {purposeStats.map((item) => (
-          <SmallStat key={item.label} label={item.label} value={String(item.count)} />
-        ))}
+        <SmallStat
+          label={t('dashboard.totalTokens')}
+          tone="info"
+          value={formatTokenCount(totalTokens, locale)}
+        />
+        <SmallStat
+          label={t('dashboard.totalCost')}
+          tone="cost"
+          value={formatTokenCost(totalTokens, locale)}
+        />
+        <SmallStat
+          label={t('dashboard.availableModels')}
+          tone="success"
+          value={String(availableModelCount(snapshot))}
+        />
       </div>
     </section>
   )
@@ -115,7 +131,11 @@ export function RecentActivityPanel({
 }): ReactElement {
   const [sort, setSort] = useState<ActivitySort>({ direction: 'desc', key: 'time' })
   const sortedRows = useMemo(() => sortActivityRows(rows, sort), [rows, sort])
-  const virtualRows = useVirtualRows({ rowHeight: 64, rows: sortedRows })
+  const virtualRows = useVirtualRows({
+    renderedRowLimit: VIRTUAL_ROW_BATCH_SIZE,
+    rowHeight: 64,
+    rows: sortedRows
+  })
   const maybeLoadMore = useNearBottomLoadMore({
     enabled:
       hasMoreActivity.requests ||
@@ -304,30 +324,44 @@ function PlainSpacerRow({
   )
 }
 
-function RuntimeStat({ label, value }: { label: string; value: string }): ReactElement {
+function RuntimeStat({
+  label,
+  tone,
+  value
+}: {
+  label: string
+  tone: StatTone
+  value: string
+}): ReactElement {
   return (
-    <div className="min-w-0 rounded-lg bg-muted/45 p-2">
-      <div className="truncate font-bold text-[10px] text-muted-foreground min-[1400px]:text-xs">
-        {label}
+    <div
+      className={`relative flex min-w-0 flex-col justify-center overflow-hidden rounded-lg border p-2.5 ${statSurfaceClass(tone)}`}
+    >
+      <div className={`absolute inset-y-2 left-0 w-1 rounded-r-full ${statAccentClass(tone)}`} />
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className={`size-1.5 shrink-0 rounded-full ${statAccentClass(tone)}`} />
+        <div className="truncate font-bold text-[10px] text-muted-foreground min-[1400px]:text-xs">
+          {label}
+        </div>
       </div>
-      <div className="mt-1 truncate font-semibold text-foreground text-[11px] min-[1400px]:text-xs">
+      <div className="mt-1 truncate pb-1.5 font-extrabold text-foreground text-xs min-[1400px]:text-sm">
         {value}
       </div>
     </div>
   )
 }
 
-function topPurposeStats(
-  groups: PageProps['snapshot']['requestSummary']['purposeGroups'],
-  t: PageProps['t']
-): Array<{ count: number; label: string }> {
-  return groups
-    .slice(0, 3)
-    .map((group) => ({ count: group.count, label: requestPurposeLabel(group.key, t) }))
-}
+const defaultAvailableModelCount = 3
 
-function formatTrafficBytes(value: number, locale: PageProps['locale']): string {
-  return value <= 0 ? '0 B' : formatBytes(value, locale)
+function availableModelCount(snapshot: PageProps['snapshot']): number {
+  const modelsResponse = snapshot.requests.find(
+    (request) =>
+      request.requestPurpose === 'models' &&
+      request.outcome === 'forwarded' &&
+      typeof request.responseItemCount === 'number' &&
+      request.responseItemCount > 0
+  )
+  return modelsResponse?.responseItemCount ?? defaultAvailableModelCount
 }
 
 function SmallStat({
@@ -336,23 +370,55 @@ function SmallStat({
   value
 }: {
   label: string
-  tone?: 'bad' | 'warn'
+  tone: StatTone
   value: string
 }): ReactElement {
-  const className =
-    tone === 'bad'
-      ? 'bg-destructive/12 text-destructive'
-      : tone === 'warn'
-        ? 'bg-warning/12 text-warning'
-        : 'bg-muted/60 text-foreground'
   return (
-    <div className={`min-h-0 rounded-lg p-1.5 text-center ${className}`}>
-      <div className="font-bold text-lg leading-none min-[1400px]:text-xl">{value}</div>
-      <div className="mt-1 font-semibold text-[10px] text-muted-foreground leading-tight">
-        {label}
+    <div
+      className={`relative flex min-h-0 flex-col items-center justify-center overflow-hidden rounded-lg border p-2 text-center ${statSurfaceClass(tone)}`}
+    >
+      <div className={`absolute inset-y-2 left-0 w-1 rounded-r-full ${statAccentClass(tone)}`} />
+      <div className={`absolute top-2 left-2 size-1.5 rounded-full ${statAccentClass(tone)}`} />
+      <div className="pb-1 font-extrabold text-foreground text-lg leading-none min-[1400px]:text-xl">
+        {value}
       </div>
+      <div className="font-semibold text-[10px] text-muted-foreground leading-tight">{label}</div>
     </div>
   )
+}
+
+type StatTone = 'cost' | 'info' | 'muted' | 'success' | 'warning' | 'warn'
+
+function statSurfaceClass(tone: StatTone): string {
+  if (tone === 'success') {
+    return 'border-success/10 bg-success/5'
+  }
+  if (tone === 'warning' || tone === 'warn') {
+    return 'border-warning/10 bg-warning/10'
+  }
+  if (tone === 'info') {
+    return 'border-info/10 bg-info/5'
+  }
+  if (tone === 'cost') {
+    return 'border-primary/10 bg-primary/5'
+  }
+  return 'border-border/60 bg-muted/50'
+}
+
+function statAccentClass(tone: StatTone): string {
+  if (tone === 'success') {
+    return 'bg-success'
+  }
+  if (tone === 'warning' || tone === 'warn') {
+    return 'bg-warning'
+  }
+  if (tone === 'info') {
+    return 'bg-info'
+  }
+  if (tone === 'cost') {
+    return 'bg-primary'
+  }
+  return 'bg-muted-foreground/45'
 }
 
 function statusColor(kind: ActivityRow['kind']): string {

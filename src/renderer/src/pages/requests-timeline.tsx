@@ -2,7 +2,7 @@ import { Card, CardHeader, CardPanel, CardTitle } from '@renderer/components/ui/
 import { formatBytes, formatDateTime, formatDuration } from '@renderer/data/format'
 import { accountDisplayForPathFromLookup, requestByteSummary } from '@renderer/data/proxy-console'
 import { useNearBottomLoadMore } from '@renderer/hooks/use-near-bottom-load-more'
-import { useVirtualRows } from '@renderer/hooks/use-virtual-rows'
+import { useVirtualRows, VIRTUAL_ROW_BATCH_SIZE } from '@renderer/hooks/use-virtual-rows'
 import {
   type ReactElement,
   type ReactNode,
@@ -69,7 +69,11 @@ export function RequestTimelinePanel({
   )
   const timeline = useMemo(() => sortTimelineItems(filteredItems, sort), [filteredItems, sort])
   const filterOptions = useMemo(() => requestFilterOptionSets(timelineItems, t), [timelineItems, t])
-  const virtualRows = useVirtualRows({ rowHeight: 68, rows: timeline })
+  const virtualRows = useVirtualRows({
+    renderedRowLimit: VIRTUAL_ROW_BATCH_SIZE,
+    rowHeight: 68,
+    rows: timeline
+  })
   const columns = requestColumns(t)
   const maybeLoadMore = useNearBottomLoadMore({
     enabled:

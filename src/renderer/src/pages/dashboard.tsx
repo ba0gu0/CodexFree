@@ -66,17 +66,17 @@ export function DashboardPage(props: PageProps): ReactElement {
         />
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[clamp(274px,18.8vw,340px)_minmax(0,1fr)_clamp(250px,16.8vw,320px)] gap-0 overflow-hidden">
-        <aside className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden bg-background pt-0 pr-0.5 pb-3 pl-3 min-[1400px]:pr-1 min-[1400px]:pl-4 min-[1400px]:pb-5">
-          <ServicePanel snapshot={snapshot} t={t} />
+      <div className="grid min-h-0 flex-1 grid-cols-[clamp(274px,18.8vw,340px)_minmax(0,1fr)_clamp(274px,18.8vw,340px)] gap-0 overflow-hidden">
+        <aside className="flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden bg-background pt-0 pr-0.5 pb-2 pl-3 min-[1400px]:gap-3 min-[1400px]:pr-1 min-[1400px]:pl-4 min-[1400px]:pb-5">
+          <ServicePanel locale={locale} snapshot={snapshot} t={t} />
           <DirectoryPanel actions={actions} t={t} />
           <VersionPanel lastRefresh={lastRefresh} locale={locale} snapshot={snapshot} t={t} />
         </aside>
 
         <section className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden px-1 pb-3 min-[1400px]:gap-4 min-[1400px]:px-1.5 min-[1400px]:pb-6">
           <section className="grid h-[236px] shrink-0 grid-cols-[minmax(0,1.12fr)_minmax(260px,0.88fr)] gap-3 min-[1400px]:h-[288px] min-[1400px]:gap-4">
-            <ProxyControlPanel locale={locale} snapshot={snapshot} t={t} />
-            <AccountPoolPanel snapshot={snapshot} t={t} />
+            <ProxyControlPanel snapshot={snapshot} t={t} />
+            <AccountPoolPanel locale={locale} snapshot={snapshot} t={t} />
           </section>
           <RecentActivityPanel
             actions={actions}
@@ -94,6 +94,7 @@ export function DashboardPage(props: PageProps): ReactElement {
             actions={actions}
             busyAction={busyAction}
             locale={locale}
+            snapshot={snapshot}
             t={t}
             usageProgress={usageProgress}
           />

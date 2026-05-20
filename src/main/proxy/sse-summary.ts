@@ -1,5 +1,6 @@
 import {
   arrayField,
+  decodeBodyBuffer,
   isRecord,
   numberField,
   parseJsonRecord,
@@ -14,6 +15,7 @@ export interface SseSummaryInput {
   conversationKey?: string
   path: string
   requestBody: Buffer
+  requestBodyEncoding?: string
   requestId: string
   responseBody: Buffer | undefined
 }
@@ -24,7 +26,9 @@ export interface SseSummaryResult {
 }
 
 export function summarizeServerSentEvents(input: SseSummaryInput): SseSummaryResult {
-  const request = parseJsonRecord(input.requestBody.toString('utf8'))
+  const request = parseJsonRecord(
+    decodeBodyBuffer(input.requestBody, input.requestBodyEncoding).toString('utf8')
+  )
   const messages: ProtocolMessageInput[] = []
   const turnKey = [input.conversationKey, input.requestId].filter(Boolean).join(':')
   const userText = extractUserText(request)

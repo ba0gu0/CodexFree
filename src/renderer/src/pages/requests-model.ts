@@ -13,6 +13,12 @@ import type {
   RecentRequest,
   TurnSummary
 } from '@renderer/data/proxy-console'
+import {
+  createRequestTimelineIndex,
+  matchesIndexedRequest,
+  relatedToRequest,
+  stringSet
+} from './requests-model-index'
 
 export type RequestFilter = 'all' | 'forwarded' | 'quota_exhausted' | 'failed' | 'rejected'
 export type RequestSelectFilter = 'all' | string
@@ -56,21 +62,22 @@ export function buildRequestTimeline(
   context: ActivityViewContext
 ): RequestTimelineItem[] {
   const meaningfulTurns = turns.filter(isMeaningfulTurn)
-  const messagesInTurns = messages.filter((message) =>
-    meaningfulTurns.some((turn) => matchesTurn(message, turn))
+  const index = createRequestTimelineIndex(requests, events, messages, meaningfulTurns)
+  const visibleRequests = requests.filter((request) =>
+    isVisibleRequestParent(request, index.turnRequestIds)
+  )
+  const visibleRequestIds = new Set(visibleRequests.map((request) => request.id))
+  const visibleRequestConversations = stringSet(
+    visibleRequests.map((request) => request.conversationKey)
   )
   const orphanMessages = messages.filter(
     (message) =>
-      !requests.some((request) => matchesRequest(message, request)) &&
-      !meaningfulTurns.some((turn) => matchesTurn(message, turn))
-  )
-  const visibleRequests = requests.filter((request) =>
-    isVisibleRequestParent(request, meaningfulTurns)
+      !matchesIndexedRequest(message, index.requestIds, index.requestConversations) &&
+      !index.messageIdsInTurns.has(message.id)
   )
   return [
     ...meaningfulTurns.map((turn): RequestTimelineItem => {
-      const children = messagesInTurns
-        .filter((message) => matchesTurn(message, turn))
+      const children = (index.messagesByTurnId.get(turn.id) ?? [])
         .map((message) => protocolActivityViewModel(message, context))
         .sort(compareActivityId)
       const activity = turnActivityViewModel(turn, context, children)
@@ -84,15 +91,13 @@ export function buildRequestTimeline(
     }),
     ...visibleRequests.map((request): RequestTimelineItem => {
       const children = [
-        ...messages
-          .filter((message) => matchesRequest(message, request))
-          .filter((message) => !messagesInTurns.includes(message))
+        ...relatedToRequest(index.messagesByRequest, index.messagesByConversation, request)
+          .filter((message) => !index.messageIdsInTurns.has(message.id))
           .map((message) => protocolActivityViewModel(message, context)),
-        ...events
-          .filter((event) => matchesRequest(event, request))
-          .map((event) => logActivityViewModel(event, context)),
-        ...meaningfulTurns
-          .filter((turn) => matchesRequest(turn, request))
+        ...relatedToRequest(index.eventsByRequest, index.eventsByConversation, request).map(
+          (event) => logActivityViewModel(event, context)
+        ),
+        ...relatedToRequest(index.turnsByRequest, index.turnsByConversation, request)
           .filter((turn) => !isCodexStreamRequest(request, turn))
           .map((turn) => turnActivityViewModel(turn, context))
       ].sort(compareActivityId)
@@ -106,7 +111,7 @@ export function buildRequestTimeline(
       }
     }),
     ...events
-      .filter((event) => isTopLevelLogEvent(event, visibleRequests))
+      .filter((event) => isTopLevelLogEvent(event, visibleRequestIds, visibleRequestConversations))
       .map((event): RequestTimelineItem => {
         const activity = logActivityViewModel(event, context)
         return {
@@ -314,32 +319,6 @@ function timelineSearchValues(item: RequestTimelineItem): Array<number | string 
   ]
 }
 
-function matchesRequest(
-  item: ProtocolMessage | ProxyLogEvent | TurnSummary,
-  request: RecentRequest
-): boolean {
-  if (item.requestId === request.id) {
-    return true
-  }
-  return Boolean(item.conversationKey && item.conversationKey === request.conversationKey)
-}
-
-function matchesTurn(message: ProtocolMessage, turn: TurnSummary): boolean {
-  if (message.requestId && message.requestId === turn.requestId) {
-    return true
-  }
-  if (message.responseId && message.responseId === turn.responseId) {
-    return true
-  }
-  if (message.previousResponseId && message.previousResponseId === turn.responseId) {
-    return true
-  }
-  if (message.responseId && message.responseId === turn.parentResponseId) {
-    return true
-  }
-  return Boolean(message.conversationKey && message.conversationKey === turn.conversationKey)
-}
-
 function isMeaningfulTurn(turn: TurnSummary): boolean {
   const hasConversation =
     hasText(turn.assistantText) || turn.toolCallCount > 0 || turn.toolResultCount > 0
@@ -349,14 +328,14 @@ function isMeaningfulTurn(turn: TurnSummary): boolean {
   return hasText(turn.userText) && !turn.userText?.startsWith('发起模型请求:')
 }
 
-function isVisibleRequestParent(request: RecentRequest, turns: TurnSummary[]): boolean {
+function isVisibleRequestParent(request: RecentRequest, turnRequestIds: Set<string>): boolean {
   if (request.outcome !== 'forwarded') {
     return true
   }
   if (!['codex_wss', 'codex_response_sse'].includes(request.requestPurpose ?? '')) {
     return true
   }
-  return !turns.some((turn) => turn.requestId === request.id)
+  return !turnRequestIds.has(request.id)
 }
 
 function isCodexStreamRequest(request: RecentRequest, turn: TurnSummary): boolean {
@@ -382,11 +361,15 @@ function isVisibleLogEvent(event: ProxyLogEvent): boolean {
   )
 }
 
-function isTopLevelLogEvent(event: ProxyLogEvent, visibleRequests: RecentRequest[]): boolean {
+function isTopLevelLogEvent(
+  event: ProxyLogEvent,
+  visibleRequestIds: Set<string>,
+  visibleRequestConversations: Set<string>
+): boolean {
   if (!isVisibleLogEvent(event)) {
     return false
   }
-  return !visibleRequests.some((request) => matchesRequest(event, request))
+  return !matchesIndexedRequest(event, visibleRequestIds, visibleRequestConversations)
 }
 
 function hasText(value: string | null): boolean {

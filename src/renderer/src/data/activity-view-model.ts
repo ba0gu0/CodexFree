@@ -447,6 +447,10 @@ function logTitle(
   detail: Record<string, unknown>,
   context: ActivityViewContext
 ): string {
+  const displayText = stringField(detail, 'displayText')
+  if (displayText) {
+    return displayText
+  }
   if (event.eventType === 'auth') {
     return context.t('activity.summary.authEvent', {
       reason: stringField(detail, 'reason') ?? event.message

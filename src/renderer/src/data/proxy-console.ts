@@ -145,10 +145,14 @@ export function requestPurposeLabel(
 
 export function requestPurposeKey(purpose: string | null | undefined): CopyKey | null {
   switch (purpose) {
+    case 'upstream':
+      return 'purpose.upstream'
     case 'codex_wss':
       return 'purpose.codexWss'
     case 'codex_response_sse':
       return 'purpose.codexSse'
+    case 'codex_compact':
+      return 'purpose.codexCompact'
     case 'analytics_events':
       return 'purpose.analytics'
     case 'models':
@@ -294,18 +298,16 @@ export function accountDisplayForPathFromLookup(
 export function codexConfigText(status: ProxyStatus): string {
   return [
     `chatgpt_base_url = "${status.endpoint}"`,
-    `openai_base_url = "${status.openaiBaseUrl}"`,
-    'model_provider = "openai"'
+    `openai_base_url = "${status.openaiBaseUrl}"`
   ].join('\n')
 }
 
 export function codexConfigRows(
   status: ProxyStatus
-): Array<{ key: 'chatgpt_base_url' | 'openai_base_url' | 'model_provider'; value: string }> {
+): Array<{ key: 'chatgpt_base_url' | 'openai_base_url'; value: string }> {
   return [
     { key: 'chatgpt_base_url', value: status.endpoint },
-    { key: 'openai_base_url', value: status.openaiBaseUrl },
-    { key: 'model_provider', value: 'openai' }
+    { key: 'openai_base_url', value: status.openaiBaseUrl }
   ]
 }
 

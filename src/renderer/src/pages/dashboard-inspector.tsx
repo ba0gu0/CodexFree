@@ -1,5 +1,5 @@
 import { Button } from '@renderer/components/ui/button'
-import { formatDateTime } from '@renderer/data/format'
+import { formatDateTime, formatTokenCost, formatTokenCount } from '@renderer/data/format'
 import { accountDisplayName, type ManagedAccount } from '@renderer/data/proxy-console'
 import { type ReactElement, useState } from 'react'
 import { remainingQuota } from './dashboard-model'
@@ -14,6 +14,7 @@ export function ActiveAccountPanel({
   actions,
   busyAction,
   locale,
+  snapshot,
   t,
   usageProgress
 }: {
@@ -21,11 +22,13 @@ export function ActiveAccountPanel({
   actions: PageProps['actions']
   busyAction: string | null
   locale: PageProps['locale']
+  snapshot: PageProps['snapshot']
   t: PageProps['t']
   usageProgress: PageProps['usageProgress']
 }): ReactElement {
   const remaining = remainingQuota(active)
   const accountName = active ? accountDisplayName(active, t('accounts.emailPending')) : '-'
+  const accountTokens = active ? accountTokenTotal(active, snapshot, t('accounts.emailPending')) : 0
   const [checkingUsage, setCheckingUsage] = useState(false)
   return (
     <section
@@ -38,8 +41,13 @@ export function ActiveAccountPanel({
       <div className="font-extrabold text-success text-xs">
         {t('dashboard.planAvailable', { plan: active?.planType ?? '-' })}
       </div>
-      <div className="h-2.5 overflow-hidden rounded-full bg-muted">
-        <div className="h-full rounded-full bg-success" style={{ width: quotaWidth(remaining) }} />
+      <div className="h-2 overflow-hidden rounded-full bg-muted">
+        <div
+          className={`h-full rounded-full transition-[width] duration-300 ${quotaBarColor(
+            remaining
+          )}`}
+          style={{ width: quotaWidth(remaining) }}
+        />
       </div>
       <div className={`${muted} font-bold text-[11px]`}>
         {t('dashboard.resetAt', { time: formatDateTime(active?.rateLimitResetsAt, locale) })}
@@ -53,8 +61,8 @@ export function ActiveAccountPanel({
         />
         <MiniMeta
           label={t('dashboard.accountCost')}
-          sub={t('dashboard.moneyCost', { cost: '-' })}
-          value={t('dashboard.tokenCost', { tokens: '-' })}
+          sub={t('dashboard.moneyCost', { cost: formatTokenCost(accountTokens, locale) })}
+          value={t('dashboard.tokenCost', { tokens: formatTokenCount(accountTokens, locale) })}
         />
       </div>
       <div className="grid grid-cols-1 gap-1 text-muted-foreground text-xs">
@@ -130,21 +138,69 @@ function MiniMeta({
   const className = tone === 'good' ? 'bg-success/12 text-success' : 'bg-muted/60'
   return (
     <div className={`rounded-[10px] p-2 ${className}`}>
-      <div className={`${title} truncate text-sm`}>{value}</div>
-      <div className="truncate font-bold text-foreground text-[10px] min-[1400px]:text-xs">
-        {label}
+      <div className="flex min-w-0 items-baseline justify-between gap-2">
+        <div className={`${title} truncate text-sm`}>{value}</div>
+        <div className="shrink-0 truncate font-bold text-foreground text-[10px] min-[1400px]:text-xs">
+          {label}
+        </div>
       </div>
       <div className={`${muted} truncate font-semibold text-[9px]`}>{sub}</div>
     </div>
   )
 }
 
+function accountTokenTotal(
+  account: ManagedAccount,
+  snapshot: PageProps['snapshot'],
+  pending: string
+): number {
+  const directTotal = accountUsageGroupTotal(account, snapshot, pending)
+  if (directTotal > 0) {
+    return directTotal
+  }
+  const turnTotal = snapshot.turnSummaries
+    .filter((turn) => turn.accountId === account.accountId)
+    .reduce((total, turn) => total + (turn.totalTokens ?? 0), 0)
+  if (turnTotal > 0) {
+    return turnTotal
+  }
+  return snapshot.protocolMessages
+    .filter((message) => message.accountId === account.accountId)
+    .reduce((total, message) => total + (message.totalTokens ?? 0), 0)
+}
+
+function accountUsageGroupTotal(
+  account: ManagedAccount,
+  snapshot: PageProps['snapshot'],
+  pending: string
+): number {
+  const groupKeys = new Set(
+    [account.email, account.label, account.accountId, accountDisplayName(account, pending)].filter(
+      (value): value is string => Boolean(value)
+    )
+  )
+  return snapshot.usageSummary.accountGroups.find((group) => groupKeys.has(group.key))?.total ?? 0
+}
+
 function quotaWidth(remaining: number | undefined): string {
   return remaining === undefined ? '0%' : `${remaining}%`
 }
 
+function quotaBarColor(remaining: number | undefined): string {
+  if (remaining === undefined) {
+    return 'bg-muted-foreground/35'
+  }
+  if (remaining >= 60) {
+    return 'bg-success'
+  }
+  if (remaining >= 20) {
+    return 'bg-warning'
+  }
+  return 'bg-destructive'
+}
+
 function remainingText(remaining: number | undefined, t: PageProps['t']): string {
   return remaining === undefined
-    ? '-'
+    ? t('dashboard.approxPercent', { percent: 0 })
     : t('dashboard.approxPercent', { percent: Math.round(remaining) })
 }

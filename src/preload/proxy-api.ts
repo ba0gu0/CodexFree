@@ -64,6 +64,7 @@ export interface UsageSummaryDto {
   averageDurationMs: number | null
   dayGroups: UsageTokenGroupDto[]
   failed: number
+  hourGroups: UsageTokenGroupDto[]
   modelGroups: UsageTokenGroupDto[]
   requestBytes: number
   requestsWithUsage: number
@@ -112,6 +113,11 @@ export interface DaemonControlSaveResultDto {
   proxy?: ProxyStatusDto
   restarted: boolean
   settings: DaemonControlSettingsDto
+}
+
+export interface ProxyPageSaveResultDto {
+  config: ProxyConfigDto
+  status: ProxyStatusDto
 }
 
 export interface RecentRequestDto {
@@ -351,4 +357,5 @@ export interface PlaceholderAuthResultDto {
 export interface CodexConfigWriteResultDto {
   path: string
   backupPath: string | null
+  changed: boolean
 }

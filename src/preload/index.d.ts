@@ -15,6 +15,7 @@ import type {
   ProtocolMessageDto,
   ProxyConfigDto,
   ProxyLogEventDto,
+  ProxyPageSaveResultDto,
   ProxyStatusDto,
   RawCaptureDetailDto,
   RecentRequestDto,
@@ -57,6 +58,10 @@ declare global {
       saveDaemonControlSettings: (
         input: DaemonControlSaveInputDto
       ) => Promise<DaemonControlSaveResultDto>
+      saveProxyPageConfig: (
+        config: ProxyConfigDto,
+        input: DaemonControlSaveInputDto
+      ) => Promise<ProxyPageSaveResultDto>
       importAuthFiles: () => Promise<AuthImportResultDto>
       checkAccountUsage: () => Promise<AccountUsageCheckBatchDto>
       checkSelectedAccountUsage: (accountIds: string[]) => Promise<AccountUsageCheckBatchDto>

@@ -68,7 +68,9 @@ export function readUsageSummary(databasePath: string): UsageSummary {
             END
           ), 0) AS successful,
           COALESCE(SUM(CASE WHEN outcome IN ('failed', 'rejected') THEN 1 ELSE 0 END), 0) AS failed,
-          COALESCE(SUM(CASE WHEN total_tokens IS NOT NULL THEN 1 ELSE 0 END), 0) AS requestsWithUsage,
+          COALESCE(SUM(
+            CASE WHEN total_tokens IS NOT NULL THEN 1 ELSE 0 END
+          ), 0) AS requestsWithUsage,
           COALESCE(SUM(COALESCE(total_tokens, 0)), 0) AS tokenTotal,
           COALESCE(SUM(request_bytes), 0) AS requestBytes,
           COALESCE(SUM(response_bytes), 0) AS responseBytes,
@@ -91,7 +93,15 @@ export function readUsageSummary(databasePath: string): UsageSummary {
       ),
       dayGroups: readUsageGroups(
         sqlite,
-        "strftime('%Y-%m-%d', started_at / 1000, 'unixepoch', 'localtime')"
+        "strftime('%Y-%m-%d', started_at / 1000, 'unixepoch', 'localtime')",
+        'key DESC',
+        30
+      ),
+      hourGroups: readUsageGroups(
+        sqlite,
+        "strftime('%Y-%m-%d %H:00', started_at / 1000, 'unixepoch', 'localtime')",
+        'key DESC',
+        48
       ),
       modelGroups: readUsageGroups(sqlite, "COALESCE(response_model, request_model, '-')"),
       sourceGroups: readUsageGroups(sqlite, "COALESCE(token_usage_source, '-')"),
@@ -108,8 +118,14 @@ export function readUsageSummary(databasePath: string): UsageSummary {
   }
 }
 
-function readUsageGroups(sqlite: Database.Database, keySql: string): UsageTokenGroup[] {
+function readUsageGroups(
+  sqlite: Database.Database,
+  keySql: string,
+  orderSql = 'total DESC, count DESC',
+  limit = 12
+): UsageTokenGroup[] {
   assertSafeUsageGroupExpression(keySql)
+  assertSafeUsageGroupExpression(orderSql)
   return sqlite
     .prepare(`
       SELECT
@@ -124,8 +140,8 @@ function readUsageGroups(sqlite: Database.Database, keySql: string): UsageTokenG
       LEFT JOIN proxy_accounts ON proxy_accounts.account_id = proxy_requests.account_id
       WHERE total_tokens IS NOT NULL
       GROUP BY key
-      ORDER BY total DESC, count DESC
-      LIMIT 12
+      ORDER BY ${orderSql}
+      LIMIT ${limit}
     `)
     .all() as UsageTokenGroup[]
 }

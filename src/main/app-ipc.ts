@@ -169,11 +169,11 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
   })
   ipcMain.handle('proxy:write-placeholder-auth', () => writePlaceholderAuthFile())
   ipcMain.handle('proxy:write-codex-config', async () => {
-    const status = await runtime.proxyStatus()
+    const config = runtime.readRuntimeConfig()
+    const endpoint = `http://${config.listenHost}:${config.listenPort}/backend-api`
     return writeCodexConfigFile({
-      chatgptBaseUrl: status.endpoint,
-      modelProvider: 'openai',
-      openaiBaseUrl: status.openaiBaseUrl
+      chatgptBaseUrl: endpoint,
+      openaiBaseUrl: `${endpoint}/codex`
     })
   })
   ipcMain.handle('proxy:reset-exhausted-accounts', async () => {
@@ -252,6 +252,12 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
   ipcMain.handle('proxy:save-daemon-control-settings', async (_, input: DaemonControlSaveInput) => {
     return runtime.saveDaemonControlSettings(input)
   })
+  ipcMain.handle(
+    'proxy:save-proxy-page-config',
+    async (_, config: ProxyConfig, input: DaemonControlSaveInput) => {
+      return runtime.saveProxyPageConfig(config, input)
+    }
+  )
   ipcMain.handle('proxy:start', async () => runtime.startDaemonProxy())
   ipcMain.handle('proxy:stop', async () => runtime.stopProxy())
   ipcMain.handle('proxy:restart', async () => runtime.restartProxy())

@@ -1,4 +1,5 @@
 import type { IncomingMessage } from 'node:http'
+import { brotliDecompressSync, gunzipSync, inflateSync, zstdDecompressSync } from 'node:zlib'
 
 export class RequestBodyTooLargeError extends Error {
   constructor(readonly maxBytes: number) {
@@ -17,6 +18,30 @@ export function parseJsonRecord(value: string): Record<string, unknown> | undefi
   } catch {
     return undefined
   }
+}
+
+export function decodeBodyBuffer(buffer: Buffer, encoding: string | undefined): Buffer {
+  const normalized = encoding?.split(',').at(0)?.trim().toLowerCase()
+  if (!normalized || normalized === 'identity') {
+    return buffer
+  }
+  try {
+    if (normalized === 'zstd') {
+      return zstdDecompressSync(buffer)
+    }
+    if (normalized === 'gzip') {
+      return gunzipSync(buffer)
+    }
+    if (normalized === 'br') {
+      return brotliDecompressSync(buffer)
+    }
+    if (normalized === 'deflate') {
+      return inflateSync(buffer)
+    }
+  } catch {
+    return buffer
+  }
+  return buffer
 }
 
 export function recordField(

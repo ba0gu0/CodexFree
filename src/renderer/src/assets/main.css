@@ -143,6 +143,15 @@
   }
 }
 
+@layer components {
+  .app-error-alert {
+    max-height: 320px;
+    overflow: auto;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+}
+
 :root {
   --background: #f7f8fb;
   --foreground: #111827;

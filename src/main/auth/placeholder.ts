@@ -18,6 +18,7 @@ export interface PlaceholderAuthResult {
 
 export interface CodexConfigWriteResult {
   backupPath: string | null
+  changed: boolean
   path: string
 }
 
@@ -49,19 +50,25 @@ export function writePlaceholderAuthFile(homeDirectory = homedir()): Placeholder
 }
 
 export function writeCodexConfigFile(
-  input: { chatgptBaseUrl: string; openaiBaseUrl: string; modelProvider?: string },
+  input: { chatgptBaseUrl: string; openaiBaseUrl: string },
   homeDirectory = homedir()
 ): CodexConfigWriteResult {
   const codexDirectory = join(homeDirectory, '.codex')
   const configPath = join(codexDirectory, 'config.toml')
   mkdirSync(codexDirectory, { recursive: true, mode: 0o700 })
 
-  const backupPath = backupExistingConfigFile(configPath)
   const existing = existsSync(configPath) ? readFileSync(configPath, 'utf8') : ''
+  if (existing && codexConfigContentLooksCurrent(existing, input)) {
+    return { backupPath: null, changed: false, path: configPath }
+  }
   const next = upsertCodexBaseUrls(existing, input)
+  if (existing === next) {
+    return { backupPath: null, changed: false, path: configPath }
+  }
+  const backupPath = backupExistingConfigFile(configPath)
   writeFileSync(configPath, next, { encoding: 'utf8', mode: 0o600 })
   chmodSync(configPath, 0o600)
-  return { backupPath, path: configPath }
+  return { backupPath, changed: true, path: configPath }
 }
 
 function backupExistingAuthFile(authPath: string): string | null {
@@ -90,32 +97,38 @@ function backupExistingConfigFile(configPath: string): string | null {
 
 function upsertCodexBaseUrls(
   content: string,
-  input: { chatgptBaseUrl: string; openaiBaseUrl: string; modelProvider?: string }
+  input: { chatgptBaseUrl: string; openaiBaseUrl: string }
 ): string {
-  const modelProvider = input.modelProvider ?? 'openai'
-  const assignments = new Map([
-    ['chatgpt_base_url', `chatgpt_base_url = "${escapeTomlString(input.chatgptBaseUrl)}"`],
-    ['openai_base_url', `openai_base_url = "${escapeTomlString(input.openaiBaseUrl)}"`],
-    ['model_provider', `model_provider = "${escapeTomlString(modelProvider)}"`]
-  ])
-  const seen = new Set<string>()
-  const lines = content.split(/\r?\n/).map((line) => {
-    const match = line.match(/^\s*(chatgpt_base_url|openai_base_url|model_provider)\s*=/)
-    if (!match) {
-      return line
-    }
-    const key = match[1]
-    seen.add(key)
-    return assignments.get(key) ?? line
-  })
+  const assignments = [
+    `chatgpt_base_url = "${escapeTomlString(input.chatgptBaseUrl)}"`,
+    `openai_base_url = "${escapeTomlString(input.openaiBaseUrl)}"`
+  ]
+  const preserved = content
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*(chatgpt_base_url|openai_base_url|model_provider)\s*=/.test(line))
+    .join('\n')
+    .replace(/^\n+|\n+$/g, '')
+  const body = preserved ? `${assignments.join('\n')}\n\n${preserved}` : assignments.join('\n')
+  return `${body}\n`
+}
 
-  for (const [key, line] of assignments) {
-    if (!seen.has(key)) {
-      lines.push(line)
-    }
-  }
-
-  return `${lines.join('\n').replace(/\n+$/, '')}\n`
+function codexConfigContentLooksCurrent(
+  content: string,
+  input: { chatgptBaseUrl: string; openaiBaseUrl: string }
+): boolean {
+  const assignments = [
+    `chatgpt_base_url = "${escapeTomlString(input.chatgptBaseUrl)}"`,
+    `openai_base_url = "${escapeTomlString(input.openaiBaseUrl)}"`
+  ]
+  const managedLines = content
+    .split(/\r?\n/)
+    .filter((line) => /^\s*(chatgpt_base_url|openai_base_url|model_provider)\s*=/.test(line))
+  return (
+    content.startsWith(`${assignments.join('\n')}\n`) &&
+    managedLines.length === 2 &&
+    managedLines[0] === assignments[0] &&
+    managedLines[1] === assignments[1]
+  )
 }
 
 function escapeTomlString(value: string): string {

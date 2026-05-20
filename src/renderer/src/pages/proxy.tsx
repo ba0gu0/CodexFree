@@ -41,9 +41,16 @@ import {
 import { type ReactElement, useEffect, useState } from 'react'
 import type { PageProps } from './types'
 
+interface DaemonDraft {
+  adminHost: string
+  adminPort: number
+  adminToken: string
+  launchAgentEnabled: boolean
+}
+
 export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProps): ReactElement {
   const [draft, setDraft] = useState<ProxyConfig>(snapshot.config)
-  const [daemonDraft, setDaemonDraft] = useState({
+  const [daemonDraft, setDaemonDraft] = useState<DaemonDraft>({
     adminHost: snapshot.daemonControl.adminHost,
     adminPort: snapshot.daemonControl.adminPort,
     adminToken: '',
@@ -64,18 +71,22 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
   }, [snapshot.daemonControl])
 
   const modeItems = outboundModes.map((mode) => ({ label: t(`mode.${mode}`), value: mode }))
+  const hasDraftChanges = proxyPageChanged(draft, daemonDraft, snapshot)
   const saveAll = async (): Promise<void> => {
+    if (!hasDraftChanges) {
+      return
+    }
     await actions.saveProxyPageConfig(draft, daemonDraft)
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
       <PageHeader
         actions={
           <>
-            <Button loading={busyAction === 'save'} onClick={saveAll}>
+            <Button disabled={!hasDraftChanges} loading={busyAction === 'save'} onClick={saveAll}>
               <SaveIcon data-icon="inline-start" />
-              {t('action.saveAndRestart')}
+              {hasDraftChanges ? t('action.configChangedSaveRestart') : t('action.saveAndRestart')}
             </Button>
             <Button loading={busyAction === 'refresh'} onClick={actions.refresh} variant="outline">
               <RefreshCwIcon data-icon="inline-start" />
@@ -110,36 +121,40 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
         title={t('proxy.title')}
       />
 
-      <section className="grid h-[92px] shrink-0 grid-cols-4 gap-3">
+      <section className="grid h-[76px] shrink-0 grid-cols-4 gap-3">
         <MetricCard
+          density="compact"
           label={t('metric.proxy')}
           tone={snapshot.status.running ? 'success' : 'warning'}
           value={snapshot.status.running ? t('status.running') : t('status.stopped')}
         />
         <MetricCard
+          density="compact"
           label={t('metric.totalAccounts')}
           tone={snapshot.status.authPoolAvailableAccounts > 0 ? 'success' : 'warning'}
           value={String(snapshot.status.authPoolAccounts)}
         />
         <MetricCard
+          density="compact"
           label={t('proxy.outboundMode')}
           tone="warning"
           value={t(`mode.${snapshot.status.outboundMode}`)}
         />
         <MetricCard
+          density="compact"
           label={t('proxy.rawCapture')}
           tone={snapshot.status.rawCaptureEnabled ? 'success' : 'default'}
           value={snapshot.status.rawCaptureEnabled ? t('status.enabled') : t('status.disabled')}
         />
       </section>
 
-      <section className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Card className="min-h-0 overflow-hidden rounded-xl shadow-none">
-          <CardHeader className="p-4 pb-2">
-            <CardTitle>{t('proxy.title')}</CardTitle>
-            <CardDescription>{t('proxy.desc')}</CardDescription>
+      <section className="grid min-h-0 items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <Card className="overflow-hidden rounded-xl shadow-none">
+          <CardHeader className="p-3 pb-1.5">
+            <CardTitle className="text-lg">{t('proxy.title')}</CardTitle>
+            <CardDescription className="line-clamp-1">{t('proxy.desc')}</CardDescription>
           </CardHeader>
-          <CardPanel className="grid min-h-0 content-start gap-3 overflow-y-auto p-4 pt-0 md:grid-cols-2">
+          <CardPanel className="grid min-h-0 content-start gap-2 overflow-hidden p-3 pt-0 md:grid-cols-2 [&_[data-slot=field]]:gap-1.5">
             <SwitchField
               checked={draft.rawCaptureEnabled}
               className="md:col-span-2"
@@ -241,13 +256,15 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
           </CardPanel>
         </Card>
 
-        <aside className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto pr-1">
-          <Card className="flex min-h-full flex-1 flex-col rounded-xl shadow-none">
-            <CardHeader className="p-4 pb-2">
-              <CardTitle>{t('proxy.daemonControl')}</CardTitle>
-              <CardDescription>{t('proxy.daemonControlDesc')}</CardDescription>
+        <aside className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
+          <Card className="flex flex-col rounded-xl shadow-none">
+            <CardHeader className="p-3 pb-1.5">
+              <CardTitle className="text-lg">{t('proxy.daemonControl')}</CardTitle>
+              <CardDescription className="line-clamp-1">
+                {t('proxy.daemonControlDesc')}
+              </CardDescription>
             </CardHeader>
-            <CardPanel className="grid flex-1 content-start gap-3 p-4 pt-0 md:grid-cols-2">
+            <CardPanel className="grid content-start gap-2 p-3 pt-0 md:grid-cols-2 [&_[data-slot=field]]:gap-1.5">
               <Field>
                 <FieldLabel>{t('proxy.adminHost')}</FieldLabel>
                 <Input
@@ -359,7 +376,7 @@ function ConfigRepairPanel({
   t: PageProps['t']
 }): ReactElement {
   return (
-    <div className="grid gap-3 md:col-span-2">
+    <div className="grid gap-2 md:col-span-2">
       <SwitchField
         checked={checked}
         description={t('proxy.configMonitorDesc')}
@@ -367,10 +384,10 @@ function ConfigRepairPanel({
         onChange={onChange}
       />
       {!checked ? (
-        <Field className="flex-row items-center justify-between gap-3 rounded-lg border bg-background p-3">
+        <Field className="flex-row items-center justify-between gap-3 rounded-lg border bg-background p-2.5">
           <div className="min-w-0">
             <FieldLabel>{t('proxy.configToml')}</FieldLabel>
-            <FieldDescription className="mt-1 line-clamp-2">
+            <FieldDescription className="mt-1 line-clamp-1">
               {t('proxy.configTomlDesc')}
             </FieldDescription>
           </div>
@@ -396,6 +413,31 @@ function launchAgentDescription(
   return launchAgent.plistPath ?? launchAgent.label ?? t('status.enabled')
 }
 
+function proxyPageChanged(
+  draft: ProxyConfig,
+  daemonDraft: DaemonDraft,
+  snapshot: PageProps['snapshot']
+): boolean {
+  const config = snapshot.config
+  return (
+    draft.listenHost !== config.listenHost ||
+    draft.listenPort !== config.listenPort ||
+    draft.upstreamBaseUrl !== config.upstreamBaseUrl ||
+    draft.outboundProxy.mode !== config.outboundProxy.mode ||
+    draft.outboundProxy.url !== config.outboundProxy.url ||
+    draft.authPool.enabled !== config.authPool.enabled ||
+    draft.authPool.directory !== config.authPool.directory ||
+    draft.maxRequestBodyBytes !== config.maxRequestBodyBytes ||
+    draft.rawCaptureEnabled !== config.rawCaptureEnabled ||
+    draft.rawCaptureMaxBytes !== config.rawCaptureMaxBytes ||
+    draft.codexConfigMonitorEnabled !== config.codexConfigMonitorEnabled ||
+    daemonDraft.adminHost !== snapshot.daemonControl.adminHost ||
+    daemonDraft.adminPort !== snapshot.daemonControl.adminPort ||
+    daemonDraft.launchAgentEnabled !== snapshot.daemonControl.launchAgent.enabled ||
+    daemonDraft.adminToken.trim().length > 0
+  )
+}
+
 function SwitchField({
   checked,
   className,
@@ -414,7 +456,7 @@ function SwitchField({
   onChange: (checked: boolean) => void
 }): ReactElement {
   return (
-    <Field className={`rounded-lg border bg-background p-3 ${className ?? ''}`}>
+    <Field className={`rounded-lg border bg-background p-2.5 ${className ?? ''}`}>
       <div
         className={`flex w-full items-center gap-3 ${
           controlPosition === 'left' ? 'justify-start' : 'justify-between'
@@ -425,7 +467,9 @@ function SwitchField({
         ) : null}
         <div className="flex min-w-0 flex-col gap-1">
           <FieldLabel>{label}</FieldLabel>
-          <FieldDescription className="line-clamp-2">{description}</FieldDescription>
+          <FieldDescription className="line-clamp-1 min-[1400px]:line-clamp-2">
+            {description}
+          </FieldDescription>
         </div>
         {controlPosition === 'right' ? (
           <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} />

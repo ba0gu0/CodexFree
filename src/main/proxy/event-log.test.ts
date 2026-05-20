@@ -61,11 +61,12 @@ describe('proxy event log', () => {
     const logger = createProxyLogger(ledger, { debug: true, prefix: 'daemon' })
 
     try {
-      logger.info('HTTP forward', {
+      logger.info('HTTP result', {
         accountId: 'account-1',
         id: 'request-1',
         method: 'POST',
         path: '/backend-api/codex/responses',
+        statusCode: 200,
         targetHost: 'chatgpt.com'
       })
     } finally {

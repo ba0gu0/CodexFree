@@ -561,6 +561,7 @@ function fakeLedger(
       averageDurationMs: null,
       dayGroups: [],
       failed: 0,
+      hourGroups: [],
       modelGroups: [],
       requestBytes: 0,
       requestsWithUsage: 0,

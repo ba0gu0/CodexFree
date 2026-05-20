@@ -3,14 +3,13 @@ import { PageHeader } from '@renderer/components/app-shell/page-header'
 import { Button } from '@renderer/components/ui/button'
 import { Card, CardHeader, CardPanel, CardTitle } from '@renderer/components/ui/card'
 import { Checkbox } from '@renderer/components/ui/checkbox'
-import { Progress } from '@renderer/components/ui/progress'
 import { formatDateTime, normalizePercent } from '@renderer/data/format'
 import {
   accountDisplayName,
   accountUsageSummary,
   type ManagedAccount
 } from '@renderer/data/proxy-console'
-import { useVirtualRows } from '@renderer/hooks/use-virtual-rows'
+import { useVirtualRows, VIRTUAL_ROW_BATCH_SIZE } from '@renderer/hooks/use-virtual-rows'
 import {
   DownloadIcon,
   PowerIcon,
@@ -59,19 +58,13 @@ export function AccountsPage({
       <PageHeader
         actions={
           <>
+            <Button loading={busyAction === 'refresh'} onClick={actions.refresh} variant="outline">
+              <RefreshCwIcon data-icon="inline-start" />
+              {t('shell.refresh')}
+            </Button>
             <Button loading={busyAction === 'import'} onClick={actions.importAuthFiles}>
               <UploadIcon data-icon="inline-start" />
-              {t('action.import')}
-            </Button>
-            <Button
-              disabled={busyAction === 'usage'}
-              onClick={actions.checkUsage}
-              variant="outline"
-            >
-              <RefreshCwIcon data-icon="inline-start" />
-              {busyAction === 'usage'
-                ? (usageProgressText(usageProgress) ?? t('action.checkUsage'))
-                : t('action.checkUsage')}
+              {t('action.importShort')}
             </Button>
             <Button
               loading={busyAction === 'export'}
@@ -79,11 +72,21 @@ export function AccountsPage({
               variant="outline"
             >
               <DownloadIcon data-icon="inline-start" />
-              {t('action.export')}
+              {t('action.exportShort')}
             </Button>
-            <Button loading={busyAction === 'refresh'} onClick={actions.refresh} variant="outline">
+            <Button
+              disabled={busyAction === 'usage'}
+              onClick={() =>
+                hasCheckedAccounts
+                  ? actions.checkUsageForAccounts(checkedIds)
+                  : actions.checkUsage()
+              }
+              variant="outline"
+            >
               <RefreshCwIcon data-icon="inline-start" />
-              {t('shell.refresh')}
+              {busyAction === 'usage'
+                ? (usageProgressText(usageProgress) ?? t('action.checkUsage'))
+                : t('action.checkUsage')}
             </Button>
             <Button
               disabled={!hasCheckedAccounts}
@@ -127,9 +130,6 @@ export function AccountsPage({
 
       <section className="grid h-[92px] shrink-0 grid-cols-4 gap-3">
         <MetricCard
-          detail={t('accounts.managedAccountDetail', {
-            total: snapshot.status.authPoolAccounts
-          })}
           label={t('accounts.managedAccounts')}
           tone="info"
           value={String(snapshot.status.authPoolAccounts)}
@@ -224,7 +224,11 @@ function AccountTable({
   const [sort, setSort] = useState<AccountSort>({ direction: 'asc', key: 'account' })
   const [checkingAccountId, setCheckingAccountId] = useState<string | null>(null)
   const sortedAccounts = useMemo(() => sortAccounts(accounts, sort), [accounts, sort])
-  const virtualAccounts = useVirtualRows({ rowHeight: 56, rows: sortedAccounts })
+  const virtualAccounts = useVirtualRows({
+    renderedRowLimit: VIRTUAL_ROW_BATCH_SIZE,
+    rowHeight: 56,
+    rows: sortedAccounts
+  })
   const allVisibleChecked =
     sortedAccounts.length > 0 &&
     sortedAccounts.every((account) => checkedAccountIds.has(account.accountId))
@@ -343,7 +347,7 @@ function AccountTable({
                   <span className="truncate text-muted-foreground text-[11px]">
                     {t('table.resetAt')}: {formatDateTime(account.rateLimitResetsAt, locale)}
                   </span>
-                  <Progress value={remainingUsagePercent(account.primaryUsedPercent)} />
+                  <QuotaProgress percent={remainingUsagePercent(account.primaryUsedPercent)} />
                 </div>
               </td>
               <td className="max-w-0 overflow-hidden px-2.5 align-middle">
@@ -444,6 +448,30 @@ function compareAccounts(left: ManagedAccount, right: ManagedAccount, sort: Acco
 function remainingUsagePercent(value: string | null | undefined): number {
   const used = normalizePercent(value)
   return used === undefined ? 0 : Math.max(0, Math.min(100, 100 - used))
+}
+
+function QuotaProgress({ percent }: { percent: number }): ReactElement {
+  const bounded = Math.max(0, Math.min(100, percent))
+  return (
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+      <div
+        className={`h-full rounded-full transition-[width] duration-300 ${quotaProgressClass(
+          bounded
+        )}`}
+        style={{ width: `${bounded}%` }}
+      />
+    </div>
+  )
+}
+
+function quotaProgressClass(percent: number): string {
+  if (percent >= 60) {
+    return 'bg-success'
+  }
+  if (percent >= 20) {
+    return 'bg-warning'
+  }
+  return 'bg-destructive'
 }
 
 function accountSortValue(account: ManagedAccount, key: AccountSortKey): string {

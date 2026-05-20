@@ -117,14 +117,6 @@ export async function handleProxyUpgrade(
   let routedAuthHeader = routedAccount?.authorization ?? authHeader
   let routedAccountId = routedAccount?.accountId ?? accountId
   let suppressedRetryCloseLogs = 0
-  ctx.log.info('WSS client connected', {
-    id: requestId,
-    path: request.url,
-    accountId: routedAccountId,
-    accountLabel: routedAccount?.label,
-    conversationKey,
-    usage: ctx.accountUsageText(routedAccountId)
-  })
 
   const markQuotaExhausted = (event: QuotaExhaustionEvent) => {
     ctx.markHttpQuotaExhausted(requestId, routedAccountId, conversationKey, event)
@@ -185,6 +177,9 @@ export async function handleProxyUpgrade(
     return hasReplacement
   }
   const logLifecycle = (event: WebSocketLifecycleEvent) => {
+    if (event.type === 'upstream_connecting') {
+      return
+    }
     if (event.type === 'upstream_closed' && suppressedRetryCloseLogs > 0) {
       suppressedRetryCloseLogs -= 1
       return

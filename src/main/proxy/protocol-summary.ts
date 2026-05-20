@@ -68,6 +68,18 @@ export function summarizeWebSocketFrame(
 
   const type = stringField(payload, 'type') ?? 'message'
   const base = summaryBase(frame, payload, type)
+  if (frame.direction === 'upstream-to-codex' && type === 'response.created') {
+    const response = recordField(payload, 'response')
+    const responseId = stringField(response, 'id') ?? stringField(payload, 'response_id')
+    return {
+      ...base,
+      kind: 'response_started',
+      model: stringField(response, 'model'),
+      responseId,
+      summaryJson: safeSummaryJson({ responseId, type }),
+      text: `AI 开始响应: ${responseId ?? 'unknown'}`
+    }
+  }
   if (type.endsWith('.delta') || type.endsWith('.in_progress')) {
     return undefined
   }

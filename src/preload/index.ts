@@ -16,6 +16,7 @@ import type {
   ProtocolMessageDto,
   ProxyConfigDto,
   ProxyLogEventDto,
+  ProxyPageSaveResultDto,
   ProxyStatusDto,
   RawCaptureDetailDto,
   RecentRequestDto,
@@ -79,6 +80,11 @@ const api = {
     input: DaemonControlSaveInputDto
   ): Promise<DaemonControlSaveResultDto> =>
     ipcRenderer.invoke('proxy:save-daemon-control-settings', input),
+  saveProxyPageConfig: (
+    config: ProxyConfigDto,
+    input: DaemonControlSaveInputDto
+  ): Promise<ProxyPageSaveResultDto> =>
+    ipcRenderer.invoke('proxy:save-proxy-page-config', config, input),
   importAuthFiles: (): Promise<AuthImportResultDto> =>
     ipcRenderer.invoke('proxy:import-auth-files'),
   checkAccountUsage: (): Promise<AccountUsageCheckBatchDto> =>

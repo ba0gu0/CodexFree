@@ -34,6 +34,29 @@ export function formatBytes(value: number | null | undefined, locale: Locale): s
   return `${formatter.format(value / 1024 / 1024)} MiB`
 }
 
+export function formatTokenCount(value: number, locale: Locale): string {
+  const formatter = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 })
+  if (value >= 1_000_000) {
+    return `${formatter.format(value / 1_000_000)}M`
+  }
+  if (value >= 1_000) {
+    return `${formatter.format(value / 1_000)}K`
+  }
+  return formatWholeNumber(value, locale)
+}
+
+export function formatTokenCost(tokens: number, locale: Locale): string {
+  const usd = (tokens / 1_000_000) * 5
+  return `$${new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2
+  }).format(usd)}`
+}
+
+export function formatWholeNumber(value: number, locale: Locale): string {
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(value)
+}
+
 export function normalizePercent(value: string | null | undefined): number | undefined {
   if (!value) {
     return undefined

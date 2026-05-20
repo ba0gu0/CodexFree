@@ -15,12 +15,18 @@ export function useNearBottomLoadMore({
 
   return useCallback(
     (node: HTMLDivElement): void => {
+      const scrollable = node.scrollHeight > node.clientHeight + 1
+      if (!enabled || !scrollable) {
+        armedRef.current = false
+        return
+      }
+
       const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < threshold
       if (!nearBottom) {
         armedRef.current = true
         return
       }
-      if (!enabled || !armedRef.current) {
+      if (!armedRef.current) {
         return
       }
 

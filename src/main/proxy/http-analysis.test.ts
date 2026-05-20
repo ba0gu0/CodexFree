@@ -1,3 +1,4 @@
+import { zstdCompressSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { analyzeHttpTraffic } from './http-analysis'
 
@@ -118,12 +119,21 @@ describe('HTTP traffic analysis', () => {
   })
 
   it('extracts token usage from Codex response SSE body', () => {
+    const requestBody = zstdCompressSync(
+      Buffer.from(
+        JSON.stringify({
+          input: [{ content: [{ text: 'hello', type: 'input_text' }], role: 'user' }],
+          model: 'gpt-5.5'
+        })
+      )
+    )
     const analysis = analyzeHttpTraffic({
       method: 'POST',
       path: '/backend-api/codex/responses',
-      requestBody: Buffer.from(JSON.stringify({ model: 'gpt-5.5', input: [{ role: 'user' }] })),
+      requestBody,
       requestHeaders: {
         accept: 'text/event-stream',
+        'content-encoding': 'zstd',
         'content-type': 'application/json'
       },
       responseBody: Buffer.from(
@@ -149,6 +159,7 @@ describe('HTTP traffic analysis', () => {
       outputTokens: 275,
       reasoningTokens: 18,
       requestInputItemCount: 1,
+      requestBodyEncoding: 'zstd',
       requestModel: 'gpt-5.5',
       requestPurpose: 'codex_response_sse',
       responsePlanType: 'plus',
@@ -159,7 +170,8 @@ describe('HTTP traffic analysis', () => {
     })
     expect(JSON.parse(analysis.summaryJson ?? '{}')).toMatchObject({
       purpose: 'codex_response_sse',
-      tokenUsage: { totalTokens: 94917 }
+      tokenUsage: { totalTokens: 94917 },
+      userText: 'hello'
     })
   })
 

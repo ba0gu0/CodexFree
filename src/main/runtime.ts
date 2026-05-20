@@ -1,6 +1,6 @@
-import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
+import { type ChildProcess, spawn } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { platform } from 'node:process'
 import { app } from 'electron'
 import { DaemonAdminClient } from './daemon/client'
 import {
@@ -29,10 +29,7 @@ export interface DaemonControlView {
   adminPort: number
   launchAgent: DaemonLaunchAgentSettings
 }
-
-export interface DaemonControlSaveInput extends DaemonControlUpdateInput {
-  launchAgentEnabled?: boolean
-}
+export type DaemonControlSaveInput = DaemonControlUpdateInput
 
 export interface MainRuntime {
   daemonClient: DaemonAdminClient
@@ -48,6 +45,10 @@ export interface MainRuntime {
   ) => Promise<{ proxy?: ProxyStatus; restarted: boolean; settings: DaemonControlView }>
   restartProxy: () => Promise<ProxyStatus>
   saveProxyConfig: (config: ProxyConfig) => Promise<{ config: ProxyConfig; status: ProxyStatus }>
+  saveProxyPageConfig: (
+    config: ProxyConfig,
+    input: DaemonControlSaveInput
+  ) => Promise<{ config: ProxyConfig; status: ProxyStatus }>
   startDaemonProxy: () => Promise<ProxyStatus>
   stopProxy: () => Promise<ProxyStatus>
   usageSummary: () => UsageSummary
@@ -67,10 +68,14 @@ export function createMainRuntime(): MainRuntime {
 
   const readRuntimeConfig = (): ProxyConfig =>
     readManagedProxyConfig(paths.databasePath, importedAuthPoolPath)
-  const readDaemonControl = (): DaemonControlView => ({
-    ...readDaemonControlSettings(paths.databasePath),
-    launchAgent: readDaemonLaunchAgentSettings(launchAgentOptions())
-  })
+  const readDaemonControl = (): DaemonControlView => {
+    const settings = readDaemonControlSettings(paths.databasePath)
+    return {
+      adminHost: settings.adminHost,
+      adminPort: settings.adminPort,
+      launchAgent: readLaunchAgentSettings(settings.launchAgentEnabled)
+    }
+  }
   const ensureDaemon = async (): Promise<void> => {
     if (ensureDaemonPromise) {
       return ensureDaemonPromise
@@ -81,16 +86,36 @@ export function createMainRuntime(): MainRuntime {
     return ensureDaemonPromise
   }
   const ensureDaemonUnlocked = async (): Promise<void> => {
-    if (await daemonReachable()) {
+    const targetConfig = readRuntimeConfig()
+    const launchAgent = readLaunchAgentSettings()
+    if (await daemonMatchesConfig(targetConfig)) {
       return
     }
     if (!appAutoStartEnabled) {
       throw new Error('CodexFree daemon is stopped by the app control')
     }
+    if (launchAgent.enabled) {
+      setDaemonLaunchAgentEnabled(launchAgentOptions(), true)
+      if (await daemonReachable()) {
+        await restartDaemonLaunchAgent(launchAgentOptions())
+      } else {
+        await startDaemonLaunchAgent(launchAgentOptions())
+      }
+      await waitForDaemonConfig(targetConfig)
+      return
+    }
+    if (await daemonReachable()) {
+      if (daemonProcess && isChildProcessRunning(daemonProcess)) {
+        await stopOwnedDaemon(daemonProcess)
+        daemonProcess = undefined
+      } else {
+        throw new Error(nonAppStartedDaemonMessage(targetConfig, daemonControl))
+      }
+    }
     if (!daemonProcess || daemonProcess.killed || daemonProcess.exitCode !== null) {
       daemonProcess = spawnDaemon(paths.dataDir)
     }
-    await waitForDaemon()
+    await waitForDaemonConfig(targetConfig)
   }
   const proxyStatus = async (): Promise<ProxyStatus> => {
     if (!appAutoStartEnabled && !(await daemonReachable())) {
@@ -101,9 +126,11 @@ export function createMainRuntime(): MainRuntime {
   }
   const restartProxy = async (): Promise<ProxyStatus> => {
     appAutoStartEnabled = true
-    if (readDaemonLaunchAgentSettings(launchAgentOptions()).enabled) {
-      restartDaemonLaunchAgent(launchAgentOptions())
-      await waitForDaemon()
+    const targetConfig = readRuntimeConfig()
+    if (readLaunchAgentSettings().enabled) {
+      setDaemonLaunchAgentEnabled(launchAgentOptions(), true)
+      await restartDaemonLaunchAgent(launchAgentOptions())
+      await waitForDaemonConfig(targetConfig)
       return (await daemonClient.status()).proxy
     }
     if (daemonProcess && isChildProcessRunning(daemonProcess)) {
@@ -113,35 +140,37 @@ export function createMainRuntime(): MainRuntime {
       throw new Error(nonAppStartedDaemonMessage(readRuntimeConfig(), daemonControl))
     }
     daemonProcess = spawnDaemon(paths.dataDir)
-    await waitForDaemon()
+    await waitForDaemonConfig(targetConfig)
     return (await daemonClient.status()).proxy
   }
   const startDaemonProxy = async (): Promise<ProxyStatus> => {
     appAutoStartEnabled = true
-    if (await daemonReachable()) {
+    const targetConfig = readRuntimeConfig()
+    if (await daemonMatchesConfig(targetConfig)) {
       return (await daemonClient.status()).proxy
     }
-    if (readDaemonLaunchAgentSettings(launchAgentOptions()).enabled) {
-      startDaemonLaunchAgent(launchAgentOptions())
+    if (readLaunchAgentSettings().enabled) {
+      setDaemonLaunchAgentEnabled(launchAgentOptions(), true)
+      await startDaemonLaunchAgent(launchAgentOptions())
     } else {
       daemonProcess = spawnDaemon(paths.dataDir)
     }
-    await waitForDaemon()
+    await waitForDaemonConfig(targetConfig)
     return (await daemonClient.status()).proxy
   }
   const stopProxy = async (): Promise<ProxyStatus> => {
     appAutoStartEnabled = false
-    const launchAgent = readDaemonLaunchAgentSettings(launchAgentOptions())
+    const launchAgent = readLaunchAgentSettings()
     if (launchAgent.enabled) {
-      stopDaemonLaunchAgent(launchAgentOptions())
+      await stopDaemonLaunchAgent(launchAgentOptions())
       daemonProcess = undefined
-      await waitForDaemonStop()
+      await waitForDaemonStop('launchAgent')
       return stoppedProxyStatus(readRuntimeConfig(), paths.rawCaptureDir)
     }
     if (daemonProcess && isChildProcessRunning(daemonProcess)) {
       await stopOwnedDaemon(daemonProcess)
       daemonProcess = undefined
-      await waitForDaemonStop()
+      await waitForDaemonStop('child')
       return stoppedProxyStatus(readRuntimeConfig(), paths.rawCaptureDir)
     }
     if (await daemonReachable()) {
@@ -159,6 +188,33 @@ export function createMainRuntime(): MainRuntime {
       throw new Error(`配置已保存，但服务重启失败：${errorMessage(error)}`)
     }
   }
+  const saveProxyPageConfig = async (
+    config: ProxyConfig,
+    input: DaemonControlSaveInput
+  ): Promise<{ config: ProxyConfig; status: ProxyStatus }> => {
+    const previousLaunchAgent = readLaunchAgentSettings()
+    const previousDaemonProcess = daemonProcess
+    const wasReachable = await daemonReachable()
+    const saved = writeManagedConfig(config)
+    const update = updateDaemonControlConfig(paths.databasePath, input)
+    daemonControl = update.config
+    daemonClient = createDaemonClient(daemonControl)
+    ensureDaemonPromise = undefined
+
+    const nextLaunchAgentEnabled = input.launchAgentEnabled ?? previousLaunchAgent.enabled
+    try {
+      const status = await restartWithOwnerMode({
+        nextLaunchAgentEnabled,
+        previousDaemonProcess,
+        previousLaunchAgentEnabled: previousLaunchAgent.enabled,
+        targetConfig: saved,
+        wasReachable
+      })
+      return { config: saved, status }
+    } catch (error) {
+      throw new Error(`配置已保存，但服务重启失败：${errorMessage(error)}`)
+    }
+  }
   const rawCaptureDir = async (): Promise<string> => (await proxyStatus()).rawCaptureDir
   const requestSummary = (): RequestSummary => readRequestSummary(paths.databasePath)
   const usageSummary = (): UsageSummary => readUsageSummary(paths.databasePath)
@@ -172,10 +228,10 @@ export function createMainRuntime(): MainRuntime {
     daemonClient = createDaemonClient(daemonControl)
     ensureDaemonPromise = undefined
 
-    const launchAgent =
-      typeof input.launchAgentEnabled === 'boolean'
-        ? setDaemonLaunchAgentEnabled(launchAgentOptions(), input.launchAgentEnabled)
-        : readDaemonLaunchAgentSettings(launchAgentOptions())
+    if (typeof input.launchAgentEnabled === 'boolean') {
+      setDaemonLaunchAgentEnabled(launchAgentOptions(), input.launchAgentEnabled)
+    }
+    const launchAgent = readLaunchAgentSettings(update.settings.launchAgentEnabled)
 
     if (update.changed && previousDaemonProcess && isChildProcessRunning(previousDaemonProcess)) {
       await stopOwnedDaemon(previousDaemonProcess)
@@ -214,6 +270,7 @@ export function createMainRuntime(): MainRuntime {
     saveDaemonControlSettings,
     restartProxy,
     saveProxyConfig,
+    saveProxyPageConfig,
     startDaemonProxy,
     stopProxy,
     usageSummary
@@ -230,18 +287,30 @@ export function createMainRuntime(): MainRuntime {
     )
   }
 
-  async function waitForDaemon(): Promise<void> {
+  async function waitForDaemonConfig(config: ProxyConfig): Promise<void> {
     const deadline = Date.now() + 10_000
     while (Date.now() < deadline) {
-      if (await daemonReachable()) {
+      const status = await daemonClient.status().then(
+        (result) => result.proxy,
+        () => undefined
+      )
+      if (status && proxyStatusMatchesConfig(status, config)) {
         return
       }
       await delay(250)
     }
-    throw new Error('CodexFree daemon did not start within 10 seconds')
+    throw new Error(`CodexFree daemon did not apply ${proxyEndpoint(config)} within 10 seconds`)
   }
 
-  async function waitForDaemonStop(): Promise<void> {
+  async function daemonMatchesConfig(config: ProxyConfig): Promise<boolean> {
+    const status = await daemonClient.status().then(
+      (result) => result.proxy,
+      () => undefined
+    )
+    return status ? proxyStatusMatchesConfig(status, config) : false
+  }
+
+  async function waitForDaemonStop(mode: 'child' | 'launchAgent'): Promise<void> {
     const deadline = Date.now() + 5_000
     while (Date.now() < deadline) {
       if (!(await daemonReachable())) {
@@ -249,7 +318,7 @@ export function createMainRuntime(): MainRuntime {
       }
       await delay(200)
     }
-    throw new Error(nonAppStartedDaemonMessage(readRuntimeConfig(), daemonControl))
+    throw new Error(nonAppStartedDaemonMessage(readRuntimeConfig(), daemonControl, mode))
   }
 
   function launchAgentOptions() {
@@ -257,14 +326,69 @@ export function createMainRuntime(): MainRuntime {
       commandPath: process.execPath,
       dataDir: paths.dataDir,
       scriptPath: daemonScriptPath(),
-      workingDirectory: app.isPackaged ? app.getAppPath() : process.cwd()
+      workingDirectory: paths.dataDir
     }
+  }
+
+  function readLaunchAgentSettings(preferredEnabled?: boolean): DaemonLaunchAgentSettings {
+    const settings = readDaemonLaunchAgentSettings(launchAgentOptions())
+    const enabled = preferredEnabled ?? daemonControl.launchAgentEnabled
+    return { ...settings, enabled }
+  }
+
+  async function restartWithOwnerMode({
+    nextLaunchAgentEnabled,
+    previousDaemonProcess,
+    previousLaunchAgentEnabled,
+    targetConfig,
+    wasReachable
+  }: {
+    nextLaunchAgentEnabled: boolean
+    previousDaemonProcess: ChildProcess | undefined
+    previousLaunchAgentEnabled: boolean
+    targetConfig: ProxyConfig
+    wasReachable: boolean
+  }): Promise<ProxyStatus> {
+    appAutoStartEnabled = true
+    if (previousLaunchAgentEnabled) {
+      daemonProcess = undefined
+      if (nextLaunchAgentEnabled) {
+        setDaemonLaunchAgentEnabled(launchAgentOptions(), true)
+        await restartDaemonLaunchAgent(launchAgentOptions())
+      } else {
+        await stopDaemonLaunchAgent(launchAgentOptions())
+        await waitForDaemonStop('launchAgent')
+        setDaemonLaunchAgentEnabled(launchAgentOptions(), false)
+        daemonProcess = spawnDaemon(paths.dataDir)
+      }
+      await waitForDaemonConfig(targetConfig)
+      return (await daemonClient.status()).proxy
+    }
+
+    if (previousDaemonProcess && isChildProcessRunning(previousDaemonProcess)) {
+      await stopOwnedDaemon(previousDaemonProcess)
+      if (daemonProcess === previousDaemonProcess) {
+        daemonProcess = undefined
+      }
+    } else if (wasReachable) {
+      throw new Error(nonAppStartedDaemonMessage(readRuntimeConfig(), daemonControl))
+    }
+
+    if (nextLaunchAgentEnabled) {
+      setDaemonLaunchAgentEnabled(launchAgentOptions(), true)
+      daemonProcess = undefined
+      await startDaemonLaunchAgent(launchAgentOptions())
+    } else {
+      setDaemonLaunchAgentEnabled(launchAgentOptions(), false)
+      daemonProcess = spawnDaemon(paths.dataDir)
+    }
+    await waitForDaemonConfig(targetConfig)
+    return (await daemonClient.status()).proxy
   }
 }
 
 function stoppedProxyStatus(config: ProxyConfig, rawCaptureDir: string): ProxyStatus {
-  const hostPort = `${config.listenHost}:${config.listenPort}`
-  const endpoint = `http://${hostPort}/backend-api`
+  const endpoint = proxyEndpoint(config)
   const openaiBaseUrl = `${endpoint}/codex`
   return {
     authPoolAccounts: 0,
@@ -283,84 +407,35 @@ function stoppedProxyStatus(config: ProxyConfig, rawCaptureDir: string): ProxySt
   }
 }
 
-function nonAppStartedDaemonMessage(config: ProxyConfig, control: DaemonControlConfig): string {
+function proxyEndpoint(config: ProxyConfig): string {
+  return `http://${config.listenHost}:${config.listenPort}/backend-api`
+}
+
+function proxyStatusMatchesConfig(status: ProxyStatus, config: ProxyConfig): boolean {
+  return (
+    status.endpoint === proxyEndpoint(config) &&
+    status.openaiBaseUrl === `${proxyEndpoint(config)}/codex` &&
+    status.rawCaptureEnabled === config.rawCaptureEnabled &&
+    status.upstreamBaseUrl === config.upstreamBaseUrl
+  )
+}
+
+function nonAppStartedDaemonMessage(
+  _config: ProxyConfig,
+  _control: DaemonControlConfig,
+  mode: 'child' | 'launchAgent' = 'child'
+): string {
+  const modeText =
+    mode === 'launchAgent'
+      ? '检测到开机自启动后台服务已启动。'
+      : '检测到后台服务已启动，但不是当前 App 托管的子进程。'
   return [
-    '当前 daemon 不是由 App 启动的子进程，App 不能安全停止它。',
-    '请自行检查并停止占用端口的代理进程。',
-    collectDaemonDiagnostics(config, control)
+    '后台服务已启动，App 不能安全停止或重启它。',
+    modeText,
+    '请自行检查并停止占用端口的代理进程，确认没有正在使用中的 Codex 会话后再操作。'
   ]
     .filter(Boolean)
     .join('\n\n')
-}
-
-function collectDaemonDiagnostics(config: ProxyConfig, control: DaemonControlConfig): string {
-  const keywords = [
-    String(config.listenPort),
-    String(control.adminPort),
-    'codexfree',
-    'CodexFree',
-    'daemon/cli'
-  ]
-  return [
-    renderDiagnosticBlock('ps', collectPsDiagnostics(keywords)),
-    renderDiagnosticBlock('lsof', collectPortDiagnostics(config.listenPort)),
-    renderDiagnosticBlock('admin lsof', collectPortDiagnostics(control.adminPort)),
-    renderDiagnosticBlock('netstat', collectNetstatDiagnostics(config.listenPort))
-  ]
-    .filter(Boolean)
-    .join('\n')
-}
-
-function renderDiagnosticBlock(label: string, value: string): string {
-  return value ? `[${label}]\n${value}` : ''
-}
-
-function collectPsDiagnostics(keywords: string[]): string {
-  if (platform === 'win32') {
-    return runCommand('tasklist.exe', ['/v'])
-      .split('\n')
-      .filter((line) => keywords.some((keyword) => line.includes(keyword)))
-      .slice(0, 12)
-      .join('\n')
-  }
-  return runCommand('ps', ['-axo', 'pid,ppid,command'])
-    .split('\n')
-    .filter((line) => keywords.some((keyword) => line.includes(keyword)))
-    .slice(0, 12)
-    .join('\n')
-}
-
-function collectPortDiagnostics(port: number): string {
-  if (platform === 'win32') {
-    return runCommand('netstat.exe', ['-ano'])
-      .split('\n')
-      .filter((line) => line.includes(`:${port}`))
-      .slice(0, 12)
-      .join('\n')
-  }
-  return runCommand('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'])
-}
-
-function collectNetstatDiagnostics(port: number): string {
-  if (platform === 'win32') {
-    return ''
-  }
-  return runCommand('netstat', ['-anv'])
-    .split('\n')
-    .filter((line) => line.includes(`.${port}`) || line.includes(`:${port}`))
-    .slice(0, 12)
-    .join('\n')
-}
-
-function runCommand(command: string, args: string[]): string {
-  try {
-    return execFileSync(command, args, {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore']
-    }).trim()
-  } catch {
-    return ''
-  }
 }
 
 function createDaemonClient(control: DaemonControlConfig): DaemonAdminClient {
@@ -371,31 +446,13 @@ function createDaemonClient(control: DaemonControlConfig): DaemonAdminClient {
 }
 
 function spawnDaemon(dataDir: string): ChildProcess {
-  const command = process.execPath
-  const args = [daemonScriptPath(), '--data-dir', dataDir]
-  const child = spawn(command, args, {
-    cwd: app.isPackaged ? app.getAppPath() : process.cwd(),
+  mkdirSync(dataDir, { recursive: true, mode: 0o700 })
+  return spawn(process.execPath, [daemonScriptPath(), '--data-dir', dataDir], {
+    cwd: dataDir,
     detached: false,
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_NO_WARNINGS: '1' },
     stdio: 'ignore'
   })
-  return child
-}
-
-function daemonScriptPath(): string {
-  return app.isPackaged
-    ? join(app.getAppPath(), 'out', 'daemon', 'cli.cjs')
-    : join(process.cwd(), 'out', 'daemon', 'cli.cjs')
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms)
-  })
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function isChildProcessRunning(child: ChildProcess): boolean {
@@ -404,8 +461,7 @@ function isChildProcessRunning(child: ChildProcess): boolean {
 
 async function stopOwnedDaemon(child: ChildProcess): Promise<void> {
   child.kill()
-  const exited = await waitForProcessExit(child, 5_000)
-  if (!exited && isChildProcessRunning(child)) {
+  if (!(await waitForProcessExit(child, 5_000)) && isChildProcessRunning(child)) {
     child.kill('SIGKILL')
     await waitForProcessExit(child, 2_000)
   }
@@ -417,14 +473,28 @@ function waitForProcessExit(child: ChildProcess, timeoutMs: number): Promise<boo
   }
 
   return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      child.off('exit', onExit)
-      resolve(false)
-    }, timeoutMs)
     const onExit = (): void => {
       clearTimeout(timer)
       resolve(true)
     }
+    const timer = setTimeout(() => {
+      child.off('exit', onExit)
+      resolve(false)
+    }, timeoutMs)
     child.once('exit', onExit)
   })
+}
+
+function daemonScriptPath(): string {
+  return app.isPackaged
+    ? join(app.getAppPath(), 'out', 'daemon', 'cli.cjs')
+    : join(process.cwd(), 'out', 'daemon', 'cli.cjs')
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

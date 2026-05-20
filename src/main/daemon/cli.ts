@@ -108,13 +108,11 @@ function startCodexConfigMonitor(readConfig: () => ProxyConfig): { stop: () => v
 
 function codexConfigInput(config: ProxyConfig): {
   chatgptBaseUrl: string
-  modelProvider: string
   openaiBaseUrl: string
 } {
   const baseUrl = `http://${config.listenHost}:${config.listenPort}/backend-api`
   return {
     chatgptBaseUrl: baseUrl,
-    modelProvider: 'openai',
     openaiBaseUrl: `${baseUrl}/codex`
   }
 }
@@ -125,20 +123,15 @@ function codexConfigLooksCurrent(input: ReturnType<typeof codexConfigInput>): bo
     return false
   }
   const content = readFileSync(configPath, 'utf8')
-  return (
-    hasTomlAssignment(content, 'chatgpt_base_url', input.chatgptBaseUrl) &&
-    hasTomlAssignment(content, 'openai_base_url', input.openaiBaseUrl) &&
-    hasTomlAssignment(content, 'model_provider', input.modelProvider)
-  )
+  const expectedHeader = [
+    `chatgpt_base_url = "${escapeTomlString(input.chatgptBaseUrl)}"`,
+    `openai_base_url = "${escapeTomlString(input.openaiBaseUrl)}"`
+  ].join('\n')
+  return !/^\s*model_provider\s*=/m.test(content) && content.startsWith(`${expectedHeader}\n`)
 }
 
-function hasTomlAssignment(content: string, key: string, value: string): boolean {
-  const escaped = escapeRegExp(value)
-  return new RegExp(`^\\s*${key}\\s*=\\s*"${escaped}"\\s*$`, 'm').test(content)
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+function escapeTomlString(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
 }
 
 export function resolveDaemonCliPaths(

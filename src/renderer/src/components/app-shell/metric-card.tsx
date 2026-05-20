@@ -11,6 +11,7 @@ import { StatusBadge, type StatusTone } from './status-badge'
 
 interface MetricCardProps {
   detail?: string
+  density?: 'default' | 'compact'
   label: string
   title?: string
   tone?: StatusTone
@@ -19,16 +20,27 @@ interface MetricCardProps {
 
 export function MetricCard({
   detail,
+  density = 'default',
   label,
   title,
   tone = 'default',
   value
 }: MetricCardProps): ReactElement {
+  const compact = density === 'compact'
+
   return (
-    <Card className="h-full min-h-[92px] min-w-0 overflow-hidden rounded-xl border-border/80 shadow-none">
-      <CardHeader className="min-w-0 p-3 pb-1">
+    <Card
+      className={cn(
+        'flex h-full min-w-0 flex-col overflow-hidden rounded-xl border-border/80 shadow-none',
+        compact ? 'min-h-[76px]' : 'min-h-[92px]'
+      )}
+    >
+      <CardHeader className={cn('min-w-0 p-3', compact ? 'pb-0' : 'pb-1')}>
         <CardDescription className="truncate font-semibold text-xs">{label}</CardDescription>
-        <CardTitle className="min-w-0 truncate text-xl leading-tight" title={title ?? value}>
+        <CardTitle
+          className={cn('min-w-0 truncate leading-tight', compact ? 'text-lg' : 'text-xl')}
+          title={title ?? value}
+        >
           {value}
         </CardTitle>
         {detail ? (
@@ -37,7 +49,7 @@ export function MetricCard({
           </CardDescription>
         ) : null}
       </CardHeader>
-      <CardPanel className="flex items-end p-3 pt-0">
+      <CardPanel className={cn('mt-auto flex items-end p-3 pt-0', compact ? 'pb-2' : '')}>
         <div className={cn('ml-auto h-1.5 w-9 rounded-full bg-muted', toneClassName(tone))} />
       </CardPanel>
     </Card>

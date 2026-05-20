@@ -16,17 +16,23 @@ export interface VirtualRow<T> {
 export interface VirtualRows<T> {
   bottomPadding: number
   containerRef: RefObject<HTMLDivElement | null>
+  endIndex: number
   onScroll: (event: UIEvent<HTMLDivElement>) => void
   rows: VirtualRow<T>[]
+  startIndex: number
   topPadding: number
 }
 
+export const VIRTUAL_ROW_BATCH_SIZE = 50
+
 export function useVirtualRows<T>({
   overscan = 4,
+  renderedRowLimit = VIRTUAL_ROW_BATCH_SIZE,
   rowHeight,
   rows
 }: {
   overscan?: number
+  renderedRowLimit?: number
   rowHeight: number
   rows: T[]
 }): VirtualRows<T> {
@@ -35,9 +41,17 @@ export function useVirtualRows<T>({
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
 
-  const onScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
-    setScrollTop(event.currentTarget.scrollTop)
-  }, [])
+  const onScroll = useCallback(
+    (event: UIEvent<HTMLDivElement>) => {
+      const nextScrollTop = event.currentTarget.scrollTop
+      setScrollTop((current) => {
+        const currentRow = Math.floor(current / rowHeight)
+        const nextRow = Math.floor(nextScrollTop / rowHeight)
+        return currentRow === nextRow ? current : nextScrollTop
+      })
+    },
+    [rowHeight]
+  )
 
   useLayoutEffect(() => {
     const node = containerRef.current
@@ -66,8 +80,9 @@ export function useVirtualRows<T>({
 
   return useMemo(() => {
     const start = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan)
-    const visibleCount = Math.ceil(viewportHeight / rowHeight) + overscan * 2
-    const end = Math.min(rows.length, start + visibleCount)
+    const visibleRows = viewportHeight > 0 ? Math.ceil(viewportHeight / rowHeight) : 1
+    const windowSize = Math.min(renderedRowLimit, Math.max(1, visibleRows + overscan * 2))
+    const end = Math.min(rows.length, start + windowSize)
     const virtualRows = rows.slice(start, end).map((item, offset) => ({
       index: start + offset,
       item
@@ -76,9 +91,11 @@ export function useVirtualRows<T>({
     return {
       bottomPadding: Math.max(0, (rows.length - end) * rowHeight),
       containerRef,
+      endIndex: end,
       onScroll,
       rows: virtualRows,
+      startIndex: start,
       topPadding: start * rowHeight
     }
-  }, [onScroll, overscan, rowHeight, rows, scrollTop, viewportHeight])
+  }, [onScroll, overscan, renderedRowLimit, rowHeight, rows, scrollTop, viewportHeight])
 }

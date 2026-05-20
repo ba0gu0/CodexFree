@@ -24,13 +24,15 @@ export function createProxyLogger(
   function emit(level: LogEventLevel, message: string, data?: unknown): void {
     const meta = extractLogMeta(data)
     const eventType = classifyLogEvent(level, message, data)
-    if (shouldPersistLogEvent(level, eventType)) {
+    const shouldPersist = shouldPersistLogEvent(level, eventType)
+    const displayText = shouldPersist || options.debug ? formatProxyLog(message, data) : undefined
+    if (shouldPersist) {
       ledger.recordLogEvent(
         {
           level,
           eventType,
           message,
-          detail: data,
+          detail: withDisplayText(data, displayText ?? message),
           requestId: meta.requestId,
           accountId: meta.accountId,
           conversationKey: meta.conversationKey,
@@ -46,8 +48,16 @@ export function createProxyLogger(
     }
 
     const target = level === 'error' ? stderr : stdout
-    target.write(`[${options.prefix}:${level}] ${formatProxyLog(message, data)}\n`)
+    target.write(`[${options.prefix}:${level}] ${displayText ?? formatProxyLog(message, data)}\n`)
   }
+}
+
+function withDisplayText(data: unknown, displayText: string): unknown {
+  const record = asRecord(data)
+  if (record) {
+    return { ...record, displayText }
+  }
+  return { displayText, value: data ?? null }
 }
 
 function shouldPersistLogEvent(level: LogEventLevel, eventType: LogEventType): boolean {
@@ -121,7 +131,7 @@ function extractLogMeta(data: unknown): {
   }
 }
 
-function formatProxyLog(message: string, data: unknown): string {
+export function formatProxyLog(message: string, data: unknown): string {
   const record = asRecord(data)
   if (message === 'Transparent proxy started') {
     return [
@@ -201,14 +211,25 @@ function formatProxyLog(message: string, data: unknown): string {
     const method = recordString(record, 'method') ?? 'GET'
     const path = recordString(record, 'path') ?? '/'
     const body = recordString(record, 'body')
+    const requestBody = recordString(record, 'requestBody')
     const error = recordString(record, 'errorMessage')
     const statusCode = numberValue(record, 'statusCode') ?? recordString(record, 'statusCode')
     return [
-      `HTTP响应: ${statusCode ?? 'unknown'} ${path}`,
+      `HTTP请求完成: ${statusCode ?? 'unknown'} ${method} ${path}`,
       `(${describeEndpoint(path, method)})`,
       `purpose=${recordString(record, 'requestPurpose') ?? 'unknown'}`,
       recordString(record, 'requestModel')
         ? `requestModel=${recordString(record, 'requestModel')}`
+        : undefined,
+      recordString(record, 'requestBodyEncoding')
+        ? `encoding=${recordString(record, 'requestBodyEncoding')}`
+        : undefined,
+      recordString(record, 'requestInputItemCount')
+        ? `inputItems=${recordString(record, 'requestInputItemCount')}`
+        : undefined,
+      recordString(record, 'rpcMethod') ? `rpc=${recordString(record, 'rpcMethod')}` : undefined,
+      recordString(record, 'analyticsEventTypes')
+        ? `events=${recordString(record, 'analyticsEventTypes')}`
         : undefined,
       recordString(record, 'responseModel')
         ? `responseModel=${recordString(record, 'responseModel')}`
@@ -235,9 +256,12 @@ function formatProxyLog(message: string, data: unknown): string {
       recordString(record, 'codexTurnId')
         ? `turn=${recordString(record, 'codexTurnId')}`
         : undefined,
+      recordString(record, 'targetHost') ? `-> ${recordString(record, 'targetHost')}` : undefined,
+      recordString(record, 'accountId') ? accountText(record) : undefined,
       `${numberValue(record, 'durationMs') ?? 0}ms`,
       `${numberValue(record, 'bytes') ?? 0}B`,
       error ? `error="${error}"` : undefined,
+      requestBody ? `requestBody="${requestBody}"` : undefined,
       body ? `body="${body}"` : undefined
     ]
       .filter(Boolean)

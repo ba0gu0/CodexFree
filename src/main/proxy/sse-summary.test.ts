@@ -1,20 +1,25 @@
+import { zstdCompressSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { summarizeServerSentEvents } from './sse-summary'
 
 describe('SSE protocol summary', () => {
   it('parses a complete HTTP SSE turn into protocol messages and a turn summary', () => {
-    const result = summarizeServerSentEvents({
-      accountId: 'account-1',
-      conversationKey: 'conversation-1',
-      path: '/backend-api/codex/responses',
-      requestBody: Buffer.from(
+    const requestBody = zstdCompressSync(
+      Buffer.from(
         JSON.stringify({
           input: [{ role: 'user', content: [{ type: 'input_text', text: 'hello' }] }],
           model: 'gpt-5.5',
           previous_response_id: 'resp-parent',
           tools: [{ name: 'exec_command' }]
         })
-      ),
+      )
+    )
+    const result = summarizeServerSentEvents({
+      accountId: 'account-1',
+      conversationKey: 'conversation-1',
+      path: '/backend-api/codex/responses',
+      requestBody,
+      requestBodyEncoding: 'zstd',
       requestId: 'request-1',
       responseBody: Buffer.from(
         [

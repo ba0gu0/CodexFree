@@ -8,17 +8,20 @@ export interface DaemonControlConfig {
   adminHost: string
   adminPort: number
   adminToken: string
+  launchAgentEnabled: boolean
 }
 
 export interface DaemonControlSettings {
   adminHost: string
   adminPort: number
+  launchAgentEnabled: boolean
 }
 
 export interface DaemonControlUpdateInput {
   adminHost: string
   adminPort: number
   adminToken?: string
+  launchAgentEnabled?: boolean
 }
 
 export interface DaemonControlReadResult {
@@ -49,7 +52,8 @@ export function readDaemonControlSettings(databasePath: string): DaemonControlSe
   const config = readDaemonControlConfig(databasePath)
   return {
     adminHost: config.adminHost,
-    adminPort: config.adminPort
+    adminPort: config.adminPort,
+    launchAgentEnabled: config.launchAgentEnabled
   }
 }
 
@@ -64,24 +68,34 @@ export function updateDaemonControlConfig(
     const adminPort = normalizeAdminPort(input.adminPort)
     const tokenInput = input.adminToken?.trim()
     const adminToken = tokenInput ? normalizeAdminToken(tokenInput) : current.adminToken
+    const launchAgentEnabled =
+      typeof input.launchAgentEnabled === 'boolean'
+        ? input.launchAgentEnabled
+        : current.launchAgentEnabled
 
     upsertSetting(sqlite, 'daemon.adminHost', adminHost)
     upsertSetting(sqlite, 'daemon.adminPort', String(adminPort))
     upsertSetting(sqlite, 'daemon.adminToken', adminToken)
+    if (typeof launchAgentEnabled === 'boolean') {
+      upsertSetting(sqlite, 'daemon.launchAgentEnabled', String(launchAgentEnabled))
+    }
 
     return {
       changed:
         adminHost !== current.adminHost ||
         adminPort !== current.adminPort ||
-        adminToken !== current.adminToken,
+        adminToken !== current.adminToken ||
+        launchAgentEnabled !== current.launchAgentEnabled,
       config: {
         adminHost,
         adminPort,
-        adminToken
+        adminToken,
+        launchAgentEnabled
       },
       settings: {
         adminHost,
-        adminPort
+        adminPort,
+        launchAgentEnabled
       }
     }
   } finally {
@@ -97,13 +111,15 @@ function readControlConfig(sqlite: Database.Database): DaemonControlReadResult {
   ensureProxySettingsTable(sqlite)
   const adminHost = readStringSetting(sqlite, 'daemon.adminHost') ?? defaultAdminHost
   const adminPort = readPortSetting(sqlite, 'daemon.adminPort') ?? defaultAdminPort
+  const launchAgentEnabled = readBooleanSetting(sqlite, 'daemon.launchAgentEnabled')
   const storedToken = readStringSetting(sqlite, 'daemon.adminToken')
   if (storedToken) {
     return {
       config: {
         adminHost,
         adminPort,
-        adminToken: normalizeAdminToken(storedToken)
+        adminToken: normalizeAdminToken(storedToken),
+        launchAgentEnabled
       },
       generatedAdminToken: false
     }
@@ -115,7 +131,8 @@ function readControlConfig(sqlite: Database.Database): DaemonControlReadResult {
     config: {
       adminHost,
       adminPort,
-      adminToken
+      adminToken,
+      launchAgentEnabled
     },
     generatedAdminToken: true
   }
@@ -146,6 +163,14 @@ function readPortSetting(sqlite: Database.Database, key: string): number | undef
   }
   const port = Number.parseInt(value, 10)
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : undefined
+}
+
+function readBooleanSetting(sqlite: Database.Database, key: string): boolean {
+  const value = readStringSetting(sqlite, key)?.toLowerCase()
+  if (value === 'true') {
+    return true
+  }
+  return false
 }
 
 function normalizeAdminHost(value: string): string {

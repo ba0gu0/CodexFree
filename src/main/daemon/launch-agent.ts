@@ -1,11 +1,15 @@
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { platform } from 'node:process'
+import { promisify } from 'node:util'
 
 const launchAgentLabel = 'com.baoguo.codexfree.daemon'
 const windowsServiceName = 'CodexFreeDaemon'
+const execFileAsync = promisify(execFile)
+const serviceCommandTimeoutMs = 30_000
+const launchdStateTimeoutMs = 5_000
 
 export interface DaemonLaunchAgentOptions {
   commandPath: string
@@ -86,45 +90,45 @@ export function setDaemonLaunchAgentEnabled(
   return readDaemonLaunchAgentSettings(options)
 }
 
-export function startDaemonLaunchAgent(options: DaemonLaunchAgentOptions): void {
+export async function startDaemonLaunchAgent(options: DaemonLaunchAgentOptions): Promise<void> {
   const settings = readDaemonLaunchAgentSettings(options)
   if (!settings.enabled) {
     throw new Error('CodexFree daemon startup service is not enabled')
   }
   if (platform === 'darwin') {
-    startLaunchdService(settings)
+    await startLaunchdService(settings)
     return
   }
   if (platform === 'win32') {
-    execFileSync('sc.exe', ['start', windowsServiceName], { stdio: 'ignore' })
+    await runServiceCommand('sc.exe', ['start', windowsServiceName])
     return
   }
   if (platform === 'linux') {
-    execFileSync('systemctl', ['--user', 'start', systemdServiceName()], { stdio: 'ignore' })
+    await runServiceCommand('systemctl', ['--user', 'start', systemdServiceName()])
   }
 }
 
-export function stopDaemonLaunchAgent(options: DaemonLaunchAgentOptions): void {
+export async function stopDaemonLaunchAgent(options: DaemonLaunchAgentOptions): Promise<void> {
   const settings = readDaemonLaunchAgentSettings(options)
   if (!settings.enabled) {
     throw new Error('CodexFree daemon startup service is not enabled')
   }
   if (platform === 'darwin') {
-    stopLaunchdService(settings)
+    await stopLaunchdService(settings)
     return
   }
   if (platform === 'win32') {
-    execFileSync('sc.exe', ['stop', windowsServiceName], { stdio: 'ignore' })
+    await runServiceCommand('sc.exe', ['stop', windowsServiceName])
     return
   }
   if (platform === 'linux') {
-    execFileSync('systemctl', ['--user', 'stop', systemdServiceName()], { stdio: 'ignore' })
+    await runServiceCommand('systemctl', ['--user', 'stop', systemdServiceName()])
   }
 }
 
-export function restartDaemonLaunchAgent(options: DaemonLaunchAgentOptions): void {
-  stopDaemonLaunchAgent(options)
-  startDaemonLaunchAgent(options)
+export async function restartDaemonLaunchAgent(options: DaemonLaunchAgentOptions): Promise<void> {
+  await stopDaemonLaunchAgent(options)
+  await startDaemonLaunchAgent(options)
 }
 
 function windowsServiceExists(): boolean {
@@ -156,30 +160,90 @@ function setWindowsServiceEnabled(options: DaemonLaunchAgentOptions, enabled: bo
   }
 }
 
-function startLaunchdService(settings: DaemonLaunchAgentSettings): void {
-  const serviceTarget = launchdServiceTarget()
-  if (settings.plistPath) {
-    try {
-      execFileSync('launchctl', ['bootstrap', launchdDomain(), settings.plistPath], {
-        stdio: 'ignore'
-      })
-    } catch {
-      // Service may already be bootstrapped; kickstart below is the effective start operation.
+async function startLaunchdService(settings: DaemonLaunchAgentSettings): Promise<void> {
+  if (!settings.plistPath) {
+    throw new Error('CodexFree launch agent plist path is unavailable')
+  }
+  if (await bootstrapLaunchdService(settings.plistPath)) {
+    await waitForLaunchdLoaded(true)
+    return
+  }
+  if (!(await isLaunchdServiceLoaded())) {
+    await delay(300)
+    if (await bootstrapLaunchdService(settings.plistPath)) {
+      await waitForLaunchdLoaded(true)
+      return
     }
   }
-  execFileSync('launchctl', ['kickstart', '-k', serviceTarget], { stdio: 'ignore' })
+  try {
+    await runServiceCommand('launchctl', ['kickstart', '-k', launchdServiceTarget()])
+  } catch (error) {
+    if (await waitForLaunchdLoaded(true, 1_500)) {
+      return
+    }
+    throw error
+  }
+  await waitForLaunchdLoaded(true)
 }
 
-function stopLaunchdService(settings: DaemonLaunchAgentSettings): void {
+async function stopLaunchdService(settings: DaemonLaunchAgentSettings): Promise<void> {
   try {
-    execFileSync('launchctl', ['bootout', launchdServiceTarget()], { stdio: 'ignore' })
+    await runServiceCommand('launchctl', ['bootout', launchdServiceTarget()])
+    await waitForLaunchdLoaded(false)
     return
   } catch {
+    if (!(await isLaunchdServiceLoaded())) {
+      return
+    }
     if (!settings.plistPath) {
       throw new Error('CodexFree launch agent plist path is unavailable')
     }
   }
-  execFileSync('launchctl', ['unload', settings.plistPath], { stdio: 'ignore' })
+  await runServiceCommand('launchctl', ['unload', settings.plistPath])
+  await waitForLaunchdLoaded(false)
+}
+
+async function runServiceCommand(command: string, args: string[]): Promise<void> {
+  await execFileAsync(command, args, {
+    timeout: serviceCommandTimeoutMs,
+    windowsHide: platform === 'win32'
+  })
+}
+
+async function bootstrapLaunchdService(plistPath: string): Promise<boolean> {
+  try {
+    await runServiceCommand('launchctl', ['bootstrap', launchdDomain(), plistPath])
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function waitForLaunchdLoaded(
+  expected: boolean,
+  timeoutMs = launchdStateTimeoutMs
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if ((await isLaunchdServiceLoaded()) === expected) {
+      return true
+    }
+    await delay(150)
+  }
+  return false
+}
+
+async function isLaunchdServiceLoaded(): Promise<boolean> {
+  try {
+    await runServiceCommand('launchctl', ['print', launchdServiceTarget()])
+    return true
+  } catch {
+    return false
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function launchdDomain(): string {
