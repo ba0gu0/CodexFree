@@ -45,12 +45,40 @@ export function formatTokenCount(value: number, locale: Locale): string {
   return formatWholeNumber(value, locale)
 }
 
-export function formatTokenCost(tokens: number, locale: Locale): string {
-  const usd = (tokens / 1_000_000) * 5
+export interface TokenCostInput {
+  cachedInputTokens?: number | null
+  inputTokens?: number | null
+  outputTokens?: number | null
+}
+
+const gpt55PricePerMillion = {
+  cachedInput: 0.5,
+  input: 5,
+  output: 30
+}
+
+export function tokenCostUsd(input: TokenCostInput): number {
+  const inputTokens = positiveNumber(input.inputTokens)
+  const cachedInputTokens = Math.min(inputTokens, positiveNumber(input.cachedInputTokens))
+  const standardInputTokens = inputTokens - cachedInputTokens
+  const outputTokens = positiveNumber(input.outputTokens)
+  return (
+    (standardInputTokens / 1_000_000) * gpt55PricePerMillion.input +
+    (cachedInputTokens / 1_000_000) * gpt55PricePerMillion.cachedInput +
+    (outputTokens / 1_000_000) * gpt55PricePerMillion.output
+  )
+}
+
+export function formatTokenCost(input: TokenCostInput, locale: Locale): string {
+  const usd = tokenCostUsd(input)
   return `$${new Intl.NumberFormat(locale, {
     maximumFractionDigits: 2,
     minimumFractionDigits: 2
   }).format(usd)}`
+}
+
+function positiveNumber(value: number | null | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
 }
 
 export function formatWholeNumber(value: number, locale: Locale): string {

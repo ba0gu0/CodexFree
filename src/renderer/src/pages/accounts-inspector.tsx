@@ -62,8 +62,12 @@ export function AccountInspector({
                 value={truncateMiddle(account.fingerprint, 18)}
               />
               <DetailRow
-                label={t('table.resetAt')}
-                value={formatDateTime(account.rateLimitResetsAt, locale)}
+                label={t('accounts.weeklyResetAt')}
+                value={formatDateTime(weeklyResetAt(account), locale)}
+              />
+              <DetailRow
+                label={t('accounts.fiveHourResetAt')}
+                value={formatDateTime(fiveHourResetAt(account), locale)}
               />
               <DetailRow
                 label={t('table.lastCheck')}
@@ -101,6 +105,19 @@ export function AccountInspector({
       </CardPanel>
     </Card>
   )
+}
+
+function isShortWindowPlan(account: ManagedAccount): boolean {
+  const plan = account.planType?.trim().toLowerCase()
+  return plan === 'plus' || plan === 'pro'
+}
+
+function weeklyResetAt(account: ManagedAccount): number | null {
+  return isShortWindowPlan(account) ? account.secondaryRateLimitResetsAt : account.rateLimitResetsAt
+}
+
+function fiveHourResetAt(account: ManagedAccount): number | null {
+  return isShortWindowPlan(account) ? account.rateLimitResetsAt : null
 }
 
 export function AccountStatus({

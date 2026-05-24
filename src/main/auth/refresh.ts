@@ -3,6 +3,7 @@ import type { CodexChatGptAuth } from './normalize'
 const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
 const TOKEN_ENDPOINT = 'https://auth.openai.com/oauth/token'
 const REFRESH_AFTER_MS = 8 * 24 * 60 * 60 * 1000
+const REFRESH_EXPIRY_SKEW_MS = 30 * 60 * 1000
 
 interface RefreshTokenResponse {
   access_token?: unknown
@@ -18,12 +19,36 @@ export interface TokenRefreshFailure {
 export type TokenRefresher = (auth: CodexChatGptAuth, now: Date) => Promise<CodexChatGptAuth>
 
 export function shouldRefreshChatGptAuth(auth: CodexChatGptAuth, now = new Date()): boolean {
+  if (auth.tokens.refresh_token.trim() === '') {
+    return false
+  }
+  const expiresAt = accessTokenExpiresAt(auth.tokens.access_token)
+  if (expiresAt !== undefined) {
+    return expiresAt - now.getTime() <= REFRESH_EXPIRY_SKEW_MS
+  }
   const lastRefresh = Date.parse(auth.last_refresh)
   if (!Number.isFinite(lastRefresh)) {
     return true
   }
 
   return now.getTime() - lastRefresh >= REFRESH_AFTER_MS
+}
+
+export function accessTokenExpiresAt(token: string): number | undefined {
+  const [, payload] = token.split('.')
+  if (!payload) {
+    return undefined
+  }
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as unknown
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return undefined
+    }
+    const exp = (parsed as Record<string, unknown>).exp
+    return typeof exp === 'number' && Number.isFinite(exp) ? exp * 1000 : undefined
+  } catch {
+    return undefined
+  }
 }
 
 export async function refreshChatGptAuth(

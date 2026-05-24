@@ -128,12 +128,6 @@ describe('daemon admin client', () => {
       await expect(
         client.updateConfig({ ...proxyConfig, listenPort: 44444 })
       ).resolves.toMatchObject({ config: { listenPort: 44444 } })
-      expect(service.reloads).toHaveLength(0)
-      await expect(client.reload()).resolves.toMatchObject({
-        config: { listenPort: 44444 },
-        proxy: { endpoint: 'http://127.0.0.1:33333/backend-api' }
-      })
-      expect(service.reloads).toEqual([expect.objectContaining({ listenPort: 44444 })])
     } finally {
       await server.stop()
     }
@@ -161,16 +155,10 @@ describe('daemon admin client', () => {
 })
 
 function fakeService() {
-  const reloads: ProxyConfig[] = []
   return {
     rawCaptureDir: '/tmp/codexfree-test',
     refreshAccountPool: () => proxyStatus,
     refreshAccountState: () => proxyStatus,
-    reloads,
-    reload: async (config: ProxyConfig) => {
-      reloads.push(config)
-      return proxyStatus
-    },
     removeAccountsFromPool: () => proxyStatus,
     status: () => proxyStatus,
     switchActiveAccountAndCloseWebSockets: (accountId?: string) => ({
@@ -268,12 +256,16 @@ function toAccountRow(account: AccountPoolSnapshot): ManagedAccountRow {
     exhaustedAt: null,
     fingerprint: account.fingerprint,
     label: account.label,
+    lastQuotaRefreshedAt: null,
+    lastQuotaRefreshedResetAt: null,
     lastUsageCheckedAt: null,
     lastUsageError: null,
     planType: null,
     primaryUsedPercent: null,
     quotaResetAt: null,
     rateLimitResetsAt: null,
+    refreshable: account.refreshable === false ? 0 : 1,
+    secondaryRateLimitResetsAt: null,
     secondaryUsedPercent: null,
     sourceFormat: account.sourceFormat,
     status: 'available',

@@ -17,16 +17,19 @@ parser 可以标记为 Ready 前，仍然需要样例文件。
 当前 parser 覆盖范围：
 
 - 原生 Codex `auth.json`，包含 `auth_mode = "chatgpt"` 和嵌套 `tokens`；
-- 平铺 token 记录，包含 `id_token`、`access_token`、`refresh_token`、`account_id` 和 `last_refresh`；
+- 平铺 token 记录，`access_token` 是唯一硬必填字段；`account_id` 缺失时通过 usage
+  预检回填，`refresh_token` 缺失时标记为不可刷新；
 - 通过 `type = "cpa"` 声明，或从文件名推断的 CPA 记录。
 
-sub2api 记录只有在暴露与平铺 Codex 形态相同的必需 token 字段时才会被接受。
+sub2api 记录只要能提供可用 `access_token`，并能直接或通过 usage 预检解析出 account
+id，就可以规范化为账号池记录。
 
 ## 规范化形态
 
 normalizer 返回：
 
-- 安全元数据：format、label、account id、可选 email、disabled 状态、可选 expiry、last refresh 时间戳、稳定 fingerprint 和 warnings；
+- 安全元数据：format、label、account id、可选 email、disabled 状态、refreshable
+  状态、可选 expiry、last refresh 时间戳、稳定 fingerprint 和 warnings；
 - 用于后续安全存储或导出的标准 Codex account-login auth 形态。
 
 fingerprint 从 account id 加 token 值派生，这样可以检测重复文件而不显示原始密钥。

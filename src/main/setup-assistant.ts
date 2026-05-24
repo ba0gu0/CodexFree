@@ -386,8 +386,7 @@ async function readProxyStatus(runtime: MainRuntime): Promise<{ status: ProxySta
 
 async function readManagedAccounts(runtime: MainRuntime): Promise<ManagedAccountRow[]> {
   try {
-    await runtime.ensureDaemon()
-    return (await runtime.daemonClient.accounts()).accounts
+    return runtime.managedAccounts()
   } catch {
     return []
   }
@@ -395,8 +394,7 @@ async function readManagedAccounts(runtime: MainRuntime): Promise<ManagedAccount
 
 async function readRecentRequests(runtime: MainRuntime): Promise<RecentRequest[]> {
   try {
-    await runtime.ensureDaemon()
-    return (await runtime.daemonClient.requests(100)).requests
+    return runtime.recentRequests(100).items
   } catch {
     return []
   }

@@ -4,11 +4,7 @@ import { Button } from '@renderer/components/ui/button'
 import { Card, CardHeader, CardPanel, CardTitle } from '@renderer/components/ui/card'
 import { Checkbox } from '@renderer/components/ui/checkbox'
 import { formatDateTime, normalizePercent } from '@renderer/data/format'
-import {
-  accountDisplayName,
-  accountUsageSummary,
-  type ManagedAccount
-} from '@renderer/data/proxy-console'
+import { accountDisplayName, type ManagedAccount } from '@renderer/data/proxy-console'
 import { useVirtualRows, VIRTUAL_ROW_BATCH_SIZE } from '@renderer/hooks/use-virtual-rows'
 import {
   DownloadIcon,
@@ -23,8 +19,10 @@ import { AccountFilters } from './accounts-filters'
 import { AccountInspector, AccountStatus } from './accounts-inspector'
 import {
   type AccountFormatFilter,
+  type AccountPlanFilter,
   type AccountStatusFilter,
   accountFormatLabel,
+  accountPlanKind,
   filterAccounts
 } from './accounts-model'
 import type { PageProps } from './types'
@@ -40,11 +38,12 @@ export function AccountsPage({
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<AccountStatusFilter>('all')
   const [formatFilter, setFormatFilter] = useState<AccountFormatFilter>('all')
+  const [planFilter, setPlanFilter] = useState<AccountPlanFilter>('all')
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
   const [checkedAccountIds, setCheckedAccountIds] = useState<Set<string>>(() => new Set())
   const visibleAccounts = useMemo(
-    () => filterAccounts(snapshot.accounts, query, statusFilter, formatFilter),
-    [formatFilter, query, snapshot.accounts, statusFilter]
+    () => filterAccounts(snapshot.accounts, query, statusFilter, formatFilter, planFilter),
+    [formatFilter, planFilter, query, snapshot.accounts, statusFilter]
   )
   const selectedAccount =
     visibleAccounts.find((account) => account.accountId === selectedAccountId) ??
@@ -128,7 +127,7 @@ export function AccountsPage({
         title={t('accounts.title')}
       />
 
-      <section className="grid h-[92px] shrink-0 grid-cols-4 gap-3">
+      <section className="grid h-[92px] shrink-0 grid-cols-5 gap-3">
         <MetricCard
           label={t('accounts.managedAccounts')}
           tone="info"
@@ -148,6 +147,11 @@ export function AccountsPage({
           label={t('status.disabled')}
           value={String(snapshot.status.authPoolDisabledAccounts)}
         />
+        <MetricCard
+          label={t('accounts.needsReview')}
+          tone="warning"
+          value={String(needsReviewCount(snapshot.accounts))}
+        />
       </section>
 
       <section className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_330px] min-[1400px]:grid-cols-[minmax(0,1fr)_360px]">
@@ -160,8 +164,10 @@ export function AccountsPage({
               <AccountFilters
                 formatFilter={formatFilter}
                 onFormatChange={setFormatFilter}
+                onPlanChange={setPlanFilter}
                 onQueryChange={setQuery}
                 onStatusChange={setStatusFilter}
+                planFilter={planFilter}
                 query={query}
                 statusFilter={statusFilter}
                 t={t}
@@ -205,6 +211,10 @@ function usageProgressText(progress: PageProps['usageProgress']): string | null 
   return progress.total > 0 ? `${progress.completed}/${progress.total}` : '0/0'
 }
 
+function needsReviewCount(accounts: ManagedAccount[]): number {
+  return accounts.filter((account) => account.lastUsageError || !account.lastUsageCheckedAt).length
+}
+
 function AccountTable({
   accounts,
   actions,
@@ -221,12 +231,12 @@ function AccountTable({
   setCheckedAccountIds: (value: Set<string>) => void
   setSelectedAccountId: (accountId: string) => void
 }): ReactElement {
-  const [sort, setSort] = useState<AccountSort>({ direction: 'asc', key: 'account' })
+  const [sort, setSort] = useState<AccountSort>({ direction: 'desc', key: 'primaryUsage' })
   const [checkingAccountId, setCheckingAccountId] = useState<string | null>(null)
   const sortedAccounts = useMemo(() => sortAccounts(accounts, sort), [accounts, sort])
   const virtualAccounts = useVirtualRows({
     renderedRowLimit: VIRTUAL_ROW_BATCH_SIZE,
-    rowHeight: 56,
+    rowHeight: 80,
     rows: sortedAccounts
   })
   const allVisibleChecked =
@@ -268,7 +278,7 @@ function AccountTable({
           <col className="w-[210px] min-[1400px]:w-[250px]" />
           <col className="w-[76px] min-[1400px]:w-[82px]" />
           <col className="w-[72px] min-[1400px]:w-[82px]" />
-          <col />
+          <col className="w-[250px] min-[1400px]:w-[320px]" />
           <col className="w-[140px] min-[1400px]:w-[178px]" />
           <col className="w-[86px] min-[1400px]:w-[96px]" />
         </colgroup>
@@ -305,7 +315,7 @@ function AccountTable({
           {virtualAccounts.rows.map(({ index, item: account }) => (
             <tr
               className={[
-                'h-14 cursor-pointer border-b',
+                'h-20 cursor-pointer border-b',
                 selectedAccountId === account.accountId
                   ? 'bg-muted/60'
                   : index % 2 === 0
@@ -342,13 +352,7 @@ function AccountTable({
                 {accountFormatLabel(account, t)}
               </td>
               <td className="max-w-0 overflow-hidden px-2.5 align-middle">
-                <div className="flex min-w-0 flex-col gap-1">
-                  <span>{accountUsageSummary(account, locale)}</span>
-                  <span className="truncate text-muted-foreground text-[11px]">
-                    {t('table.resetAt')}: {formatDateTime(account.rateLimitResetsAt, locale)}
-                  </span>
-                  <QuotaProgress percent={remainingUsagePercent(account.primaryUsedPercent)} />
-                </div>
+                <AccountQuota account={account} locale={locale} t={t} />
               </td>
               <td className="max-w-0 overflow-hidden px-2.5 align-middle">
                 <span
@@ -436,8 +440,12 @@ function compareAccounts(left: ManagedAccount, right: ManagedAccount, sort: Acco
     return ((left.lastUsageCheckedAt ?? 0) - (right.lastUsageCheckedAt ?? 0)) * direction
   }
   if (sort.key === 'primaryUsage') {
-    const leftUsage = remainingUsagePercent(left.primaryUsedPercent)
-    const rightUsage = remainingUsagePercent(right.primaryUsedPercent)
+    const planPriority = accountPlanSortPriority(left) - accountPlanSortPriority(right)
+    if (planPriority !== 0) {
+      return planPriority
+    }
+    const leftUsage = accountRemainingSortPercent(left)
+    const rightUsage = accountRemainingSortPercent(right)
     return (leftUsage - rightUsage) * direction
   }
   const leftValue = accountSortValue(left, sort.key)
@@ -448,6 +456,110 @@ function compareAccounts(left: ManagedAccount, right: ManagedAccount, sort: Acco
 function remainingUsagePercent(value: string | null | undefined): number {
   const used = normalizePercent(value)
   return used === undefined ? 0 : Math.max(0, Math.min(100, 100 - used))
+}
+
+function accountRemainingSortPercent(account: ManagedAccount): number {
+  const primary = remainingUsagePercent(account.primaryUsedPercent)
+  if (accountPlanKind(account) !== 'plus' && accountPlanKind(account) !== 'pro') {
+    return primary
+  }
+  const secondary = remainingUsagePercent(account.secondaryUsedPercent)
+  if (account.secondaryUsedPercent === null || account.secondaryUsedPercent === undefined) {
+    return primary
+  }
+  return Math.min(primary, secondary)
+}
+
+function accountPlanSortPriority(account: ManagedAccount): number {
+  const plan = accountPlanKind(account)
+  if (plan === 'pro') {
+    return 0
+  }
+  if (plan === 'plus') {
+    return 1
+  }
+  if (plan === 'free') {
+    return 2
+  }
+  return 3
+}
+
+function AccountQuota({
+  account,
+  locale,
+  t
+}: {
+  account: ManagedAccount
+  locale: PageProps['locale']
+  t: PageProps['t']
+}): ReactElement {
+  const showFiveHour = accountPlanKind(account) === 'plus' || accountPlanKind(account) === 'pro'
+  const weeklyPercent = showFiveHour ? account.secondaryUsedPercent : account.primaryUsedPercent
+  const weeklyResetAt = showFiveHour
+    ? account.secondaryRateLimitResetsAt
+    : account.rateLimitResetsAt
+  const fiveHourPercent = account.primaryUsedPercent
+  const fiveHourResetAt = account.rateLimitResetsAt
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      {showFiveHour ? (
+        <QuotaWindow
+          label={t('accounts.fiveHourLimit')}
+          locale={locale}
+          percent={fiveHourPercent}
+          resetAt={fiveHourResetAt}
+          t={t}
+        />
+      ) : null}
+      <QuotaWindow
+        label={t('accounts.weeklyLimit')}
+        locale={locale}
+        percent={weeklyPercent}
+        resetAt={weeklyResetAt}
+        t={t}
+      />
+    </div>
+  )
+}
+
+function QuotaWindow({
+  label,
+  locale,
+  percent,
+  resetAt,
+  t
+}: {
+  label: string
+  locale: PageProps['locale']
+  percent: string | null | undefined
+  resetAt: number | null | undefined
+  t: PageProps['t']
+}): ReactElement {
+  const remaining = remainingUsagePercent(percent)
+  return (
+    <div className="min-w-0">
+      <div className="flex min-w-0 items-baseline justify-between gap-2">
+        <span className="shrink-0 text-muted-foreground text-[11px]">{label}</span>
+        <span className="truncate font-medium text-[11px]">
+          {formatRemainingUsage(percent, locale)}
+        </span>
+      </div>
+      <div className="truncate text-muted-foreground text-[10px]">
+        {t('table.resetAt')}: {formatDateTime(resetAt, locale)}
+      </div>
+      <QuotaProgress percent={remaining} />
+    </div>
+  )
+}
+
+function formatRemainingUsage(
+  value: string | null | undefined,
+  locale: PageProps['locale']
+): string {
+  const remaining = remainingUsagePercent(value)
+  return value === null || value === undefined
+    ? '-'
+    : `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(remaining)}%`
 }
 
 function QuotaProgress({ percent }: { percent: number }): ReactElement {

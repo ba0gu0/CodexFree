@@ -2,10 +2,10 @@ import { copyFileSync, existsSync, readdirSync, readFileSync, unlinkSync } from 
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, dialog, ipcMain, shell } from 'electron'
-import { importAuthFilesToDirectory } from './auth/import'
+import { importAuthFilesToDirectory, readImportedAuthAccounts } from './auth/import'
 import { writeCodexConfigFile, writePlaceholderAuthFile } from './auth/placeholder'
 import { checkAuthDirectoryUsage } from './auth/usage-check'
-import { readRawCaptureDetail } from './proxy/raw-capture'
+import { clearRawCaptures, readRawCaptureDetail } from './proxy/raw-capture'
 import type { ProxyConfig } from './proxy/types'
 import type { DaemonControlSaveInput, MainRuntime } from './runtime'
 import { readSetupAssistantState, renameCodexAuthForRelogin } from './setup-assistant'
@@ -55,39 +55,22 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
   )
   ipcMain.handle('app:open-work-directory', () => openPathOrThrow(process.cwd()))
   ipcMain.handle('proxy:recent-requests', async (_, limit: unknown) => {
-    if (!(await tryEnsureDaemon(runtime))) {
-      return { hasMore: false, items: [] }
-    }
-    const page = await runtime.daemonClient.requests(normalizeActivityLimit(limit))
-    return { hasMore: page.hasMore, items: page.requests }
+    const page = runtime.recentRequests(normalizeActivityLimit(limit))
+    return { hasMore: page.hasMore, items: page.items }
   })
   ipcMain.handle('proxy:log-events', async (_, limit: unknown) => {
-    if (!(await tryEnsureDaemon(runtime))) {
-      return { hasMore: false, items: [] }
-    }
-    const page = await runtime.daemonClient.logEvents(normalizeActivityLimit(limit))
-    return { hasMore: page.hasMore, items: page.events }
+    const page = runtime.logEvents(normalizeActivityLimit(limit))
+    return { hasMore: page.hasMore, items: page.items }
   })
   ipcMain.handle('proxy:protocol-messages', async (_, limit: unknown) => {
-    if (!(await tryEnsureDaemon(runtime))) {
-      return { hasMore: false, items: [] }
-    }
-    const page = await runtime.daemonClient.protocolMessages(normalizeActivityLimit(limit))
-    return { hasMore: page.hasMore, items: page.messages }
+    const page = runtime.protocolMessages(normalizeActivityLimit(limit))
+    return { hasMore: page.hasMore, items: page.items }
   })
   ipcMain.handle('proxy:turn-summaries', async (_, limit: unknown) => {
-    if (!(await tryEnsureDaemon(runtime))) {
-      return { hasMore: false, items: [] }
-    }
-    const page = await runtime.daemonClient.turnSummaries(normalizeActivityLimit(limit))
-    return { hasMore: page.hasMore, items: page.summaries }
+    const page = runtime.turnSummaries(normalizeActivityLimit(limit))
+    return { hasMore: page.hasMore, items: page.items }
   })
-  ipcMain.handle('proxy:accounts', async () => {
-    if (!(await tryEnsureDaemon(runtime))) {
-      return []
-    }
-    return (await runtime.daemonClient.accounts()).accounts
-  })
+  ipcMain.handle('proxy:accounts', () => runtime.managedAccounts())
   ipcMain.handle('proxy:request-summary', async () => {
     return runtime.requestSummary()
   })
@@ -98,8 +81,9 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     readRawCaptureDetail(await runtime.rawCaptureDir(), requestId)
   )
   ipcMain.handle('proxy:clear-records', async () => {
-    await runtime.ensureDaemon()
-    return runtime.daemonClient.clearRecords()
+    const result = runtime.clearRecords()
+    const { deletedEntries } = clearRawCaptures(await runtime.rawCaptureDir())
+    return { deletedCaptureEntries: deletedEntries, deletedRequests: result.deletedRequests }
   })
   ipcMain.handle('proxy:import-auth-files', async () => {
     const dialogCopy = currentDialogCopy()
@@ -118,11 +102,18 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
       }
     }
 
-    const result = importAuthFilesToDirectory(selection.filePaths, runtime.importedAuthPoolPath)
-    await runtime.ensureDaemon()
-    await runtime.daemonClient.syncAccounts(result.accounts)
-    const usageResults = await checkAuthDirectoryUsage(runtime.importedAuthPoolPath)
-    await runtime.daemonClient.updateAccountUsage(usageResults)
+    const result = await importAuthFilesToDirectory(
+      selection.filePaths,
+      runtime.importedAuthPoolPath
+    )
+    runtime.syncAccounts(readImportedAuthAccounts(runtime.importedAuthPoolPath))
+    const importedAccountIds = uniqueAccountIds(result.accounts.map((account) => account.accountId))
+    if (importedAccountIds.length > 0) {
+      const usageResults = await checkAuthDirectoryUsage(runtime.importedAuthPoolPath, {
+        accountIds: importedAccountIds
+      })
+      runtime.updateAccountUsage(usageResults)
+    }
     return result
   })
   ipcMain.handle('proxy:check-account-usage', async (event) => {
@@ -131,8 +122,7 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
         event.sender.send('proxy:account-usage-progress', progress)
       }
     })
-    await runtime.ensureDaemon()
-    const { accounts } = await runtime.daemonClient.updateAccountUsage(results)
+    const accounts = runtime.updateAccountUsage(results)
     return { results, accounts }
   })
   ipcMain.handle('proxy:check-selected-account-usage', async (event, accountIds: string[]) => {
@@ -140,8 +130,7 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
       accountIds,
       onProgress: (progress) => event.sender.send('proxy:account-usage-progress', progress)
     })
-    await runtime.ensureDaemon()
-    const { accounts } = await runtime.daemonClient.updateAccountUsage(results)
+    const accounts = runtime.updateAccountUsage(results)
     return { results, accounts }
   })
   ipcMain.handle('proxy:export-auth-files', async () => {
@@ -182,37 +171,29 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
   ipcMain.handle('setup:state', () => readSetupAssistantState(runtime))
   ipcMain.handle('setup:rename-codex-auth', () => renameCodexAuthForRelogin())
   ipcMain.handle('proxy:reset-exhausted-accounts', async () => {
-    await runtime.ensureDaemon()
-    const { accounts, resetAccounts, status } = await runtime.daemonClient.resetExhaustedAccounts()
-    return { resetAccounts, accounts, status }
+    const { accounts, resetAccounts } = runtime.resetExhaustedAccounts()
+    return { resetAccounts, accounts, status: await runtime.proxyStatus() }
   })
   ipcMain.handle('proxy:set-account-disabled', async (_, accountId: string, disabled: boolean) => {
-    await runtime.ensureDaemon()
-    const { accounts, status, updatedAccounts } = await runtime.daemonClient.setAccountDisabled(
-      accountId,
-      disabled
-    )
-    return { updatedAccounts, accounts, status }
+    const { accounts, updatedAccounts } = runtime.setAccountDisabled(accountId, disabled)
+    return { updatedAccounts, accounts, status: await runtime.proxyStatus() }
   })
   ipcMain.handle(
     'proxy:set-accounts-disabled',
     async (_, accountIds: string[], disabled: boolean) => {
-      await runtime.ensureDaemon()
-      let accounts = (await runtime.daemonClient.accounts()).accounts
-      let status = (await runtime.daemonClient.status()).proxy
+      let accounts = runtime.managedAccounts()
+      let status = await runtime.proxyStatus()
       let updatedAccounts = 0
       for (const accountId of accountIds) {
-        const result = await runtime.daemonClient.setAccountDisabled(accountId, disabled)
+        const result = runtime.setAccountDisabled(accountId, disabled)
         accounts = result.accounts
-        status = result.status
         updatedAccounts += result.updatedAccounts
       }
+      status = await runtime.proxyStatus()
       return { updatedAccounts, accounts, status }
     }
   )
   ipcMain.handle('proxy:delete-accounts', async (_, accountIds: string[]) => {
-    await runtime.ensureDaemon()
-    const deleted = await runtime.daemonClient.deleteAccounts(accountIds)
     if (existsSync(runtime.importedAuthPoolPath)) {
       for (const entry of readdirSync(runtime.importedAuthPoolPath, { withFileTypes: true })) {
         if (!entry.isFile()) {
@@ -225,11 +206,11 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
         }
       }
     }
-    return deleted
+    const deleted = runtime.deleteAccounts(accountIds)
+    return { ...deleted, status: await runtime.proxyStatus() }
   })
   ipcMain.handle('proxy:clean-expired-accounts', async () => {
-    await runtime.ensureDaemon()
-    const currentAccounts = (await runtime.daemonClient.accounts()).accounts
+    const currentAccounts = runtime.managedAccounts()
     const expiredAccountIds = currentAccounts
       .filter((account) => account.lastUsageError?.includes('401'))
       .map((account) => account.accountId)
@@ -248,7 +229,7 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
       }
     }
 
-    const deleted = await runtime.daemonClient.deleteAccounts(expiredAccountIds)
+    const deleted = runtime.deleteAccounts(expiredAccountIds)
     return { deletedAccounts: deleted.deletedAccounts, deletedFiles, accounts: deleted.accounts }
   })
   ipcMain.handle('proxy:save-config', async (_, config: ProxyConfig) => {
@@ -268,18 +249,6 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
   ipcMain.handle('proxy:restart', async () => runtime.restartProxy())
 }
 
-async function tryEnsureDaemon(runtime: MainRuntime): Promise<boolean> {
-  try {
-    await runtime.ensureDaemon()
-    return true
-  } catch (error) {
-    if (String(error).includes('stopped by the app control')) {
-      return false
-    }
-    throw error
-  }
-}
-
 function normalizeActivityLimit(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return CONSOLE_ACTIVITY_DEFAULT_LIMIT
@@ -289,6 +258,10 @@ function normalizeActivityLimit(value: unknown): number {
 
 function resolveAppLocale(value: unknown): AppLocale {
   return typeof value === 'string' && value.toLowerCase().startsWith('en') ? 'en' : 'zh-CN'
+}
+
+function uniqueAccountIds(accountIds: string[]): string[] {
+  return [...new Set(accountIds)]
 }
 
 async function openPathOrThrow(path: string): Promise<void> {

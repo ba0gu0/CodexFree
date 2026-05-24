@@ -28,7 +28,9 @@ export function ActiveAccountPanel({
 }): ReactElement {
   const remaining = remainingQuota(active)
   const accountName = active ? accountDisplayName(active, t('accounts.emailPending')) : '-'
-  const accountTokens = active ? accountTokenTotal(active, snapshot, t('accounts.emailPending')) : 0
+  const accountUsage = active
+    ? accountTokenUsage(active, snapshot, t('accounts.emailPending'))
+    : emptyUsage()
   const [checkingUsage, setCheckingUsage] = useState(false)
   return (
     <section
@@ -61,8 +63,17 @@ export function ActiveAccountPanel({
         />
         <MiniMeta
           label={t('dashboard.accountCost')}
-          sub={t('dashboard.moneyCost', { cost: formatTokenCost(accountTokens, locale) })}
-          value={t('dashboard.tokenCost', { tokens: formatTokenCount(accountTokens, locale) })}
+          sub={t('dashboard.moneyCost', {
+            cost: formatTokenCost(
+              {
+                cachedInputTokens: accountUsage.cached,
+                inputTokens: accountUsage.input,
+                outputTokens: accountUsage.output
+              },
+              locale
+            )
+          })}
+          value={t('dashboard.tokenCost', { tokens: formatTokenCount(accountUsage.total, locale) })}
         />
       </div>
       <div className="grid grid-cols-1 gap-1 text-muted-foreground text-xs">
@@ -149,37 +160,67 @@ function MiniMeta({
   )
 }
 
-function accountTokenTotal(
+interface TokenUsageTotals {
+  cached: number
+  input: number
+  output: number
+  total: number
+}
+
+function accountTokenUsage(
   account: ManagedAccount,
   snapshot: PageProps['snapshot'],
   pending: string
-): number {
-  const directTotal = accountUsageGroupTotal(account, snapshot, pending)
-  if (directTotal > 0) {
-    return directTotal
+): TokenUsageTotals {
+  const directUsage = accountUsageGroup(account, snapshot, pending)
+  if (directUsage.total > 0) {
+    return directUsage
   }
-  const turnTotal = snapshot.turnSummaries
+  const turnUsage = snapshot.turnSummaries
     .filter((turn) => turn.accountId === account.accountId)
-    .reduce((total, turn) => total + (turn.totalTokens ?? 0), 0)
-  if (turnTotal > 0) {
-    return turnTotal
+    .reduce(addTokenFields, emptyUsage())
+  if (turnUsage.total > 0) {
+    return turnUsage
   }
   return snapshot.protocolMessages
     .filter((message) => message.accountId === account.accountId)
-    .reduce((total, message) => total + (message.totalTokens ?? 0), 0)
+    .reduce(addTokenFields, emptyUsage())
 }
 
-function accountUsageGroupTotal(
+function accountUsageGroup(
   account: ManagedAccount,
   snapshot: PageProps['snapshot'],
   pending: string
-): number {
+): TokenUsageTotals {
   const groupKeys = new Set(
     [account.email, account.label, account.accountId, accountDisplayName(account, pending)].filter(
       (value): value is string => Boolean(value)
     )
   )
-  return snapshot.usageSummary.accountGroups.find((group) => groupKeys.has(group.key))?.total ?? 0
+  const group = snapshot.usageSummary.accountGroups.find((item) => groupKeys.has(item.key))
+  return group
+    ? { cached: group.cached, input: group.input, output: group.output, total: group.total }
+    : emptyUsage()
+}
+
+function addTokenFields<
+  T extends {
+    cachedInputTokens: number | null
+    inputTokens: number | null
+    outputTokens: number | null
+    totalTokens: number | null
+  }
+>(total: TokenUsageTotals, item: T): TokenUsageTotals {
+  return {
+    cached: total.cached + (item.cachedInputTokens ?? 0),
+    input: total.input + (item.inputTokens ?? 0),
+    output: total.output + (item.outputTokens ?? 0),
+    total: total.total + (item.totalTokens ?? 0)
+  }
+}
+
+function emptyUsage(): TokenUsageTotals {
+  return { cached: 0, input: 0, output: 0, total: 0 }
 }
 
 function quotaWidth(remaining: number | undefined): string {

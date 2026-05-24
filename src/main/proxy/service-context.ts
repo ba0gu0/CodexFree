@@ -13,6 +13,11 @@ export interface ProxyServiceLog {
   error: (message: string, data?: unknown) => void
 }
 
+export type WebSocketResponseCreateGuardResult =
+  | { action: 'allow' }
+  | { action: 'reconnect' }
+  | { action: 'terminal_quota'; event: QuotaExhaustionEvent }
+
 export interface ProxyHandlerContext {
   config: ProxyConfig
   ledger: ProxyLedger
@@ -41,6 +46,17 @@ export interface ProxyHandlerContext {
     conversationKey: string | undefined,
     event: QuotaExhaustionEvent
   ): void
+  guardRoutedAccountForHttpTurn(
+    request: IncomingMessage,
+    requestId: string,
+    routedAccount: RoutedAccount,
+    conversationKey: string | undefined
+  ): Promise<RoutedAccount | undefined>
+  guardWebSocketResponseCreate(
+    requestId: string,
+    accountId: string | undefined,
+    conversationKey: string | undefined
+  ): Promise<WebSocketResponseCreateGuardResult>
   routeAccount(
     request: IncomingMessage,
     requestId: string,

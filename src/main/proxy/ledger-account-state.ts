@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
 import type { AccountUsageInput } from './ledger-types'
-import { epochSecondsToMillis, isPercentExhausted, randomLedgerId } from './ledger-utils'
+import { epochSecondsToMillis, isPercentQuotaProtected, randomLedgerId } from './ledger-utils'
 import type { QuotaExhaustionEvent } from './quota'
 
 export interface MarkAccountQuotaExhaustedInput {
@@ -87,7 +87,8 @@ export function updateAccountUsageInLedger(
   checkedAt: Date
 ): void {
   const primaryUsedPercent = input.primaryUsedPercent ?? null
-  const isExhausted = isPercentExhausted(primaryUsedPercent) ? 1 : 0
+  const hasUsageResult = input.primaryUsedPercent !== undefined
+  const isQuotaProtected = isPercentQuotaProtected(primaryUsedPercent) ? 1 : 0
   sqlite
     .prepare(`
       UPDATE proxy_accounts
@@ -96,23 +97,41 @@ export function updateAccountUsageInLedger(
             ELSE label
           END,
           email = COALESCE(@email, email),
-          plan_type = @planType,
-          primary_used_percent = @primaryUsedPercent,
-          secondary_used_percent = @secondaryUsedPercent,
-          rate_limit_resets_at = @rateLimitResetsAt,
-          quota_reset_at = COALESCE(@rateLimitResetsAt, quota_reset_at),
+          plan_type = CASE WHEN @hasUsageResult = 1 THEN @planType ELSE plan_type END,
+          primary_used_percent = CASE
+            WHEN @hasUsageResult = 1 THEN @primaryUsedPercent
+            ELSE primary_used_percent
+          END,
+          secondary_used_percent = CASE
+            WHEN @hasUsageResult = 1 THEN @secondaryUsedPercent
+            ELSE secondary_used_percent
+          END,
+          rate_limit_resets_at = CASE
+            WHEN @hasUsageResult = 1 THEN @rateLimitResetsAt
+            ELSE rate_limit_resets_at
+          END,
+          secondary_rate_limit_resets_at = CASE
+            WHEN @hasUsageResult = 1 THEN @secondaryRateLimitResetsAt
+            ELSE secondary_rate_limit_resets_at
+          END,
+          quota_reset_at = CASE
+            WHEN @hasUsageResult = 1 THEN COALESCE(@rateLimitResetsAt, quota_reset_at)
+            ELSE quota_reset_at
+          END,
           status = CASE
             WHEN status = 'disabled' THEN status
-            WHEN @isExhausted = 1 THEN 'exhausted'
+            WHEN @hasUsageResult = 0 THEN status
+            WHEN @isQuotaProtected = 1 THEN 'exhausted'
             ELSE 'available'
           END,
           exhausted_at = CASE
-            WHEN status != 'disabled' AND @isExhausted = 1 THEN @checkedAt
-            WHEN status != 'disabled' THEN NULL
+            WHEN status != 'disabled' AND @hasUsageResult = 0 THEN exhausted_at
+            WHEN status != 'disabled' AND @isQuotaProtected = 1 THEN @checkedAt
+            WHEN status != 'disabled' AND @hasUsageResult = 1 THEN NULL
             ELSE exhausted_at
           END,
           active = CASE
-            WHEN status != 'disabled' AND @isExhausted = 1 THEN 0
+            WHEN status != 'disabled' AND @isQuotaProtected = 1 THEN 0
             ELSE active
           END,
           last_usage_checked_at = @checkedAt,
@@ -128,8 +147,10 @@ export function updateAccountUsageInLedger(
       primaryUsedPercent,
       secondaryUsedPercent: input.secondaryUsedPercent ?? null,
       rateLimitResetsAt: input.rateLimitResetsAt ?? null,
+      secondaryRateLimitResetsAt: input.secondaryRateLimitResetsAt ?? null,
       lastUsageError: input.lastUsageError ?? null,
-      isExhausted,
+      hasUsageResult: hasUsageResult ? 1 : 0,
+      isQuotaProtected,
       checkedAt: checkedAt.getTime()
     })
 }

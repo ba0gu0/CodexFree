@@ -18,6 +18,7 @@ export const proxyAccounts = sqliteTable('proxy_accounts', {
   primaryUsedPercent: text('primary_used_percent'),
   secondaryUsedPercent: text('secondary_used_percent'),
   rateLimitResetsAt: integer('rate_limit_resets_at', { mode: 'timestamp_ms' }),
+  secondaryRateLimitResetsAt: integer('secondary_rate_limit_resets_at', { mode: 'timestamp_ms' }),
   lastUsageCheckedAt: integer('last_usage_checked_at', { mode: 'timestamp_ms' }),
   lastUsageError: text('last_usage_error'),
   active: integer('active', { mode: 'boolean' }).notNull().default(false),

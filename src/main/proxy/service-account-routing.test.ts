@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import type { Duplex } from 'node:stream'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ProxyLedger } from './ledger'
+import type { AccountUsageInput, ManagedAccountRow } from './ledger-types'
 import { TransparentProxyService } from './service'
 import {
   closeServer,
@@ -388,4 +389,229 @@ describe('transparent proxy service account routing', () => {
       statusCode: 200
     })
   })
+
+  it('checks usage before an HTTP response turn and skips accounts at the reserve line', async () => {
+    const authDirectory = mkdtempSync(join(tmpdir(), 'codexfree-auth-pool-'))
+    writeAuthFile(authDirectory, 'a.json', 'account-a', 'managed-a')
+    writeAuthFile(authDirectory, 'b.json', 'account-b', 'managed-b')
+    const usageChecks: string[] = []
+    const forwardedAccounts: string[] = []
+    const upstream = http.createServer((request, response) => {
+      const forwardedAccount = String(request.headers['chatgpt-account-id'])
+      if (request.url === '/backend-api/wham/usage') {
+        usageChecks.push(forwardedAccount)
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(
+          JSON.stringify({
+            plan_type: 'free',
+            rate_limit: {
+              primary_window: {
+                reset_at: 1_779_342_755,
+                used_percent: forwardedAccount === 'account-a' ? 96 : 12
+              }
+            }
+          })
+        )
+        return
+      }
+      forwardedAccounts.push(forwardedAccount)
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ account: forwardedAccount }))
+    })
+    await listen(upstream)
+    upstreams.push(upstream)
+
+    let accounts = [
+      managedAccountRow('account-a', 'Account A'),
+      managedAccountRow('account-b', 'Account B')
+    ]
+    const ledger = {
+      accountUsageSummary: () => undefined,
+      accounts: () => accounts,
+      activeAccountId: () => undefined,
+      disabledAccountIds: () => [],
+      exhaustedAccountIds: () =>
+        accounts
+          .filter((account) => account.status === 'exhausted')
+          .map((account) => account.accountId),
+      insert: () => undefined,
+      markAccountQuotaExhausted: (accountId: string | undefined) => {
+        accounts = accounts.map((account) =>
+          account.accountId === accountId ? { ...account, status: 'exhausted' } : account
+        )
+      },
+      markQuotaExhausted: () => undefined,
+      recordRoutingEvent: () => undefined,
+      recent: () => [],
+      setActiveAccount: () => 1,
+      syncAccountPool: () => undefined,
+      updateAccountUsage: (input: AccountUsageInput) => {
+        accounts = accounts.map((account) =>
+          account.accountId === input.accountId
+            ? {
+                ...account,
+                lastUsageCheckedAt: Date.now(),
+                planType: input.planType ?? account.planType,
+                primaryUsedPercent: input.primaryUsedPercent ?? account.primaryUsedPercent,
+                rateLimitResetsAt: input.rateLimitResetsAt ?? account.rateLimitResetsAt,
+                secondaryRateLimitResetsAt:
+                  input.secondaryRateLimitResetsAt ?? account.secondaryRateLimitResetsAt,
+                status: Number(input.primaryUsedPercent ?? 0) >= 95 ? 'exhausted' : account.status
+              }
+            : account
+        )
+      }
+    } as unknown as ProxyLedger
+    const service = new TransparentProxyService(
+      { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
+      ledger,
+      log
+    )
+    services.push(service)
+    const endpoint = new URL((await service.start()).endpoint)
+
+    const response = await fetch(`${endpoint.origin}/backend-api/codex/responses`, {
+      body: JSON.stringify({ input: 'hello', model: 'gpt-5.5' }),
+      headers: {
+        authorization: 'Bearer placeholder-token',
+        'chatgpt-account-id': 'placeholder-account',
+        'content-type': 'application/json'
+      },
+      method: 'POST'
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ account: 'account-b' })
+    expect(usageChecks).toEqual(['account-a', 'account-b'])
+    expect(forwardedAccounts).toEqual(['account-b'])
+  })
+
+  it('closes websocket turns before response.create when the active account is reserved', async () => {
+    const authDirectory = mkdtempSync(join(tmpdir(), 'codexfree-auth-pool-'))
+    writeAuthFile(authDirectory, 'a.json', 'account-a', 'managed-a')
+    writeAuthFile(authDirectory, 'b.json', 'account-b', 'managed-b')
+    const forwardedAccounts: string[] = []
+    const upstreamSockets = new Set<Duplex>()
+    let forwardedFrames = 0
+    const upstream = http.createServer()
+    upstream.on('upgrade', (request, socket) => {
+      upstreamSockets.add(socket)
+      socket.once('close', () => upstreamSockets.delete(socket))
+      forwardedAccounts.push(String(request.headers['chatgpt-account-id']))
+      socket.write(
+        [
+          'HTTP/1.1 101 Switching Protocols',
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Accept: test',
+          '',
+          ''
+        ].join('\r\n')
+      )
+      socket.once('data', () => {
+        forwardedFrames += 1
+        socket.write(createServerTextFrame('{"type":"response.created"}'))
+        socket.end()
+      })
+    })
+    await listen(upstream)
+    upstreams.push(upstream)
+
+    let accounts = [
+      {
+        ...managedAccountRow('account-a', 'Account A'),
+        lastUsageCheckedAt: Date.now(),
+        primaryUsedPercent: '96'
+      },
+      {
+        ...managedAccountRow('account-b', 'Account B'),
+        lastUsageCheckedAt: Date.now(),
+        primaryUsedPercent: '12'
+      }
+    ]
+    const ledger = {
+      accountUsageSummary: () => undefined,
+      accounts: () => accounts,
+      activeAccountId: () => undefined,
+      disabledAccountIds: () => [],
+      exhaustedAccountIds: () =>
+        accounts
+          .filter((account) => account.status === 'exhausted')
+          .map((account) => account.accountId),
+      insert: () => undefined,
+      markAccountQuotaExhausted: (accountId: string | undefined) => {
+        accounts = accounts.map((account) =>
+          account.accountId === accountId ? { ...account, status: 'exhausted' } : account
+        )
+      },
+      markQuotaExhausted: () => undefined,
+      recordRoutingEvent: () => undefined,
+      recent: () => [],
+      setActiveAccount: () => 1,
+      syncAccountPool: () => undefined
+    } as unknown as ProxyLedger
+    const service = new TransparentProxyService(
+      { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
+      ledger,
+      log
+    )
+    services.push(service)
+    const endpoint = new URL((await service.start()).endpoint)
+    const request = [
+      'GET /backend-api/codex/responses HTTP/1.1',
+      `Host: ${endpoint.host}`,
+      'Connection: Upgrade',
+      'Upgrade: websocket',
+      'Sec-WebSocket-Version: 13',
+      'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+      'Authorization: Bearer placeholder-token',
+      'Chatgpt-Account-Id: placeholder-account',
+      'thread_id: quota-guard-thread',
+      '',
+      ''
+    ]
+    const frame = createClientTextFrame(
+      '{"type":"response.create","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"full context"}]}]}'
+    )
+
+    const firstResponse = (
+      await rawHttpRequestBufferWithHead(Number(endpoint.port), request, frame)
+    ).toString('utf8')
+    const secondResponse = (
+      await rawHttpRequestBufferWithHead(Number(endpoint.port), request, frame)
+    ).toString('utf8')
+    for (const socket of upstreamSockets) {
+      socket.destroy()
+    }
+
+    expect(firstResponse).not.toContain('response.created')
+    expect(secondResponse).toContain('response.created')
+    expect(forwardedAccounts).toEqual(['account-a', 'account-b'])
+    expect(forwardedFrames).toBe(1)
+  })
 })
+
+function managedAccountRow(accountId: string, label: string): ManagedAccountRow {
+  return {
+    accountId,
+    active: 0,
+    email: null,
+    exhaustedAt: null,
+    fingerprint: `${accountId}-fingerprint`,
+    label,
+    lastQuotaRefreshedAt: null,
+    lastQuotaRefreshedResetAt: null,
+    lastUsageCheckedAt: null,
+    lastUsageError: null,
+    planType: null,
+    primaryUsedPercent: null,
+    quotaResetAt: null,
+    rateLimitResetsAt: null,
+    refreshable: 1,
+    secondaryRateLimitResetsAt: null,
+    secondaryUsedPercent: null,
+    sourceFormat: 'codex',
+    status: 'available',
+    updatedAt: 1
+  }
+}

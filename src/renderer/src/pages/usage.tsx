@@ -199,7 +199,14 @@ function buildUsageAnalysis(
 ): UsageAnalysis {
   const totals = totalGroup(summary)
   return {
-    cost: formatTokenCost(summary.tokenTotal, locale),
+    cost: formatTokenCost(
+      {
+        cachedInputTokens: totals.cached,
+        inputTokens: totals.input,
+        outputTokens: totals.output
+      },
+      locale
+    ),
     dailyGroups: [...summary.dayGroups].sort((left, right) => left.key.localeCompare(right.key)),
     hourlyGroups: [...summary.hourGroups].sort((left, right) => left.key.localeCompare(right.key)),
     requestsWithUsage: summary.requestsWithUsage,

@@ -238,10 +238,10 @@ export class ProxyLedger {
       const statement = this.sqlite.prepare(`
         INSERT INTO proxy_accounts (
           account_id, label, email, fingerprint, source_format, status, exhausted_at,
-          quota_reset_at, updated_at
+          quota_reset_at, refreshable, updated_at
         ) VALUES (
           @accountId, @label, @email, @fingerprint, @sourceFormat, 'available', NULL, NULL,
-          @updatedAt
+          @refreshable, @updatedAt
         )
         ON CONFLICT(account_id) DO UPDATE SET
           label = CASE
@@ -251,11 +251,17 @@ export class ProxyLedger {
           END,
           email = COALESCE(excluded.email, proxy_accounts.email),
           fingerprint = excluded.fingerprint,
+          refreshable = excluded.refreshable,
           source_format = excluded.source_format,
           updated_at = excluded.updated_at
       `)
       for (const account of items) {
-        statement.run({ ...account, email: account.email ?? null, updatedAt: now })
+        statement.run({
+          ...account,
+          email: account.email ?? null,
+          refreshable: account.refreshable === false ? 0 : 1,
+          updatedAt: now
+        })
       }
       const accountIds = new Set(items.map((account) => account.accountId))
       const existingRows = this.sqlite
@@ -303,8 +309,12 @@ export class ProxyLedger {
           primary_used_percent AS primaryUsedPercent,
           secondary_used_percent AS secondaryUsedPercent,
           rate_limit_resets_at AS rateLimitResetsAt,
+          secondary_rate_limit_resets_at AS secondaryRateLimitResetsAt,
+          last_quota_refreshed_at AS lastQuotaRefreshedAt,
+          last_quota_refreshed_reset_at AS lastQuotaRefreshedResetAt,
           last_usage_checked_at AS lastUsageCheckedAt,
           last_usage_error AS lastUsageError,
+          refreshable,
           active,
           updated_at AS updatedAt
         FROM proxy_accounts
@@ -331,7 +341,8 @@ export class ProxyLedger {
         SELECT
           plan_type AS planType,
           primary_used_percent AS primaryUsedPercent,
-          rate_limit_resets_at AS rateLimitResetsAt
+          rate_limit_resets_at AS rateLimitResetsAt,
+          secondary_rate_limit_resets_at AS secondaryRateLimitResetsAt
         FROM proxy_accounts
         WHERE account_id = ?
       `)
@@ -753,6 +764,22 @@ export class ProxyLedger {
 
   updateAccountUsage(input: AccountUsageInput, checkedAt = new Date()): void {
     updateAccountUsageInLedger(this.sqlite, input, checkedAt)
+  }
+
+  markQuotaRefreshed(accountId: string, resetAt: number, refreshedAt = new Date()): void {
+    this.sqlite
+      .prepare(`
+        UPDATE proxy_accounts
+        SET last_quota_refreshed_at = @refreshedAt,
+          last_quota_refreshed_reset_at = @resetAt,
+          updated_at = @refreshedAt
+        WHERE account_id = @accountId
+      `)
+      .run({
+        accountId,
+        resetAt,
+        refreshedAt: refreshedAt.getTime()
+      })
   }
 
   clear(): number {

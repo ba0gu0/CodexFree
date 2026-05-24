@@ -153,6 +153,44 @@ describe('proxy ledger account sync', () => {
     }
   })
 
+  it('preserves the last successful usage snapshot when a later check only reports an error', () => {
+    const ledger = new ProxyLedger(':memory:')
+    try {
+      ledger.syncAccountPool([
+        {
+          accountId: 'account-a',
+          fingerprint: 'fingerprint-a',
+          label: 'Account A',
+          sourceFormat: 'codex'
+        }
+      ])
+      ledger.updateAccountUsage({
+        accountId: 'account-a',
+        planType: 'free',
+        primaryUsedPercent: '42',
+        rateLimitResetsAt: 1_779_342_755_000,
+        secondaryUsedPercent: '0'
+      })
+      ledger.updateAccountUsage({
+        accountId: 'account-a',
+        lastUsageError: 'usage check failed: 401'
+      })
+
+      expect(ledger.accounts()).toEqual([
+        expect.objectContaining({
+          accountId: 'account-a',
+          lastUsageError: 'usage check failed: 401',
+          planType: 'free',
+          primaryUsedPercent: '42',
+          rateLimitResetsAt: 1_779_342_755_000,
+          secondaryUsedPercent: '0'
+        })
+      ])
+    } finally {
+      ledger.close()
+    }
+  })
+
   it('returns full database request purpose groups for overview summaries', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'codexfree-ledger-summary-'))
     try {

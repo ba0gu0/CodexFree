@@ -17,7 +17,8 @@ export function extractUsageResponse(
       stringField(body, 'primary_used_percent') ?? stringField(primaryWindow, 'used_percent'),
     secondaryUsedPercent:
       stringField(body, 'secondary_used_percent') ?? stringField(secondaryWindow, 'used_percent'),
-    rateLimitResetsAt: usageResetMillis(body, primaryWindow)
+    rateLimitResetsAt: usageResetMillis(body, primaryWindow),
+    secondaryRateLimitResetsAt: usageResetMillis({}, secondaryWindow)
   }
 }
 
@@ -44,10 +45,10 @@ export function usageResetMillis(
   return numeric > 10_000_000_000 ? numeric : numeric * 1000
 }
 
-export function isUsageExhausted(value: string | undefined): boolean {
+export function isUsageQuotaProtected(value: string | undefined): boolean {
   if (!value) {
     return false
   }
   const numeric = Number.parseFloat(value)
-  return Number.isFinite(numeric) && numeric >= 100
+  return Number.isFinite(numeric) && numeric >= 95
 }

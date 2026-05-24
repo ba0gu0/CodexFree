@@ -25,7 +25,6 @@ const maxJsonBodyBytes = 1_048_576
 
 export interface AdminProxyService {
   readonly rawCaptureDir: string
-  reload(config: ProxyConfig): Promise<ProxyStatus>
   refreshAccountPool(): ProxyStatus
   refreshAccountState(): ProxyStatus
   removeAccountsFromPool(accountIds: string[]): ProxyStatus
@@ -144,13 +143,6 @@ export class DaemonAdminServer {
       writeJson(response, 200, { config: saved })
       return
     }
-    if (request.method === 'POST' && url.pathname === '/admin/reload') {
-      const config = this.options.readConfig()
-      const proxy = await this.options.service.reload(config)
-      this.auditMutation(request.method, url.pathname, configAuditDetail(config))
-      writeJson(response, 200, { config, proxy })
-      return
-    }
     if (request.method === 'GET' && url.pathname === '/admin/accounts') {
       writeJson(response, 200, { accounts: this.options.ledger.accounts() })
       return
@@ -184,6 +176,7 @@ export class DaemonAdminServer {
           planType: result.planType,
           primaryUsedPercent: result.primaryUsedPercent,
           rateLimitResetsAt: result.rateLimitResetsAt,
+          secondaryRateLimitResetsAt: result.secondaryRateLimitResetsAt,
           secondaryUsedPercent: result.secondaryUsedPercent
         })
       }

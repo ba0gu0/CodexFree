@@ -48,10 +48,6 @@ export class DaemonAdminClient {
     })
   }
 
-  reload(): Promise<{ config: ProxyConfig; proxy: ProxyStatus }> {
-    return this.requestJson('/reload', { method: 'POST' })
-  }
-
   accounts(): Promise<{ accounts: ManagedAccountRow[] }> {
     return this.getJson('/accounts')
   }

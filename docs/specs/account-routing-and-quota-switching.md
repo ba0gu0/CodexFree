@@ -203,12 +203,20 @@ routing rule：
 
 这让 Codex UI state 与实际接收下一个 request 的账号保持一致，同时避免伪低或伪高 quota values。
 
-只有以下条件算作 quota exhaustion：
+前置 quota guard 使用同一真实 usage source。`POST /backend-api/codex/responses` 和 WSS
+`response.create` 在转发前检查候选账号；同一账号 1 分钟内复用最近一次查量结果。若
+`primary_used_percent >= 95`，该账号按保护线标记为不可继续使用。HTTP 会在同一请求内尝试下一个账号；
+WSS 会关闭 client socket，让 Codex 通过端口重连重新发送上下文。若所有账号都进入保护状态，HTTP 和
+WSS 都返回本地 `usage_limit_reached` payload。
+
+只有以下条件算作 quota exhaustion 或 quota-protection stop：
 
 - upstream WSS text payload 解码为 JSON；
 - payload 有 `type: "error"`；
 - payload 有 `error.type: "usage_limit_reached"`；
 - optional headers 可包含 `X-Codex-Primary-Used-Percent: "100"` 和 reset timestamps。
+- 前置 usage check 得到真实 `primary_used_percent >= 95`，代理本地生成
+  `usage_limit_reached` 作为保护线终止信号。
 
 以下条件不算：
 

@@ -29,6 +29,7 @@ export interface AccountUsageInput {
   primaryUsedPercent?: string
   secondaryUsedPercent?: string
   rateLimitResetsAt?: number
+  secondaryRateLimitResetsAt?: number
   lastUsageError?: string
 }
 
@@ -45,8 +46,12 @@ export interface ManagedAccountRow {
   primaryUsedPercent: string | null
   secondaryUsedPercent: string | null
   rateLimitResetsAt: number | null
+  secondaryRateLimitResetsAt: number | null
+  lastQuotaRefreshedAt: number | null
+  lastQuotaRefreshedResetAt: number | null
   lastUsageCheckedAt: number | null
   lastUsageError: string | null
+  refreshable: number
   active: number
   updatedAt: number
 }
@@ -55,6 +60,7 @@ export interface AccountUsageSummary {
   planType: string | null
   primaryUsedPercent: string | null
   rateLimitResetsAt: number | null
+  secondaryRateLimitResetsAt: number | null
 }
 
 export interface ProtocolMessageInput {

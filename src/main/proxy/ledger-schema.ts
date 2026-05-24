@@ -79,6 +79,7 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
       status TEXT NOT NULL,
       exhausted_at INTEGER,
       quota_reset_at INTEGER,
+      refreshable INTEGER NOT NULL DEFAULT 1,
       active INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL
     );
@@ -194,10 +195,23 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
     ['secondary_used_percent', 'ALTER TABLE proxy_accounts ADD COLUMN secondary_used_percent TEXT'],
     ['rate_limit_resets_at', 'ALTER TABLE proxy_accounts ADD COLUMN rate_limit_resets_at INTEGER'],
     [
+      'secondary_rate_limit_resets_at',
+      'ALTER TABLE proxy_accounts ADD COLUMN secondary_rate_limit_resets_at INTEGER'
+    ],
+    [
+      'last_quota_refreshed_at',
+      'ALTER TABLE proxy_accounts ADD COLUMN last_quota_refreshed_at INTEGER'
+    ],
+    [
+      'last_quota_refreshed_reset_at',
+      'ALTER TABLE proxy_accounts ADD COLUMN last_quota_refreshed_reset_at INTEGER'
+    ],
+    [
       'last_usage_checked_at',
       'ALTER TABLE proxy_accounts ADD COLUMN last_usage_checked_at INTEGER'
     ],
     ['last_usage_error', 'ALTER TABLE proxy_accounts ADD COLUMN last_usage_error TEXT'],
+    ['refreshable', 'ALTER TABLE proxy_accounts ADD COLUMN refreshable INTEGER NOT NULL DEFAULT 1'],
     ['active', 'ALTER TABLE proxy_accounts ADD COLUMN active INTEGER NOT NULL DEFAULT 0']
   ])
   ensureColumns(sqlite, 'proxy_requests', [

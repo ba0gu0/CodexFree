@@ -1,4 +1,6 @@
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import http, { type RequestOptions } from 'node:http'
+import https from 'node:https'
 import { join } from 'node:path'
 import { normalizeAuthFile } from './normalize'
 
@@ -12,6 +14,7 @@ export interface AccountUsageCheckResult {
   primaryUsedPercent?: string
   secondaryUsedPercent?: string
   rateLimitResetsAt?: number
+  secondaryRateLimitResetsAt?: number
   lastRefresh: string
   error?: string
 }
@@ -28,14 +31,27 @@ export interface AccountUsageCheckProgress {
 export interface AccountUsageCheckOptions {
   accountIds?: string[]
   onProgress?: (progress: AccountUsageCheckProgress) => void
+  usageUrl?: string
+}
+
+export interface AccountUsageRequestInput {
+  accountId?: string
+  agent?: RequestOptions['agent']
+  authorization: string
+  email?: string
+  label: string
+  lastRefresh?: string
+  usageUrl?: string
 }
 
 interface UsageResponse {
   account?: unknown
+  account_id?: unknown
   email?: unknown
   plan_type?: unknown
   primary_used_percent?: unknown
   user?: unknown
+  user_id?: unknown
   secondary_used_percent?: unknown
   rate_limit?: unknown
   resets_at?: unknown
@@ -79,7 +95,7 @@ export async function checkAuthDirectoryUsage(
       const normalized = normalizeAuthFile(JSON.parse(readFileSync(filePath, 'utf8')) as unknown, {
         fileName: filePath
       })
-      result = await checkAccountUsage(normalized, filePath)
+      result = await checkAccountUsage(normalized, filePath, options.usageUrl)
     } catch (error) {
       result = {
         accountId: filePath,
@@ -120,34 +136,65 @@ async function mapWithConcurrency<T, R>(
 
 async function checkAccountUsage(
   normalized: ReturnType<typeof normalizeAuthFile>,
-  filePath: string
+  filePath: string,
+  usageUrl: string | undefined
 ) {
-  try {
-    const response = await fetch('https://chatgpt.com/backend-api/wham/usage', {
-      headers: {
-        authorization: `Bearer ${normalized.codexAuth.tokens.access_token}`,
-        'chatgpt-account-id': normalized.accountId,
-        accept: 'application/json'
-      }
-    })
-    const body = (await response.json().catch(() => undefined)) as UsageResponse | undefined
-    if (!response.ok) {
-      return toErrorResult(normalized, response.status, `usage check failed: ${response.status}`)
-    }
-
-    const email = emailFromUsageResponse(body) ?? normalized.email
+  const result = await checkAccountUsageByAuthorization({
+    accountId: normalized.accountId,
+    authorization: `Bearer ${normalized.codexAuth.tokens.access_token}`,
+    email: normalized.email,
+    label: normalized.label,
+    lastRefresh: normalized.lastRefresh,
+    usageUrl
+  })
+  if (result.ok) {
+    const email = result.email ?? normalized.email
     if (email && email !== normalized.email) {
       writeFileSync(filePath, `${JSON.stringify(toStoredAuth(normalized, email), null, 2)}\n`, {
         mode: 0o600
       })
     }
+    return { ...result, email }
+  }
+  return result
+}
+
+export async function checkAccountUsageByAuthorization(
+  input: AccountUsageRequestInput
+): Promise<AccountUsageCheckResult> {
+  try {
+    const response = await fetchUsage(input)
+    const body = response.body
+    const accountId = input.accountId ?? accountIdFromUsageResponse(body)
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return {
+        accountId: accountId ?? '',
+        email: input.email,
+        error: `usage check failed: ${response.statusCode}`,
+        label: input.label,
+        lastRefresh: input.lastRefresh ?? '',
+        ok: false,
+        statusCode: response.statusCode
+      }
+    }
+    if (!accountId) {
+      return {
+        accountId: '',
+        email: input.email,
+        error: 'usage check did not return an account id',
+        label: input.label,
+        lastRefresh: input.lastRefresh ?? '',
+        ok: false,
+        statusCode: response.statusCode
+      }
+    }
 
     return {
-      accountId: normalized.accountId,
-      email,
-      label: normalized.label,
+      accountId,
+      email: emailFromUsageResponse(body) ?? input.email,
+      label: input.label,
       ok: true,
-      statusCode: response.status,
+      statusCode: response.statusCode,
       planType: stringValue(body?.plan_type),
       primaryUsedPercent:
         stringValue(body?.primary_used_percent) ??
@@ -155,31 +202,62 @@ async function checkAccountUsage(
       secondaryUsedPercent:
         stringValue(body?.secondary_used_percent) ??
         stringValue(recordValue(recordValue(body?.rate_limit, 'secondary_window'), 'used_percent')),
-      rateLimitResetsAt: resetTimeMillis(body),
-      lastRefresh: normalized.lastRefresh
+      rateLimitResetsAt: resetTimeMillis(body, 'primary_window'),
+      secondaryRateLimitResetsAt: resetTimeMillis(body, 'secondary_window'),
+      lastRefresh: input.lastRefresh ?? ''
     }
   } catch (error) {
-    return toErrorResult(
-      normalized,
-      undefined,
-      error instanceof Error ? error.message : String(error)
-    )
+    return {
+      accountId: input.accountId ?? '',
+      email: input.email,
+      error: error instanceof Error ? error.message : String(error),
+      label: input.label,
+      lastRefresh: input.lastRefresh ?? '',
+      ok: false
+    }
   }
 }
 
-function toErrorResult(
-  normalized: ReturnType<typeof normalizeAuthFile>,
-  statusCode: number | undefined,
-  error: string
-): AccountUsageCheckResult {
-  return {
-    accountId: normalized.accountId,
-    email: normalized.email,
-    label: normalized.label,
-    ok: false,
-    statusCode,
-    lastRefresh: normalized.lastRefresh,
-    error
+async function fetchUsage(
+  input: AccountUsageRequestInput
+): Promise<{ body: UsageResponse | undefined; statusCode: number }> {
+  return new Promise((resolve, reject) => {
+    const usageUrl = new URL(input.usageUrl ?? 'https://chatgpt.com/backend-api/wham/usage')
+    const client = usageUrl.protocol === 'http:' ? http : https
+    const headers: Record<string, string> = {
+      accept: 'application/json',
+      authorization: input.authorization
+    }
+    if (input.accountId) {
+      headers['chatgpt-account-id'] = input.accountId
+    }
+    const request = client.request(
+      usageUrl,
+      {
+        agent: input.agent,
+        headers,
+        method: 'GET'
+      },
+      (response) => {
+        const chunks: Buffer[] = []
+        response.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)))
+        response.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8')
+          const body = parseUsageBody(text)
+          resolve({ body, statusCode: response.statusCode ?? 0 })
+        })
+      }
+    )
+    request.on('error', reject)
+    request.end()
+  })
+}
+
+function parseUsageBody(text: string): UsageResponse | undefined {
+  try {
+    return JSON.parse(text) as UsageResponse
+  } catch {
+    return undefined
   }
 }
 
@@ -191,21 +269,34 @@ function emailFromUsageResponse(body: UsageResponse | undefined): string | undef
   )
 }
 
+function accountIdFromUsageResponse(body: UsageResponse | undefined): string | undefined {
+  return (
+    stringValue(body?.account_id) ??
+    stringValue(body?.user_id) ??
+    stringValue(recordValue(body?.account, 'id')) ??
+    stringValue(recordValue(body?.user, 'id'))
+  )
+}
+
 function toStoredAuth(normalized: ReturnType<typeof normalizeAuthFile>, email: string): unknown {
   return {
     ...normalized.codexAuth,
     disabled: normalized.disabled,
-    email
+    email,
+    refreshable: normalized.refreshable
   }
 }
 
-function resetTimeMillis(body: UsageResponse | undefined): number | undefined {
-  const primaryWindow = recordValue(body?.rate_limit, 'primary_window')
+function resetTimeMillis(
+  body: UsageResponse | undefined,
+  windowKey: 'primary_window' | 'secondary_window'
+): number | undefined {
+  const window = recordValue(body?.rate_limit, windowKey)
   const value =
-    recordValue(primaryWindow, 'reset_at') ??
-    body?.rate_limit_reset_at ??
-    body?.primary_reset_at ??
-    body?.resets_at
+    recordValue(window, 'reset_at') ??
+    (windowKey === 'primary_window'
+      ? (body?.rate_limit_reset_at ?? body?.primary_reset_at ?? body?.resets_at)
+      : undefined)
   if (typeof value === 'number') {
     return value > 10_000_000_000 ? value : value * 1000
   }

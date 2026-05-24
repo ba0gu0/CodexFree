@@ -73,6 +73,7 @@ export function AccountPoolPanel({
 }: Pick<PageProps, 'locale' | 'snapshot' | 't'>): ReactElement {
   const available = snapshot.status.authPoolAvailableAccounts
   const totalTokens = snapshot.usageSummary.tokenTotal
+  const totalUsage = totalUsageGroup(snapshot.usageSummary)
   return (
     <section
       className={`${panel} flex h-full min-h-0 flex-col gap-2.5 p-4 min-[1400px]:gap-3 min-[1400px]:p-5`}
@@ -102,7 +103,14 @@ export function AccountPoolPanel({
         <SmallStat
           label={t('dashboard.totalCost')}
           tone="cost"
-          value={formatTokenCost(totalTokens, locale)}
+          value={formatTokenCost(
+            {
+              cachedInputTokens: totalUsage.cached,
+              inputTokens: totalUsage.input,
+              outputTokens: totalUsage.output
+            },
+            locale
+          )}
         />
         <SmallStat
           label={t('dashboard.availableModels')}
@@ -111,6 +119,21 @@ export function AccountPoolPanel({
         />
       </div>
     </section>
+  )
+}
+
+function totalUsageGroup(summary: PageProps['snapshot']['usageSummary']): {
+  cached: number
+  input: number
+  output: number
+} {
+  return summary.modelGroups.reduce(
+    (total, group) => ({
+      cached: total.cached + group.cached,
+      input: total.input + group.input,
+      output: total.output + group.output
+    }),
+    { cached: 0, input: 0, output: 0 }
   )
 }
 

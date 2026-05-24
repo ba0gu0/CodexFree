@@ -21,8 +21,24 @@ import {
 } from './daemon/launch-agent'
 import { resolveDaemonPaths } from './daemon/paths'
 import { readManagedProxyConfig, writeProxyConfig } from './proxy/config'
+import { ProxyLedger } from './proxy/ledger'
 import { readRequestSummary, readUsageSummary } from './proxy/ledger-summary'
-import type { ProxyConfig, ProxyStatus, RequestSummary, UsageSummary } from './proxy/types'
+import type {
+  AccountPoolSnapshot,
+  AccountUsageInput,
+  LogEventRow,
+  ManagedAccountRow,
+  ProtocolMessageRow,
+  TurnSummaryRow
+} from './proxy/ledger-types'
+import type {
+  ActivityPage,
+  ProxyConfig,
+  ProxyStatus,
+  RecentRequest,
+  RequestSummary,
+  UsageSummary
+} from './proxy/types'
 
 export interface DaemonControlView {
   adminHost: string
@@ -38,8 +54,27 @@ export interface MainRuntime {
   readDaemonControlSettings: () => DaemonControlView
   proxyStatus: () => Promise<ProxyStatus>
   rawCaptureDir: () => Promise<string>
+  recentRequests: (limit: number) => ActivityPage<RecentRequest>
+  logEvents: (limit: number) => ActivityPage<LogEventRow>
+  protocolMessages: (limit: number) => ActivityPage<ProtocolMessageRow>
+  turnSummaries: (limit: number) => ActivityPage<TurnSummaryRow>
+  managedAccounts: () => ManagedAccountRow[]
   readRuntimeConfig: () => ProxyConfig
   requestSummary: () => RequestSummary
+  clearRecords: () => { deletedRequests: number }
+  deleteAccounts: (accountIds: string[]) => {
+    accounts: ManagedAccountRow[]
+    deletedAccounts: number
+  }
+  resetExhaustedAccounts: () => { accounts: ManagedAccountRow[]; resetAccounts: number }
+  setAccountDisabled: (
+    accountId: string,
+    disabled: boolean
+  ) => { accounts: ManagedAccountRow[]; updatedAccounts: number }
+  syncAccounts: (accounts: AccountPoolSnapshot[]) => ManagedAccountRow[]
+  updateAccountUsage: (
+    results: Array<AccountUsageInput & { error?: string }>
+  ) => ManagedAccountRow[]
   saveDaemonControlSettings: (
     input: DaemonControlSaveInput
   ) => Promise<{ proxy?: ProxyStatus; restarted: boolean; settings: DaemonControlView }>
@@ -215,9 +250,64 @@ export function createMainRuntime(): MainRuntime {
       throw new Error(`配置已保存，但服务重启失败：${errorMessage(error)}`)
     }
   }
-  const rawCaptureDir = async (): Promise<string> => (await proxyStatus()).rawCaptureDir
+  const rawCaptureDir = async (): Promise<string> => paths.rawCaptureDir
+  const recentRequests = (limit: number): ActivityPage<RecentRequest> =>
+    withLedger((ledger) => pageRows(ledger.recent(limit + 1), limit))
+  const logEvents = (limit: number): ActivityPage<LogEventRow> =>
+    withLedger((ledger) => pageRows(ledger.recentLogEvents(limit + 1), limit))
+  const protocolMessages = (limit: number): ActivityPage<ProtocolMessageRow> =>
+    withLedger((ledger) => pageRows(ledger.recentProtocolMessages(limit + 1), limit))
+  const turnSummaries = (limit: number): ActivityPage<TurnSummaryRow> =>
+    withLedger((ledger) => pageRows(ledger.recentTurnSummaries(limit + 1), limit))
+  const managedAccounts = (): ManagedAccountRow[] => withLedger((ledger) => ledger.accounts())
   const requestSummary = (): RequestSummary => readRequestSummary(paths.databasePath)
   const usageSummary = (): UsageSummary => readUsageSummary(paths.databasePath)
+  const clearRecords = (): { deletedRequests: number } =>
+    withLedger((ledger) => ({ deletedRequests: ledger.clear() }))
+  const syncAccounts = (accounts: AccountPoolSnapshot[]): ManagedAccountRow[] =>
+    withLedger((ledger) => {
+      ledger.syncAccountPool(accounts)
+      return ledger.accounts()
+    })
+  const updateAccountUsage = (
+    results: Array<AccountUsageInput & { error?: string }>
+  ): ManagedAccountRow[] =>
+    withLedger((ledger) => {
+      for (const result of results) {
+        ledger.updateAccountUsage({
+          accountId: result.accountId,
+          email: result.email,
+          label: result.label,
+          lastUsageError: result.error ?? result.lastUsageError,
+          planType: result.planType,
+          primaryUsedPercent: result.primaryUsedPercent,
+          rateLimitResetsAt: result.rateLimitResetsAt,
+          secondaryRateLimitResetsAt: result.secondaryRateLimitResetsAt,
+          secondaryUsedPercent: result.secondaryUsedPercent
+        })
+      }
+      return ledger.accounts()
+    })
+  const resetExhaustedAccounts = (): { accounts: ManagedAccountRow[]; resetAccounts: number } =>
+    withLedger((ledger) => {
+      const resetAccounts = ledger.resetExhaustedAccounts()
+      return { accounts: ledger.accounts(), resetAccounts }
+    })
+  const setAccountDisabled = (
+    accountId: string,
+    disabled: boolean
+  ): { accounts: ManagedAccountRow[]; updatedAccounts: number } =>
+    withLedger((ledger) => {
+      const updatedAccounts = ledger.setAccountDisabled(accountId, disabled)
+      return { accounts: ledger.accounts(), updatedAccounts }
+    })
+  const deleteAccounts = (
+    accountIds: string[]
+  ): { accounts: ManagedAccountRow[]; deletedAccounts: number } =>
+    withLedger((ledger) => {
+      const deletedAccounts = ledger.deleteAccounts(accountIds)
+      return { accounts: ledger.accounts(), deletedAccounts }
+    })
   const saveDaemonControlSettings = async (
     input: DaemonControlSaveInput
   ): Promise<{ proxy?: ProxyStatus; restarted: boolean; settings: DaemonControlView }> => {
@@ -262,18 +352,38 @@ export function createMainRuntime(): MainRuntime {
     },
     ensureDaemon,
     importedAuthPoolPath,
+    clearRecords,
+    deleteAccounts,
+    logEvents,
+    managedAccounts,
+    protocolMessages,
     readDaemonControlSettings: readDaemonControl,
     proxyStatus,
     rawCaptureDir,
+    recentRequests,
     readRuntimeConfig,
     requestSummary,
+    resetExhaustedAccounts,
     saveDaemonControlSettings,
     restartProxy,
     saveProxyConfig,
     saveProxyPageConfig,
+    setAccountDisabled,
     startDaemonProxy,
     stopProxy,
+    syncAccounts,
+    turnSummaries,
+    updateAccountUsage,
     usageSummary
+  }
+
+  function withLedger<T>(read: (ledger: ProxyLedger) => T): T {
+    const ledger = new ProxyLedger(paths.databasePath)
+    try {
+      return read(ledger)
+    } finally {
+      ledger.close()
+    }
   }
 
   function writeManagedConfig(config: ProxyConfig): ProxyConfig {
@@ -418,6 +528,13 @@ function proxyStatusMatchesConfig(status: ProxyStatus, config: ProxyConfig): boo
     status.rawCaptureEnabled === config.rawCaptureEnabled &&
     status.upstreamBaseUrl === config.upstreamBaseUrl
   )
+}
+
+function pageRows<T>(rows: T[], limit: number): ActivityPage<T> {
+  return {
+    hasMore: rows.length > limit,
+    items: rows.slice(0, limit)
+  }
 }
 
 function nonAppStartedDaemonMessage(

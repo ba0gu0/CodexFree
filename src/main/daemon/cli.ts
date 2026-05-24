@@ -12,6 +12,8 @@ import type { ProxyConfig, ProxyStatus } from '../proxy/types'
 import { DaemonAdminServer, type DaemonAdminStatus } from './admin'
 import { readDaemonControlConfigWithStatus, updateDaemonControlConfig } from './control-config'
 import { resolveDaemonPaths } from './paths'
+import { QuotaResetRefresher } from './quota-refresh'
+import { TokenRefreshMaintainer } from './token-refresh'
 
 const defaultProxyPort = 33333
 const defaultAdminPort = 44445
@@ -54,7 +56,6 @@ export async function runDaemonCli(args: string[]): Promise<void> {
     rawCaptureDir: service.rawCaptureDir,
     refreshAccountPool: (): ProxyStatus => service.refreshAccountPool(),
     refreshAccountState: (): ProxyStatus => service.refreshAccountState(),
-    reload: (config: ProxyConfig): Promise<ProxyStatus> => service.start(config),
     removeAccountsFromPool: (accountIds: string[]): ProxyStatus =>
       service.removeAccountsFromPool(accountIds),
     status: (): ProxyStatus => service.status(),
@@ -72,10 +73,25 @@ export async function runDaemonCli(args: string[]): Promise<void> {
   })
   const adminStatus = await admin.start()
   const configMonitor = startCodexConfigMonitor(readConfig)
+  const quotaResetRefresher = new QuotaResetRefresher({
+    authPoolDir: paths.authPoolDir,
+    ledger,
+    readUpstreamBaseUrl: () => readConfig().upstreamBaseUrl,
+    refreshAccountState: () => service.refreshAccountState()
+  })
+  const tokenRefreshMaintainer = new TokenRefreshMaintainer({
+    authPoolDir: paths.authPoolDir,
+    ledger,
+    refreshAccountPool: () => service.refreshAccountPool()
+  })
+  quotaResetRefresher.start()
+  tokenRefreshMaintainer.start()
   printStarted(proxyStatus, adminStatus, paths.databasePath, control.generatedAdminToken)
 
   const stop = async (signal: string) => {
     stdout.write(`\nReceived ${signal}; stopping CodexFree daemon...\n`)
+    quotaResetRefresher.stop()
+    tokenRefreshMaintainer.stop()
     configMonitor.stop()
     await admin.stop()
     await service.stop()

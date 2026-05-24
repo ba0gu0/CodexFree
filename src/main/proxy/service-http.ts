@@ -164,9 +164,22 @@ export async function handleProxyHttpRequest(
   const mode = classification.mode
   const preserveOriginalAuth = isWhamRemotePath(request.url)
   const useAccountRules = classification.mode === 'account' && !preserveOriginalAuth
-  const routedAccount = preserveOriginalAuth
+  let routedAccount = preserveOriginalAuth
     ? undefined
     : await ctx.routeAccount(request, requestId, accountId, conversationKey)
+  if (
+    routedAccount &&
+    useAccountRules &&
+    ctx.config.authPool.enabled &&
+    isGuardedHttpTurn(request.method, request.url)
+  ) {
+    routedAccount = await ctx.guardRoutedAccountForHttpTurn(
+      request,
+      requestId,
+      routedAccount,
+      conversationKey
+    )
+  }
   if (useAccountRules && ctx.config.authPool.enabled && !routedAccount) {
     const completedAt = new Date()
     const terminalQuota =
@@ -457,4 +470,8 @@ export async function handleProxyHttpRequest(
     startedAt,
     completedAt
   })
+}
+
+function isGuardedHttpTurn(method: string | undefined, path: string | undefined): boolean {
+  return method === 'POST' && (isCodexResponsesPath(path) || isCodexCompactPath(path))
 }

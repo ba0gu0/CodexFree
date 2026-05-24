@@ -271,6 +271,7 @@ export interface ManagedAccountDto {
   primaryUsedPercent: string | null
   secondaryUsedPercent: string | null
   rateLimitResetsAt: number | null
+  secondaryRateLimitResetsAt: number | null
   lastUsageCheckedAt: number | null
   lastUsageError: string | null
   active: number
@@ -286,6 +287,7 @@ export interface AuthImportResultDto {
     email?: string
     fingerprint: string
     label: string
+    refreshable: boolean
     sourceFormat: string
     fileName: string
   }[]
@@ -305,6 +307,7 @@ export interface AccountUsageCheckResultDto {
   primaryUsedPercent?: string
   secondaryUsedPercent?: string
   rateLimitResetsAt?: number
+  secondaryRateLimitResetsAt?: number
   lastRefresh: string
   error?: string
 }

@@ -486,9 +486,9 @@ account-login proxy core 后仍需要：
 - Account storage hardening：encrypted 或 platform-protected auth payload storage。
 - Validation tools：一键 raw capture cleanup 和 account/header changes 的 packet diff summaries。
   当前 daemon path 的 Docker smoke output 现在已记录在 `docs/current-state.md`。
-- Token refresh integration：`src/main/auth/refresh.ts` 存在，但 forwarding 不应在 HTTP/WSS
-  proxy paths 内 refresh。使用主 app account-maintenance flow 来 refresh 或 recover 被标记为
-  unavailable 的 accounts。
+- Token refresh integration 已完成：daemon 账号维护任务在转发热路径外刷新带
+  `refresh_token` 的托管账号；access-token-only 账号标记为不可刷新，过期后由真实 401
+  禁用。
 - API-key compatibility mode：单独的 disabled-by-default listener、明确的 local API key、可见的
   ban/detection warning，以及从 OpenAI-style `/v1/*` requests 到短生命周期 account WSS
   exchanges 的 adapter。

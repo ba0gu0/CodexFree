@@ -99,50 +99,6 @@ describe('daemon admin server', () => {
       await expect(response.json()).resolves.toMatchObject({
         config: { listenPort: 44444 }
       })
-      expect(service.reloads).toHaveLength(0)
-    } finally {
-      await server.stop()
-    }
-  })
-
-  it('reloads the proxy service from the latest saved database config', async () => {
-    let currentConfig = proxyConfig
-    const service = fakeService()
-    const server = new DaemonAdminServer({
-      host: '127.0.0.1',
-      ledger: fakeLedger(),
-      port: 0,
-      readConfig: () => currentConfig,
-      service,
-      token: 'secret-token',
-      writeConfig: (config) => {
-        currentConfig = config
-        return currentConfig
-      }
-    })
-    const status = await server.start()
-
-    try {
-      const saveResponse = await fetch(`${status.endpoint}/config`, {
-        body: JSON.stringify({ ...proxyConfig, listenPort: 44444 }),
-        headers: {
-          authorization: 'Bearer secret-token',
-          'content-type': 'application/json'
-        },
-        method: 'PUT'
-      })
-      expect(saveResponse.status).toBe(200)
-
-      const reloadResponse = await fetch(`${status.endpoint}/reload`, {
-        headers: { authorization: 'Bearer secret-token' },
-        method: 'POST'
-      })
-      expect(reloadResponse.status).toBe(200)
-      expect(service.reloads).toEqual([expect.objectContaining({ listenPort: 44444 })])
-      await expect(reloadResponse.json()).resolves.toMatchObject({
-        config: { listenPort: 44444 },
-        proxy: { endpoint: 'http://127.0.0.1:33333/backend-api' }
-      })
     } finally {
       await server.stop()
     }
@@ -454,16 +410,10 @@ describe('daemon admin server', () => {
 })
 
 function fakeService() {
-  const reloads: ProxyConfig[] = []
   return {
     rawCaptureDir: '/tmp/codexfree-test',
     refreshAccountPool: () => proxyStatus,
     refreshAccountState: () => proxyStatus,
-    reloads,
-    reload: async (config: ProxyConfig) => {
-      reloads.push(config)
-      return proxyStatus
-    },
     removeAccountsFromPool: () => proxyStatus,
     status: () => proxyStatus,
     switchActiveAccountAndCloseWebSockets: (accountId?: string) => ({
@@ -550,6 +500,8 @@ function fakeLedger(
               planType: input.planType ?? account.planType,
               primaryUsedPercent: input.primaryUsedPercent ?? account.primaryUsedPercent,
               rateLimitResetsAt: input.rateLimitResetsAt ?? account.rateLimitResetsAt,
+              secondaryRateLimitResetsAt:
+                input.secondaryRateLimitResetsAt ?? account.secondaryRateLimitResetsAt,
               secondaryUsedPercent: input.secondaryUsedPercent ?? account.secondaryUsedPercent,
               status: input.primaryUsedPercent === '100' ? 'exhausted' : account.status
             }
@@ -599,12 +551,16 @@ function toAccountRow(account: AccountPoolSnapshot): ManagedAccountRow {
     exhaustedAt: null,
     fingerprint: account.fingerprint,
     label: account.label,
+    lastQuotaRefreshedAt: null,
+    lastQuotaRefreshedResetAt: null,
     lastUsageCheckedAt: null,
     lastUsageError: null,
     planType: null,
     primaryUsedPercent: null,
     quotaResetAt: null,
     rateLimitResetsAt: null,
+    refreshable: account.refreshable === false ? 0 : 1,
+    secondaryRateLimitResetsAt: null,
     secondaryUsedPercent: null,
     sourceFormat: account.sourceFormat,
     status: 'available',

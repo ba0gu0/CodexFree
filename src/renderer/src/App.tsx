@@ -24,7 +24,11 @@ import { RequestsPage } from '@renderer/pages/requests'
 import type { PageActions } from '@renderer/pages/types'
 import { UsagePage } from '@renderer/pages/usage'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AccountUsageCheckBatchDto, RawCaptureDetailDto } from '../../preload/proxy-api'
+import type {
+  AccountUsageCheckBatchDto,
+  AuthImportResultDto,
+  RawCaptureDetailDto
+} from '../../preload/proxy-api'
 
 const ACTIVITY_INITIAL_LIMIT = 50
 const ACTIVITY_PAGE_SIZE = 50
@@ -309,12 +313,24 @@ function App(): React.JSX.Element {
         () => window.api.exportAuthFiles(),
         () => t('notice.exported')
       ),
-    importAuthFiles: () =>
-      runAction(
-        'import',
-        () => window.api.importAuthFiles(),
-        () => t('notice.imported')
-      ),
+    importAuthFiles: async () => {
+      setBusyAction('import')
+      setError(null)
+      setNotice(null)
+      try {
+        const result = await window.api.importAuthFiles()
+        setNotice(importDoneText(result, t))
+        const failureText = importFailureText(result, t)
+        if (failureText) {
+          setError(failureText)
+        }
+        await refresh()
+      } catch (importError) {
+        setError(toErrorMessage(importError))
+      } finally {
+        setBusyAction(null)
+      }
+    },
     loadMoreActivity,
     openManagedAuthDirectory: () =>
       runAction(
@@ -535,6 +551,42 @@ function usageDoneText(
     failed: result.results.filter((item) => !item.ok).length,
     total: result.results.length
   })
+}
+
+function importDoneText(
+  result: AuthImportResultDto,
+  t: (key: CopyKey, values?: Record<string, string | number>) => string
+): string {
+  if (result.skipped > 0) {
+    return t('notice.importedWithErrors', {
+      imported: result.imported,
+      skipped: result.skipped
+    })
+  }
+  return result.imported > 0
+    ? t('notice.importedCount', { imported: result.imported })
+    : t('notice.importedNone')
+}
+
+function importFailureText(
+  result: AuthImportResultDto,
+  t: (key: CopyKey, values?: Record<string, string | number>) => string
+): string | null {
+  if (result.skipped === 0 || result.errors.length === 0) {
+    return null
+  }
+  const details = result.errors
+    .slice(0, 3)
+    .map((error) => `${displayFileName(error.filePath)}: ${error.message}`)
+    .join('；')
+  return t('notice.importFailedDetails', {
+    details,
+    skipped: result.skipped
+  })
+}
+
+function displayFileName(filePath: string): string {
+  return filePath.split(/[\\/]/).at(-1) ?? filePath
 }
 
 function renderPage(view: ViewId, props: Parameters<typeof DashboardPage>[0]): React.JSX.Element {

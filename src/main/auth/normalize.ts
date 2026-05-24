@@ -22,6 +22,7 @@ export interface NormalizedAuthFile {
   disabled: boolean
   expiresAt?: string
   lastRefresh: string
+  refreshable: boolean
   fingerprint: string
   codexAuth: CodexChatGptAuth
   warnings: string[]
@@ -35,7 +36,9 @@ export class AuthNormalizationError extends Error {
 }
 
 interface NormalizeOptions {
+  accountId?: string
   fileName?: string
+  now?: Date
 }
 
 interface FlatAuthRecord {
@@ -47,6 +50,7 @@ interface FlatAuthRecord {
   expired?: unknown
   id_token?: unknown
   last_refresh?: unknown
+  refreshable?: unknown
   refresh_token?: unknown
   session_token?: unknown
   type?: unknown
@@ -60,12 +64,16 @@ export function normalizeAuthFile(
   const flatRecord = record as FlatAuthRecord
   const format = detectFormat(record, options.fileName)
   const codexAuth = isNativeCodexAuth(record)
-    ? normalizeNativeCodexAuth(record)
-    : normalizeFlatAuthRecord(flatRecord)
+    ? normalizeNativeCodexAuth(record, options)
+    : normalizeFlatAuthRecord(flatRecord, options)
   const email = stringOrUndefined(flatRecord.email) ?? emailFromJwtPayload(codexAuth)
   const disabled = Boolean(flatRecord.disabled)
   const expiresAt = stringOrUndefined(flatRecord.expired)
   const label = email ?? `${format}:${codexAuth.tokens.account_id}`
+  const refreshable =
+    typeof flatRecord.refreshable === 'boolean'
+      ? flatRecord.refreshable
+      : codexAuth.tokens.refresh_token.trim() !== ''
 
   return {
     format,
@@ -75,6 +83,7 @@ export function normalizeAuthFile(
     disabled,
     expiresAt,
     lastRefresh: codexAuth.last_refresh,
+    refreshable,
     fingerprint: authFingerprint(codexAuth),
     codexAuth,
     warnings:
@@ -113,33 +122,42 @@ function isNativeCodexAuth(record: Record<string, unknown>): boolean {
   )
 }
 
-function normalizeNativeCodexAuth(record: Record<string, unknown>): CodexChatGptAuth {
+function normalizeNativeCodexAuth(
+  record: Record<string, unknown>,
+  options: NormalizeOptions
+): CodexChatGptAuth {
   const tokens = expectRecord(record.tokens)
 
   return {
     auth_mode: 'chatgpt',
     OPENAI_API_KEY: null,
     tokens: {
-      id_token: requiredString(tokens.id_token, 'tokens.id_token'),
+      id_token: optionalString(tokens.id_token),
       access_token: requiredString(tokens.access_token, 'tokens.access_token'),
-      refresh_token: requiredString(tokens.refresh_token, 'tokens.refresh_token'),
-      account_id: requiredString(tokens.account_id, 'tokens.account_id')
+      refresh_token: optionalString(tokens.refresh_token),
+      account_id:
+        stringOrUndefined(options.accountId) ??
+        requiredString(tokens.account_id, 'tokens.account_id')
     },
-    last_refresh: requiredString(record.last_refresh, 'last_refresh')
+    last_refresh: optionalString(record.last_refresh) || nowIso(options)
   }
 }
 
-function normalizeFlatAuthRecord(record: FlatAuthRecord): CodexChatGptAuth {
+function normalizeFlatAuthRecord(
+  record: FlatAuthRecord,
+  options: NormalizeOptions
+): CodexChatGptAuth {
   return {
     auth_mode: 'chatgpt',
     OPENAI_API_KEY: null,
     tokens: {
-      id_token: requiredString(record.id_token, 'id_token'),
+      id_token: optionalString(record.id_token),
       access_token: requiredString(record.access_token, 'access_token'),
-      refresh_token: requiredString(record.refresh_token, 'refresh_token'),
-      account_id: requiredString(record.account_id, 'account_id')
+      refresh_token: optionalString(record.refresh_token),
+      account_id:
+        stringOrUndefined(options.accountId) ?? requiredString(record.account_id, 'account_id')
     },
-    last_refresh: requiredString(record.last_refresh, 'last_refresh')
+    last_refresh: optionalString(record.last_refresh) || nowIso(options)
   }
 }
 
@@ -153,6 +171,14 @@ function requiredString(value: unknown, field: string): string {
 
 function stringOrUndefined(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value : undefined
+}
+
+function optionalString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function nowIso(options: NormalizeOptions): string {
+  return (options.now ?? new Date()).toISOString()
 }
 
 function emailFromJwtPayload(auth: CodexChatGptAuth): string | undefined {

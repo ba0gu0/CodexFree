@@ -2,11 +2,19 @@ import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 
 export function isPercentExhausted(value: string | null): boolean {
+  return isPercentAtLeast(value, 100)
+}
+
+export function isPercentQuotaProtected(value: string | null | undefined): boolean {
+  return isPercentAtLeast(value, 95)
+}
+
+function isPercentAtLeast(value: string | null | undefined, threshold: number): boolean {
   if (!value) {
     return false
   }
   const numeric = Number.parseFloat(value)
-  return Number.isFinite(numeric) && numeric >= 100
+  return Number.isFinite(numeric) && numeric >= threshold
 }
 
 export function randomLedgerId(prefix: string): string {

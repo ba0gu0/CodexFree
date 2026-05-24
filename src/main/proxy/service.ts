@@ -15,12 +15,14 @@ import {
 } from './path-utils'
 import { ProtocolMessageLogger } from './protocol-message-logger'
 import { formatQuotaLedgerMessage, type QuotaExhaustionEvent } from './quota'
+import { type AccountQuotaEvaluation, AccountQuotaGuard } from './quota-guard'
+import type { WebSocketResponseCreateGuardResult } from './service-context'
 import { handleProxyHttpRequest } from './service-http'
 import { handleProxyUpgrade } from './service-upgrade'
 import type { ForwardResult } from './transport-http'
 import { closeUpgradedSocket } from './transport-utils'
 import type { ProxyAccountSwitchResult, ProxyConfig, ProxyStatus } from './types'
-import { extractUsageResponse, isUsageExhausted, type UsageSnapshot } from './usage-response'
+import { extractUsageResponse, isUsageQuotaProtected, type UsageSnapshot } from './usage-response'
 import type { CapturedWebSocketFrame } from './websocket-capture'
 
 export class TransparentProxyService {
@@ -28,9 +30,9 @@ export class TransparentProxyService {
   private server?: http.Server
   config: ProxyConfig
   private lastError?: string
-  private accountPool: AccountPool
   private accountSwitchPromise?: Promise<RoutedAccount | undefined>
   private accountSwitchStartedAt = 0
+  private readonly quotaGuard: AccountQuotaGuard
   private readonly upgradedSockets = new Set<Duplex>()
   private readonly protocolLogger: ProtocolMessageLogger
   private outboundProxyAgent?: ProxyAgent
@@ -47,7 +49,12 @@ export class TransparentProxyService {
     rawCaptureDir?: string
   ) {
     this.config = initialConfig
-    this.accountPool = this.loadAccountPool(initialConfig)
+    this.quotaGuard = new AccountQuotaGuard({
+      agent: () => this.proxyAgent(),
+      ledger,
+      log,
+      usageUrl: () => this.usageCheckUrl()
+    })
     this.protocolLogger = new ProtocolMessageLogger(ledger, log)
     this.rawCaptureDir = rawCaptureDir ?? join(tmpdir(), 'CodexFree', 'raw-captures')
     mkdirSync(this.rawCaptureDir, { recursive: true, mode: 0o700 })
@@ -56,7 +63,6 @@ export class TransparentProxyService {
   async start(config = this.config): Promise<ProxyStatus> {
     await this.stop()
     this.config = config
-    this.accountPool = this.loadAccountPool(config)
 
     this.server = http.createServer((request, response) => {
       this.handleRequest(request, response).catch((error: unknown) => {
@@ -122,7 +128,7 @@ export class TransparentProxyService {
   }
 
   switchActiveAccountAndCloseWebSockets(accountId?: string): ProxyAccountSwitchResult {
-    const account = this.accountPool.selectActiveAccount(accountId)
+    const account = this.currentAccountPool().selectActiveAccount(accountId)
     if (!account) {
       this.log.warn('Manual account switch requested but target account is unavailable', {
         accountId
@@ -145,25 +151,17 @@ export class TransparentProxyService {
   }
 
   refreshAccountPool(): ProxyStatus {
-    this.accountPool = this.loadAccountPool(this.config)
-    this.log.info('Account pool refreshed from database and auth files', this.status())
+    this.log.info('Account pool refresh requested; routing reads database and auth files live')
     return this.status()
   }
 
   refreshAccountState(): ProxyStatus {
-    this.accountPool.applyRuntimeState({
-      activeAccountId: this.ledger.activeAccountId(),
-      disabledAccountIds: this.ledger.disabledAccountIds(),
-      exhaustedAccountIds: this.ledger.exhaustedAccountIds()
-    })
-    this.log.info('Account pool runtime state refreshed from database', this.status())
+    this.log.info('Account state refresh requested; routing reads database state live')
     return this.status()
   }
 
   removeAccountsFromPool(accountIds: string[]): ProxyStatus {
-    this.accountPool.removeAccountIds(accountIds)
-    this.refreshAccountState()
-    this.log.info('Accounts removed from in-memory account pool', {
+    this.log.info('Accounts removed from database-backed account pool', {
       accountCount: accountIds.length
     })
     return this.status()
@@ -178,7 +176,7 @@ export class TransparentProxyService {
     const port =
       typeof address === 'object' && address !== null ? address.port : this.config.listenPort
 
-    const accountPoolStatus = this.accountPool.status(this.config.authPool.enabled)
+    const accountPoolStatus = this.currentAccountPool().status(this.config.authPool.enabled)
     const origin = `http://${host}:${port}`
     const cpuUsage = process.cpuUsage()
     const memoryUsage = process.memoryUsage()
@@ -226,7 +224,6 @@ export class TransparentProxyService {
     conversationKey: string | undefined,
     event: QuotaExhaustionEvent
   ): void {
-    this.accountPool.markExhausted(accountId, conversationKey)
     const completedAt = new Date()
     const message = formatQuotaLedgerMessage(event)
     this.log.warn('Usage limit reached; marking account exhausted', {
@@ -252,7 +249,6 @@ export class TransparentProxyService {
     conversationKey: string | undefined,
     result: ForwardResult
   ): void {
-    this.accountPool.markDisabled(accountId, conversationKey)
     if (accountId) {
       this.ledger.setAccountDisabled(accountId, true)
     }
@@ -294,10 +290,10 @@ export class TransparentProxyService {
       planType: usage.planType,
       primaryUsedPercent: usage.primaryUsedPercent,
       secondaryUsedPercent: usage.secondaryUsedPercent,
-      rateLimitResetsAt: usage.rateLimitResetsAt
+      rateLimitResetsAt: usage.rateLimitResetsAt,
+      secondaryRateLimitResetsAt: usage.secondaryRateLimitResetsAt
     })
-    if (isUsageExhausted(usage.primaryUsedPercent)) {
-      this.accountPool.markExhausted(accountId, undefined)
+    if (isUsageQuotaProtected(usage.primaryUsedPercent)) {
       this.log.warn('Usage limit reached; marking account exhausted', {
         accountId,
         used: usage.primaryUsedPercent,
@@ -306,7 +302,7 @@ export class TransparentProxyService {
     }
     return {
       ...usage,
-      exhausted: isUsageExhausted(usage.primaryUsedPercent)
+      exhausted: isUsageQuotaProtected(usage.primaryUsedPercent)
     }
   }
 
@@ -388,7 +384,7 @@ export class TransparentProxyService {
       return undefined
     }
 
-    const account = this.accountPool.select({ conversationKey, incomingAccountId })
+    const account = this.currentAccountPool().select({ conversationKey, incomingAccountId })
     if (!account) {
       this.log.warn('Auth pool is enabled but no available account was selected', {
         conversationKey,
@@ -446,7 +442,6 @@ export class TransparentProxyService {
     const startedAt = Date.now()
     const promise = Promise.resolve()
       .then(() => {
-        this.accountPool.markExhausted(exhaustedAccountId, conversationKey)
         return this.routeAccountNow(
           request,
           requestId,
@@ -484,7 +479,6 @@ export class TransparentProxyService {
     const startedAt = Date.now()
     const promise = Promise.resolve()
       .then(() => {
-        this.accountPool.markDisabled(failedAccountId, conversationKey)
         return this.routeAccountNow(
           request,
           requestId,
@@ -502,6 +496,105 @@ export class TransparentProxyService {
     this.accountSwitchStartedAt = startedAt
     this.accountSwitchPromise = promise
     return promise
+  }
+
+  async guardRoutedAccountForHttpTurn(
+    request: IncomingMessage,
+    requestId: string,
+    routedAccount: RoutedAccount,
+    conversationKey: string | undefined
+  ): Promise<RoutedAccount | undefined> {
+    let account: RoutedAccount | undefined = routedAccount
+    const maxAttempts = Math.min(this.availableAccountCount(), 10)
+    for (let attempt = 0; account && attempt < maxAttempts; attempt += 1) {
+      const evaluation = await this.quotaGuard.evaluate(account)
+      if (!evaluation.protectedByQuota) {
+        return account
+      }
+      const protectedAccountId = account.accountId
+      const event = this.markAccountProtectedByQuota(
+        requestId,
+        protectedAccountId,
+        conversationKey,
+        evaluation
+      )
+      account = await this.switchAccountAfterExhaustion(
+        request,
+        requestId,
+        protectedAccountId,
+        conversationKey,
+        'quota_retry_selected'
+      )
+      if (!account) {
+        this.log.warn('No replacement account is available after quota guard', {
+          id: requestId,
+          accountId: protectedAccountId,
+          used: event.primaryUsedPercent
+        })
+      }
+    }
+    return undefined
+  }
+
+  async guardWebSocketResponseCreate(
+    requestId: string,
+    accountId: string | undefined,
+    conversationKey: string | undefined
+  ): Promise<WebSocketResponseCreateGuardResult> {
+    const account = accountId ? this.currentAccountPool().selectActiveAccount(accountId) : undefined
+    if (!account) {
+      return { action: 'allow' }
+    }
+    const evaluation = await this.quotaGuard.evaluate(account)
+    if (!evaluation.protectedByQuota) {
+      return { action: 'allow' }
+    }
+    const event = this.markAccountProtectedByQuota(
+      requestId,
+      account.accountId,
+      conversationKey,
+      evaluation
+    )
+    if (this.availableAccountCount() > 0) {
+      this.log.info('Quota guard requested websocket reconnect before response.create', {
+        id: requestId,
+        accountId: account.accountId,
+        used: evaluation.primaryUsedPercent
+      })
+      return { action: 'reconnect' }
+    }
+    return { action: 'terminal_quota', event }
+  }
+
+  private markAccountProtectedByQuota(
+    requestId: string,
+    accountId: string,
+    conversationKey: string | undefined,
+    evaluation: AccountQuotaEvaluation
+  ): QuotaExhaustionEvent {
+    const event: QuotaExhaustionEvent = {
+      errorType: 'usage_limit_reached',
+      planType: evaluation.planType,
+      primaryUsedPercent: evaluation.primaryUsedPercent ?? '95',
+      resetsAt: evaluation.rateLimitResetsAt
+        ? String(Math.floor(evaluation.rateLimitResetsAt / 1000))
+        : undefined,
+      statusCode: 429
+    }
+    this.log.warn('Quota guard protected account before forwarding turn', {
+      accountId,
+      source: evaluation.source,
+      used: event.primaryUsedPercent
+    })
+    this.markHttpQuotaExhausted(requestId, accountId, conversationKey, event)
+    return event
+  }
+
+  private usageCheckUrl(): string {
+    const upstream = new URL(this.config.upstreamBaseUrl)
+    upstream.pathname = '/backend-api/wham/usage'
+    upstream.search = ''
+    return upstream.toString()
   }
 
   private async waitForAccountSwitch(requestId: string): Promise<void> {
@@ -532,7 +625,11 @@ export class TransparentProxyService {
   }
 
   availableAccountCount(): number {
-    return this.accountPool.status(true).availableAccounts
+    return this.currentAccountPool().status(true).availableAccounts
+  }
+
+  private currentAccountPool(): AccountPool {
+    return this.loadAccountPool(this.config)
   }
 
   private loadAccountPool(config: ProxyConfig): AccountPool {

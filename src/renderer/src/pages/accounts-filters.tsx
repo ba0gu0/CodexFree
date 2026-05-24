@@ -12,10 +12,14 @@ import { SearchIcon, XIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
 import {
   type AccountFormatFilter,
+  type AccountPlanFilter,
   type AccountStatusFilter,
   formatFilterLabel,
   formatFilters,
   isFormatFilter,
+  isPlanFilter,
+  planFilterLabel,
+  planFilters,
   statusFilterLabel,
   statusFilters
 } from './accounts-model'
@@ -24,16 +28,20 @@ import type { PageProps } from './types'
 export function AccountFilters({
   formatFilter,
   onFormatChange,
+  onPlanChange,
   onQueryChange,
   onStatusChange,
+  planFilter,
   query,
   statusFilter,
   t
 }: {
   formatFilter: AccountFormatFilter
   onFormatChange: (filter: AccountFormatFilter) => void
+  onPlanChange: (filter: AccountPlanFilter) => void
   onQueryChange: (query: string) => void
   onStatusChange: (filter: AccountStatusFilter) => void
+  planFilter: AccountPlanFilter
   query: string
   statusFilter: AccountStatusFilter
   t: PageProps['t']
@@ -109,6 +117,31 @@ export function AccountFilters({
             {formatFilters.map((filter) => (
               <SelectItem key={filter} value={filter}>
                 {formatFilterLabel(filter, t)}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectPopup>
+      </Select>
+      <Select
+        items={planFilters.map((filter) => ({
+          label: planFilterLabel(filter, t),
+          value: filter
+        }))}
+        onValueChange={(value) => {
+          if (isPlanFilter(value)) {
+            onPlanChange(value)
+          }
+        }}
+        value={planFilter}
+      >
+        <SelectTrigger className="w-28 min-[1400px]:w-32">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectPopup>
+          <SelectGroup>
+            {planFilters.map((filter) => (
+              <SelectItem key={filter} value={filter}>
+                {planFilterLabel(filter, t)}
               </SelectItem>
             ))}
           </SelectGroup>

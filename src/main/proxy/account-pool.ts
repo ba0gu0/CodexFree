@@ -24,6 +24,7 @@ export interface AccountPoolSnapshot {
   email?: string
   fingerprint: string
   label: string
+  refreshable?: boolean
   sourceFormat: NormalizedAuthFile['format']
 }
 
@@ -101,6 +102,7 @@ export class AccountPool {
       email: account.email,
       fingerprint: account.fingerprint,
       label: account.label,
+      refreshable: account.refreshable,
       sourceFormat: account.format
     }))
   }

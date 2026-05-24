@@ -1,7 +1,7 @@
 import http, { type IncomingMessage, type RequestOptions } from 'node:http'
 import https from 'node:https'
 import type { Duplex } from 'node:stream'
-import type { QuotaExhaustionEvent } from './quota'
+import { buildUsageLimitReachedPayload, type QuotaExhaustionEvent } from './quota'
 import { appendSample, type createRawCapture } from './raw-capture'
 import {
   analyzeResponseCreateFrame,
@@ -30,6 +30,10 @@ export interface WebSocketLifecycleEvent {
   statusCode?: number
   type: WebSocketLifecycleEventType
 }
+export type ResponseCreatePreflightResult =
+  | { action: 'allow' }
+  | { action: 'reconnect' }
+  | { action: 'terminal_quota'; event: QuotaExhaustionEvent }
 type RawCapture = ReturnType<typeof createRawCapture>
 
 export function forwardUpgradeRequest(
@@ -42,7 +46,8 @@ export function forwardUpgradeRequest(
   onEarlyQuotaRetry?: (event: QuotaExhaustionEvent) => RequestOptions | undefined,
   onEarlyQuotaCannotReplay?: (event: QuotaExhaustionEvent) => boolean,
   onWebSocketFrame?: (frame: CapturedWebSocketFrame) => void,
-  onLifecycle?: (event: WebSocketLifecycleEvent) => void
+  onLifecycle?: (event: WebSocketLifecycleEvent) => void,
+  onResponseCreatePreflight?: () => Promise<ResponseCreatePreflightResult>
 ): Promise<UpgradeResult> {
   return new Promise((resolve) => {
     let currentOptions = options
@@ -121,6 +126,7 @@ export function forwardUpgradeRequest(
           upstreamSocket,
           onWebSocketFrame,
           onLifecycle,
+          onResponseCreatePreflight,
           writeUpgradeResponse
         })
       })
@@ -190,6 +196,7 @@ interface PipeUpgradedSocketsOptions {
   onProbeCannotReplayStarted?: () => void
   onProbeStarted?: (frame: Buffer) => void
   onQuotaExhausted?: (event: QuotaExhaustionEvent) => void
+  onResponseCreatePreflight?: () => Promise<ResponseCreatePreflightResult>
   onLifecycle?: (event: WebSocketLifecycleEvent) => void
   onWebSocketFrame?: (frame: CapturedWebSocketFrame) => void
   rawCapture: RawCapture
@@ -218,6 +225,8 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
   let observingUpstream = false
   let replayStartedFromFrame = false
   let pendingUpstreamFlush = false
+  let downstreamWriteChain = Promise.resolve()
+  let latestResponseCreateProbe: ReturnType<typeof analyzeResponseCreateFrame> | undefined
   const upstreamBuffer: Buffer[] = []
   const cleanup = () => {
     if (cleaned) {
@@ -274,6 +283,38 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
     options.onLifecycle?.({ type: 'quota_reconnect_requested' })
     options.upstreamSocket.destroy()
     options.downstreamSocket.destroy()
+    settle()
+  }
+  const reconnectAfterQuotaGuard = (): void => {
+    phase = 'closing'
+    upstreamBuffer.length = 0
+    options.onLifecycle?.({ type: 'quota_reconnect_requested' })
+    options.upstreamSocket.destroy()
+    options.downstreamSocket.destroy()
+    settle()
+  }
+  const forwardLocalTerminalQuotaEvent = (event: QuotaExhaustionEvent): void => {
+    phase = 'terminal_quota_forwarded'
+    options.onLifecycle?.({ type: 'terminal_quota_forwarded' })
+    const parsedResetSeconds = event.resetsAt ? Number.parseInt(event.resetsAt, 10) : undefined
+    const resetsAt =
+      parsedResetSeconds === undefined || !Number.isFinite(parsedResetSeconds)
+        ? undefined
+        : parsedResetSeconds * 1000
+    safeSocketWrite(
+      options.downstreamSocket,
+      createServerTextFrame(
+        JSON.stringify(
+          buildUsageLimitReachedPayload({
+            planType: event.planType,
+            primaryUsedPercent: event.primaryUsedPercent,
+            resetsAt
+          })
+        )
+      )
+    )
+    options.upstreamSocket.destroy()
+    options.downstreamSocket.end()
     settle()
   }
   const startProbe = (probe: ReturnType<typeof analyzeResponseCreateFrame>): void => {
@@ -374,6 +415,9 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
     {
       onFrame: (frame) => {
         const probe = analyzeResponseCreateFrame(frame)
+        if (probe) {
+          latestResponseCreateProbe = probe
+        }
         startProbe(probe)
         options.onWebSocketFrame?.(frame)
       }
@@ -423,10 +467,26 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
     if (phase === 'terminal_quota_forwarded') {
       return
     }
-    forwardDownstreamChunk(chunk, true)
+    downstreamWriteChain = downstreamWriteChain
+      .then(() => forwardDownstreamChunk(chunk, true))
+      .catch(() => closeDownstream())
   }
-  function forwardDownstreamChunk(chunk: Buffer, recordForReplay: boolean): void {
+  async function forwardDownstreamChunk(chunk: Buffer, recordForReplay: boolean): Promise<void> {
+    latestResponseCreateProbe = undefined
     downstreamFrames?.observe(chunk)
+    if (latestResponseCreateProbe && options.onResponseCreatePreflight) {
+      options.downstreamSocket.pause()
+      const result = await options.onResponseCreatePreflight()
+      if (result.action === 'reconnect') {
+        reconnectAfterQuotaGuard()
+        return
+      }
+      if (result.action === 'terminal_quota') {
+        forwardLocalTerminalQuotaEvent(result.event)
+        return
+      }
+      options.downstreamSocket.resume()
+    }
     if (
       recordForReplay &&
       phase === 'probing' &&
@@ -503,7 +563,9 @@ function pipeUpgradedSockets(options: PipeUpgradedSocketsOptions): void {
     onUpstreamData(options.upstreamHead)
   }
   if (options.downstreamHead.byteLength > 0) {
-    forwardDownstreamChunk(options.downstreamHead, false)
+    downstreamWriteChain = downstreamWriteChain
+      .then(() => forwardDownstreamChunk(options.downstreamHead, false))
+      .catch(() => closeDownstream())
   }
   if (!cleaned && (options.upstreamSocket.destroyed || options.upstreamSocket.readableEnded)) {
     onUpstreamClose()

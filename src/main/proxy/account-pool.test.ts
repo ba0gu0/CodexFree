@@ -82,6 +82,7 @@ describe('account pool', () => {
         format: 'codex',
         label: 'Account A',
         lastRefresh: staleAuth.last_refresh,
+        refreshable: true,
         warnings: []
       }
     ])

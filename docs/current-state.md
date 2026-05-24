@@ -51,6 +51,15 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - 已经打开的 client WSS 连接在收到新的 `response.create` frame 时，会重新进入每轮
   probe 窗口。如果 quota 在任何非 quota 上游 frame 之前到达，就应用相同的自包含
   replay 规则；否则 stream 已经正常开始，之后的 quota 仍然是终止性的 session 结果。
+- `POST /backend-api/codex/responses` 和 WSS `response.create` 现在有前置 quota guard。
+  同一账号 1 分钟内复用最近一次查量结果；结果过期时只检查候选账号。`primary_used_percent`
+  达到 95% 会按保护线退出可用池，避免继续打到真实 `usage_limit_reached`。WSS 有替代账号时
+  关闭 client socket 触发 Codex 端口重连；所有账号都进入保护状态时，本地返回
+  `usage_limit_reached`。
+- Daemon 现在有 quota reset 刷新任务，每 30 分钟检查一次账号池，只刷新
+  `rate_limit_resets_at` 已过 5 分钟且当前 reset 窗口尚未刷新过的非禁用账号。刷新成功会写入
+  `last_quota_refreshed_at` 和 `last_quota_refreshed_reset_at`，并记录 quota event，避免同一
+  reset 窗口重复刷新。
 - 代理不会持久化完整的结构化 conversation transcript 来做跨账号重建。原始
   WebSocket 抓包和内存 probe buffer 是调试/重试辅助，不是持久 message-history 模型。
 - Usage 查询会使用当前绑定/默认可用账号转发，并返回真实的上游 usage。代理不会伪造
@@ -65,8 +74,13 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - 导入账号管理现在支持从 Electron 管理界面进行批量导入、批量 usage 检查、导出、
   401 清理、单账号禁用/启用，以及 exhaustion reset。导入、usage 检查和运行时路由
   都使用同一个 app 托管 auth-pool 目录。
-- 导入账号元数据现在把 email 持久化到 SQLite `proxy_accounts`，并在 usage 检查返回
-  或解码出 email 地址时回填 auth 文件。操作员日志行持久化 typed `event_type`，因此
+- 导入后会按 account id 覆盖旧授权文件，并只对本次新增/覆盖的账号自动查量；daemon
+  同步仍读取托管目录中的全部有效账号，避免只导入一部分时误删旧账号状态。
+- 导入账号现在以 `access_token` 为唯一硬必填字段。缺少 account id 的记录会先用该
+  token 查询 `/backend-api/wham/usage`，从上游 usage 响应回填 account id 和 email；
+  缺少 `refresh_token` 的账号会标记为不可刷新，仍可进入账号池，后续真实 401 会禁用。
+- 导入账号元数据现在把 email 和 refreshable 状态持久化到 SQLite `proxy_accounts`，
+  并在 usage 检查返回或解码出 email 地址时回填 auth 文件。操作员日志行持久化 typed `event_type`，因此
   UI 可以区分常规请求、账号切换、网络问题、quota 问题、auth 问题和系统变更。
 - Electron 启动现在从 SQLite `proxy_settings` 读取 daemon 管理 host、port 和 admin
   token，先尝试配置的 admin endpoint，只有该 endpoint 不可达时才启动 daemon。
@@ -83,8 +97,10 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - 账号管理动作写 SQLite，然后只刷新 daemon 的内存 account-pool cache。它们不会重启
   proxy service，也不会关闭现有 WSS sessions。
 - 内存 conversation bindings 会在 24 小时后裁剪，避免旧 session 永久占用账号。
-- 代理转发不会刷新托管 ChatGPT token。它只分类上游账号结果，例如 quota exhaustion、
-  token expiry 或 account unavailability；主 app 账号维护流程负责 refresh 和 recovery。
+- 代理转发热路径不会刷新托管 ChatGPT token。daemon 账号维护任务会在启动时和每小时
+  扫描可刷新账号，根据 access token `exp` 或 `last_refresh` 判断是否需要调用
+  refresh-token flow，成功后写回托管 auth 文件并刷新内存账号池。不可刷新账号过期后由
+  真实 401 标记为 disabled。
 - 进行中的 WebSocket streams 保持原始 auth。代理不能在已经升级的 WSS 连接上重写 auth。
 - 只有上游 WSS stream 返回结构化 `usage_limit_reached` quota error 后，session 才有
   资格替换 auth。网络断开、本地 `EPIPE`、代理重启和 Yakit/MITM 失败都不算 quota

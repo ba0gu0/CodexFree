@@ -213,7 +213,20 @@ export async function handleProxyUpgrade(
     useAccountRules && ctx.config.authPool.enabled ? hasReplacementAfterQuota : undefined,
     (frame) =>
       ctx.logWebSocketFrame(requestId, request.url ?? '/', routedAccountId, conversationKey, frame),
-    logLifecycle
+    logLifecycle,
+    useAccountRules && ctx.config.authPool.enabled
+      ? async () => {
+          const result = await ctx.guardWebSocketResponseCreate(
+            requestId,
+            routedAccountId,
+            conversationKey
+          )
+          if (result.action === 'terminal_quota') {
+            terminalQuotaMessage = formatQuotaLedgerMessage(result.event)
+          }
+          return result
+        }
+      : undefined
   )
   const completedAt = new Date()
   ctx.ledger.insert({

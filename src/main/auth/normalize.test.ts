@@ -24,6 +24,7 @@ describe('auth normalization', () => {
     expect(normalized.email).toBe('user@example.test')
     expect(normalized.disabled).toBe(true)
     expect(normalized.expiresAt).toBe('2026-01-01T00:00:00.000Z')
+    expect(normalized.refreshable).toBe(true)
     expect(normalized.codexAuth).toEqual({
       auth_mode: 'chatgpt',
       OPENAI_API_KEY: null,
@@ -67,7 +68,30 @@ describe('auth normalization', () => {
 
   it('rejects malformed files without exposing secret values in the message', () => {
     expect(() => normalizeAuthFile({ access_token: 'secret-access-token' })).toThrow(
-      new AuthNormalizationError('Auth file is missing required field: id_token')
+      new AuthNormalizationError('Auth file is missing required field: account_id')
     )
+  })
+
+  it('accepts non-refreshable access tokens with an account id', () => {
+    const normalized = normalizeAuthFile(
+      {
+        access_token: 'access-token',
+        account_id: 'account-id',
+        email: 'user@example.test',
+        type: 'codex'
+      },
+      { now: new Date('2026-01-01T00:00:00.000Z') }
+    )
+
+    expect(normalized.refreshable).toBe(false)
+    expect(normalized.codexAuth).toMatchObject({
+      tokens: {
+        access_token: 'access-token',
+        account_id: 'account-id',
+        id_token: '',
+        refresh_token: ''
+      },
+      last_refresh: '2026-01-01T00:00:00.000Z'
+    })
   })
 })
