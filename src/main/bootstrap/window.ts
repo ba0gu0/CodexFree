@@ -9,6 +9,7 @@ export function createMainWindow(): BrowserWindow {
     height: 800,
     minWidth: 1160,
     minHeight: 720,
+    center: true,
     show: is.dev,
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 18, y: 18 },

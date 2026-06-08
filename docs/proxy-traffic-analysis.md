@@ -29,6 +29,7 @@
 | GET | `/backend-api/wham/usage` | 账号额度查询 | `account_usage` | plan、used percent、reset time、model |
 | GET | `/backend-api/connectors/directory/list` | 连接器目录 | `connector_directory` | item count、连接器类别统计 |
 | GET | `/backend-api/plugins/featured` | 插件推荐目录 | `plugin_featured` | item count、插件类别统计 |
+| GET | `/backend-api/ps/plugins/installed` | 已安装插件查询 | `plugin_installed` | item count、默认活动预览过滤 |
 | GET | `/v1/responses` | 兼容面探测或未来 API-key 模式 | `api_key_compat` | method/path/status/reject reason |
 | GET | `/responses` | 非 `/backend-api` 响应探测 | `api_key_compat` | method/path/status/reject reason |
 | GET | `/v1/chat/completions` | legacy chat completions 探测 | `api_key_compat` | method/path/status/reject reason |

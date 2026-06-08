@@ -12,6 +12,7 @@ export type Translator = (key: CopyKey, values?: Record<string, string | number>
 
 export function routeName(request: RecentRequest): string {
   const purpose = request.requestPurpose
+  if (isInstalledPluginsPath(request.path)) return 'ps/plugins/installed'
   if (purpose === 'analytics_events') return 'analytics-events/events'
   if (purpose === 'account_usage') return 'wham/usage'
   if (purpose === 'codex_compact') return 'responses/compact'
@@ -19,9 +20,22 @@ export function routeName(request: RecentRequest): string {
   if (purpose === 'wham_apps') return request.rpcMethod ?? 'wham/apps'
   if (purpose === 'connector_directory') return 'connectors/directory'
   if (purpose === 'plugin_featured') return 'plugins/featured'
+  if (purpose === 'plugin_installed') return 'ps/plugins/installed'
   if (purpose === 'codex_wss') return 'codex/responses WSS'
   if (purpose === 'codex_response_sse') return 'codex/responses SSE'
   return `${request.method} ${request.path}`
+}
+
+export function isInstalledPluginsPath(path: string | null | undefined): boolean {
+  return path?.includes('/backend-api/ps/plugins/installed') ?? false
+}
+
+export function installedPluginsScope(path: string | null | undefined): string {
+  if (!path) {
+    return '-'
+  }
+  const url = new URL(path, 'http://codexfree.local')
+  return url.searchParams.get('scope') ?? '-'
 }
 
 export function remainingText(

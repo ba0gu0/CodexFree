@@ -20,6 +20,7 @@ export interface AccountUsageCheckResult {
 }
 
 const usageCheckConcurrency = 10
+const defaultUsageRequestTimeoutMs = 5_000
 
 export interface AccountUsageCheckProgress {
   accountId?: string
@@ -31,6 +32,7 @@ export interface AccountUsageCheckProgress {
 export interface AccountUsageCheckOptions {
   accountIds?: string[]
   onProgress?: (progress: AccountUsageCheckProgress) => void
+  timeoutMs?: number
   usageUrl?: string
 }
 
@@ -41,6 +43,7 @@ export interface AccountUsageRequestInput {
   email?: string
   label: string
   lastRefresh?: string
+  timeoutMs?: number
   usageUrl?: string
 }
 
@@ -95,7 +98,7 @@ export async function checkAuthDirectoryUsage(
       const normalized = normalizeAuthFile(JSON.parse(readFileSync(filePath, 'utf8')) as unknown, {
         fileName: filePath
       })
-      result = await checkAccountUsage(normalized, filePath, options.usageUrl)
+      result = await checkAccountUsage(normalized, filePath, options.usageUrl, options.timeoutMs)
     } catch (error) {
       result = {
         accountId: filePath,
@@ -137,7 +140,8 @@ async function mapWithConcurrency<T, R>(
 async function checkAccountUsage(
   normalized: ReturnType<typeof normalizeAuthFile>,
   filePath: string,
-  usageUrl: string | undefined
+  usageUrl: string | undefined,
+  timeoutMs: number | undefined
 ) {
   const result = await checkAccountUsageByAuthorization({
     accountId: normalized.accountId,
@@ -145,6 +149,7 @@ async function checkAccountUsage(
     email: normalized.email,
     label: normalized.label,
     lastRefresh: normalized.lastRefresh,
+    timeoutMs,
     usageUrl
   })
   if (result.ok) {
@@ -224,12 +229,20 @@ async function fetchUsage(
   return new Promise((resolve, reject) => {
     const usageUrl = new URL(input.usageUrl ?? 'https://chatgpt.com/backend-api/wham/usage')
     const client = usageUrl.protocol === 'http:' ? http : https
+    const timeoutMs = normalizeUsageTimeoutMs(input.timeoutMs)
     const headers: Record<string, string> = {
       accept: 'application/json',
       authorization: input.authorization
     }
     if (input.accountId) {
       headers['chatgpt-account-id'] = input.accountId
+    }
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const clearUsageTimeout = (): void => {
+      if (timeout) {
+        clearTimeout(timeout)
+        timeout = undefined
+      }
     }
     const request = client.request(
       usageUrl,
@@ -242,15 +255,40 @@ async function fetchUsage(
         const chunks: Buffer[] = []
         response.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)))
         response.on('end', () => {
+          clearUsageTimeout()
           const text = Buffer.concat(chunks).toString('utf8')
           const body = parseUsageBody(text)
           resolve({ body, statusCode: response.statusCode ?? 0 })
         })
       }
     )
-    request.on('error', reject)
+    let timeoutError: UsageCheckTimeoutError | undefined
+    timeout = setTimeout(() => {
+      timeoutError = new UsageCheckTimeoutError(timeoutMs)
+      request.destroy(timeoutError)
+    }, timeoutMs)
+    timeout.unref()
+    request.on('error', (error) => {
+      clearUsageTimeout()
+      reject(timeoutError ?? error)
+    })
+    request.on('close', clearUsageTimeout)
     request.end()
   })
+}
+
+class UsageCheckTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`usage check timeout after ${timeoutMs}ms`)
+    this.name = 'UsageCheckTimeoutError'
+  }
+}
+
+function normalizeUsageTimeoutMs(timeoutMs: number | undefined): number {
+  if (timeoutMs === undefined || !Number.isFinite(timeoutMs)) {
+    return defaultUsageRequestTimeoutMs
+  }
+  return Math.max(1, Math.min(defaultUsageRequestTimeoutMs, Math.floor(timeoutMs)))
 }
 
 function parseUsageBody(text: string): UsageResponse | undefined {

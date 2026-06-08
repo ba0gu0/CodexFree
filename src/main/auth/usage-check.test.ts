@@ -133,6 +133,31 @@ describe('account usage check', () => {
       await closeServer(server)
     }
   })
+
+  it('returns a timeout result when usage does not respond before the limit', async () => {
+    const server = http.createServer(() => {
+      // Keep the socket open so the client-side timeout path is exercised.
+    })
+    await listen(server)
+
+    try {
+      const result = await checkAccountUsageByAuthorization({
+        accountId: 'slow-account',
+        authorization: 'Bearer access-token',
+        label: 'slow usage',
+        timeoutMs: 20,
+        usageUrl: usageUrl(server)
+      })
+
+      expect(result).toMatchObject({
+        accountId: 'slow-account',
+        error: 'usage check timeout after 20ms',
+        ok: false
+      })
+    } finally {
+      await closeServer(server)
+    }
+  })
 })
 
 function writeAuthFile(directory: string, accountId: string): void {

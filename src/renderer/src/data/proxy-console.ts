@@ -166,6 +166,8 @@ export function requestPurposeKey(purpose: string | null | undefined): CopyKey |
       return 'purpose.connectors'
     case 'plugin_featured':
       return 'purpose.plugins'
+    case 'plugin_installed':
+      return 'purpose.installedPlugins'
     case 'api_key_compat':
       return 'purpose.apiKeyCompat'
     default:

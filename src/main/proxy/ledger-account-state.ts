@@ -22,6 +22,7 @@ export function markAccountQuotaExhaustedInLedger(
 
   const completedAt = input.completedAt.getTime()
   const quotaResetAt = epochSecondsToMillis(input.event.resetsAt)
+  const primaryUsedPercent = input.event.primaryUsedPercent ?? '100'
   const transaction = sqlite.transaction(() => {
     sqlite
       .prepare(`
@@ -30,12 +31,18 @@ export function markAccountQuotaExhaustedInLedger(
             active = 0,
             exhausted_at = @completedAt,
             quota_reset_at = @quotaResetAt,
+            plan_type = COALESCE(@planType, plan_type),
+            primary_used_percent = @primaryUsedPercent,
+            rate_limit_resets_at = COALESCE(@quotaResetAt, rate_limit_resets_at),
+            last_usage_checked_at = @completedAt,
             updated_at = @completedAt
         WHERE account_id = @accountId
       `)
       .run({
         accountId: input.accountId,
         completedAt,
+        planType: input.event.planType ?? null,
+        primaryUsedPercent,
         quotaResetAt
       })
     sqlite
@@ -72,7 +79,7 @@ export function markAccountQuotaExhaustedInLedger(
         statusCode: input.event.statusCode,
         planType: input.event.planType ?? null,
         activeLimit: input.event.activeLimit ?? null,
-        primaryUsedPercent: input.event.primaryUsedPercent ?? null,
+        primaryUsedPercent,
         resetsAt: quotaResetAt,
         message: input.message,
         createdAt: completedAt

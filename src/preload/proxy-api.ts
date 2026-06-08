@@ -44,6 +44,12 @@ export interface ProxyRuntimeStatusDto {
   uptimeSeconds: number
 }
 
+export interface ProxyAccountSwitchResultDto {
+  accountId?: string
+  closedWebSockets: number
+  switched: boolean
+}
+
 export interface RequestSummaryDto {
   captured: number
   failed: number
@@ -343,6 +349,12 @@ export interface ResetExhaustedAccountsDto {
 export interface SetAccountDisabledDto {
   updatedAccounts: number
   accounts: ManagedAccountDto[]
+  status: ProxyStatusDto
+}
+
+export interface SwitchAccountDto {
+  accounts: ManagedAccountDto[]
+  result: ProxyAccountSwitchResultDto
   status: ProxyStatusDto
 }
 

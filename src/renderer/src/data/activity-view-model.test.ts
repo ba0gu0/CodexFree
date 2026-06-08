@@ -56,6 +56,29 @@ describe('activity view model', () => {
     expect(view.subtitle).toContain('RPC tools/list')
   })
 
+  it('labels installed plugin requests separately from generic upstream traffic', () => {
+    const request = baseRequest({
+      method: 'GET',
+      path: '/backend-api/ps/plugins/installed?scope=WORKSPACE',
+      requestPurpose: 'plugin_installed'
+    })
+    const view = requestActivityViewModel(request, context)
+
+    expect(view.title).toBe('已安装插件查询 · WORKSPACE · 200')
+    expect(view.badges).toContain('HTTP')
+  })
+
+  it('labels historical installed plugin rows even when purpose is still upstream', () => {
+    const request = baseRequest({
+      method: 'GET',
+      path: '/backend-api/ps/plugins/installed?scope=GLOBAL&includeDownloadUrls=true',
+      requestPurpose: 'upstream'
+    })
+    const view = requestActivityViewModel(request, context)
+
+    expect(view.title).toBe('已安装插件查询 · GLOBAL · 200')
+  })
+
   it('renders protocol tool calls with tool name and arguments', () => {
     const message = baseProtocol({
       kind: 'tool_call',

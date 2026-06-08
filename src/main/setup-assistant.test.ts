@@ -65,13 +65,15 @@ describe('setup assistant Codex config inspection', () => {
 describe('setup assistant Codex auth inspection', () => {
   it('does not treat placeholder auth as a completed Codex login', () => {
     withHome((home) => {
+      const accountId = 'placeholder-account'
       writeAuth(
         home,
         JSON.stringify({
           auth_mode: 'chatgpt',
           tokens: {
+            id_token: jwtForAccount(accountId),
             access_token: 'placeholder.access',
-            account_id: 'placeholder-account',
+            account_id: accountId,
             refresh_token: 'placeholder.refresh'
           }
         })
@@ -137,4 +139,20 @@ function writeAuth(home: string, content: string): void {
   const codexDir = join(home, '.codex')
   mkdirSync(codexDir)
   writeFileSync(join(codexDir, 'auth.json'), `${content}\n`)
+}
+
+function jwtForAccount(accountId: string): string {
+  const encode = (value: unknown): string =>
+    Buffer.from(JSON.stringify(value)).toString('base64url')
+  return [
+    encode({ alg: 'none', typ: 'JWT' }),
+    encode({
+      iss: 'https://auth.openai.com',
+      sub: accountId,
+      'https://api.openai.com/profile': {
+        email: 'placeholder@codexfree.local'
+      }
+    }),
+    'placeholder-signature'
+  ].join('.')
 }

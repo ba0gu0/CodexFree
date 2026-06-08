@@ -94,6 +94,9 @@ describe('daemon admin client', () => {
       await expect(client.resetExhaustedAccounts()).resolves.toMatchObject({
         resetAccounts: 1
       })
+      await expect(client.switchAccount('account-1')).resolves.toMatchObject({
+        result: { accountId: 'account-1', switched: true }
+      })
       await expect(client.setAccountDisabled('account-1', true)).resolves.toMatchObject({
         updatedAccounts: 1
       })

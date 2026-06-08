@@ -23,6 +23,7 @@ import type {
   ResetExhaustedAccountsDto,
   SetAccountDisabledDto,
   SetupAssistantStateDto,
+  SwitchAccountDto,
   TurnSummaryDto,
   UsageSummaryDto
 } from './proxy-api'
@@ -81,6 +82,7 @@ declare global {
         accountIds: string[],
         disabled: boolean
       ) => Promise<SetAccountDisabledDto>
+      setCurrentAccount: (accountId: string) => Promise<SwitchAccountDto>
       deleteAccounts: (accountIds: string[]) => Promise<{
         accounts: ManagedAccountDto[]
         deletedAccounts: number

@@ -23,6 +23,7 @@ export interface AuthImportResult {
 }
 
 interface AuthImportOptions {
+  timeoutMs?: number
   usageUrl?: string
 }
 
@@ -91,6 +92,7 @@ async function normalizeImportAuthFile(
     const usage = await checkAccountUsageByAuthorization({
       authorization: `Bearer ${accessToken}`,
       label: fileName,
+      timeoutMs: options.timeoutMs,
       usageUrl: options.usageUrl
     })
     if (!usage.ok || !usage.accountId) {

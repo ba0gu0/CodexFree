@@ -29,6 +29,7 @@ export interface PageActions {
   saveProxyPageConfig: (config: ProxyConfig, daemonInput: DaemonControlSaveInput) => Promise<void>
   setAccountDisabled: (accountId: string, disabled: boolean) => Promise<void>
   setAccountsDisabled: (accountIds: string[], disabled: boolean) => Promise<void>
+  setCurrentAccount: (accountId: string) => Promise<void>
   deleteAccounts: (accountIds: string[]) => Promise<void>
   showRequests: (searchQuery?: string) => void
   showUsage: () => void

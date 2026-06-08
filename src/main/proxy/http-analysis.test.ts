@@ -197,6 +197,26 @@ describe('HTTP traffic analysis', () => {
     })
   })
 
+  it('identifies installed plugin requests for request totals', () => {
+    const analysis = analyzeHttpTraffic({
+      method: 'GET',
+      path: '/backend-api/ps/plugins/installed?scope=WORKSPACE',
+      requestBody: Buffer.alloc(0),
+      requestHeaders: {},
+      responseBody: Buffer.from(JSON.stringify({ items: [{ id: 'browser' }] })),
+      responseHeaders: { 'content-type': 'application/json' }
+    })
+
+    expect(analysis).toMatchObject({
+      requestPurpose: 'plugin_installed',
+      responseItemCount: 1
+    })
+    expect(JSON.parse(analysis.summaryJson ?? '{}')).toMatchObject({
+      itemCount: 1,
+      purpose: 'plugin_installed'
+    })
+  })
+
   it('summarizes compact compression ratio from request and response bytes', () => {
     const analysis = analyzeHttpTraffic({
       method: 'POST',

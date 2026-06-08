@@ -51,6 +51,7 @@ export function AccountsPage({
     snapshot.accounts[0]
   const checkedIds = [...checkedAccountIds]
   const hasCheckedAccounts = checkedIds.length > 0
+  const importProgressText = busyAction === 'import' ? usageProgressText(usageProgress) : undefined
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
@@ -61,9 +62,13 @@ export function AccountsPage({
               <RefreshCwIcon data-icon="inline-start" />
               {t('shell.refresh')}
             </Button>
-            <Button loading={busyAction === 'import'} onClick={actions.importAuthFiles}>
+            <Button
+              disabled={busyAction === 'import'}
+              loading={busyAction === 'import' && !importProgressText}
+              onClick={actions.importAuthFiles}
+            >
               <UploadIcon data-icon="inline-start" />
-              {t('action.importShort')}
+              {importProgressText ?? t('action.importShort')}
             </Button>
             <Button
               loading={busyAction === 'export'}
@@ -195,6 +200,7 @@ export function AccountsPage({
         <AccountInspector
           account={selectedAccount}
           actions={actions}
+          busyAction={busyAction}
           locale={locale}
           snapshot={snapshot}
           t={t}

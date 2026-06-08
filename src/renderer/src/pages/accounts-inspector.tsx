@@ -14,6 +14,7 @@ import {
   accountStatusKey,
   type ManagedAccount
 } from '@renderer/data/proxy-console'
+import { UserCheckIcon } from 'lucide-react'
 import { type ReactElement, useMemo } from 'react'
 import { accountFormatLabel, statusTone } from './accounts-model'
 import type { PageProps } from './types'
@@ -21,12 +22,16 @@ import type { PageProps } from './types'
 export function AccountInspector({
   actions,
   account,
+  busyAction,
   locale,
   snapshot,
   t
-}: Pick<PageProps, 'actions' | 'locale' | 'snapshot' | 't'> & {
+}: Pick<PageProps, 'actions' | 'busyAction' | 'locale' | 'snapshot' | 't'> & {
   account?: ManagedAccount
 }): ReactElement {
+  const canSwitchAccount = Boolean(
+    snapshot.status.running && account && account.status === 'available' && account.active !== 1
+  )
   const requests = useMemo(
     () => takeAccountRequests(snapshot.requests, account?.accountId, 3),
     [account?.accountId, snapshot.requests]
@@ -93,6 +98,15 @@ export function AccountInspector({
               }))}
               title={t('accounts.quotaHistory')}
             />
+            <Button
+              disabled={!canSwitchAccount || busyAction === 'account'}
+              loading={busyAction === 'account'}
+              onClick={() => actions.setCurrentAccount(account.accountId)}
+              variant="outline"
+            >
+              <UserCheckIcon data-icon="inline-start" />
+              {t('action.setCurrentAccount')}
+            </Button>
             <Button onClick={() => actions.showRequests(account.accountId)} variant="outline">
               {t('accounts.viewAllEvents')}
             </Button>

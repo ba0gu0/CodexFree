@@ -191,6 +191,57 @@ describe('proxy ledger account sync', () => {
     }
   })
 
+  it('updates account usage fields when marking quota exhausted', () => {
+    const ledger = new ProxyLedger(':memory:')
+    const completedAt = new Date(1_800_000_000_000)
+    const resetsAt = '1800003600'
+    try {
+      ledger.syncAccountPool([
+        {
+          accountId: 'account-a',
+          fingerprint: 'fingerprint-a',
+          label: 'Account A',
+          sourceFormat: 'codex'
+        }
+      ])
+      ledger.updateAccountUsage({
+        accountId: 'account-a',
+        planType: 'free',
+        primaryUsedPercent: '12',
+        rateLimitResetsAt: 1_779_342_755_000
+      })
+      ledger.markAccountQuotaExhausted(
+        'account-a',
+        'request-quota',
+        'conversation-1',
+        {
+          errorType: 'usage_limit_reached',
+          planType: 'plus',
+          primaryUsedPercent: '100',
+          resetsAt,
+          statusCode: 429
+        },
+        'usage_limit_reached status=429 used=100',
+        completedAt
+      )
+
+      expect(ledger.accounts()).toEqual([
+        expect.objectContaining({
+          accountId: 'account-a',
+          exhaustedAt: completedAt.getTime(),
+          lastUsageCheckedAt: completedAt.getTime(),
+          planType: 'plus',
+          primaryUsedPercent: '100',
+          quotaResetAt: 1_800_003_600_000,
+          rateLimitResetsAt: 1_800_003_600_000,
+          status: 'exhausted'
+        })
+      ])
+    } finally {
+      ledger.close()
+    }
+  })
+
   it('returns full database request purpose groups for overview summaries', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'codexfree-ledger-summary-'))
     try {

@@ -310,6 +310,7 @@ describe('transparent proxy terminal account routing states', () => {
   it('returns the terminal quota response after every managed account is exhausted', async () => {
     const authDirectory = mkdtempSync(join(tmpdir(), 'codexfree-auth-pool-'))
     writeAuthFile(authDirectory, 'a.json', 'account-a', 'managed-a')
+    const exhaustedAccounts: string[] = []
     const routingEvents: string[] = []
     let upgrades = 0
     const upstream = http.createServer()
@@ -326,7 +327,7 @@ describe('transparent proxy terminal account routing states', () => {
     const ledger = {
       insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
       syncAccountPool: () => undefined,
-      exhaustedAccountIds: () => [],
+      exhaustedAccountIds: () => exhaustedAccounts,
       disabledAccountIds: () => [],
       activeAccountId: () => undefined,
       accountUsageSummary: () => undefined,
@@ -335,7 +336,11 @@ describe('transparent proxy terminal account routing states', () => {
       recordRoutingEvent: (event: { eventType: string; reason: string }) => {
         routingEvents.push(`${event.eventType}:${event.reason}`)
       },
-      markAccountQuotaExhausted: () => undefined,
+      markAccountQuotaExhausted: (accountId: string | undefined) => {
+        if (accountId) {
+          exhaustedAccounts.push(accountId)
+        }
+      },
       markQuotaExhausted: (id: string, errorMessage: string, completedAt: Date) => {
         const entry = entries.find((item) => item.id === id)
         if (entry) {

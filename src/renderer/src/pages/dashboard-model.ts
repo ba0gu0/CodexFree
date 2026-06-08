@@ -1,3 +1,4 @@
+import { isInstalledPluginsPath } from '@renderer/data/activity-view-helpers'
 import {
   type ActivityViewContext,
   type ActivityViewModel,
@@ -90,6 +91,7 @@ export function useActivityRows({ locale, snapshot, t }: PageProps): ActivityRow
     )
     const protocolRows = snapshot.protocolMessages
       .filter((message) => !isWhamAppsPath(message.path))
+      .filter((message) => !isOverviewHiddenPath(message.path))
       .filter((message) => !coveredMessageIds.has(message.id))
       .filter(isDashboardProtocolMessage)
       .map((message): ActivityRow => {
@@ -112,6 +114,7 @@ export function useActivityRows({ locale, snapshot, t }: PageProps): ActivityRow
       })
     const requestRows = snapshot.requests
       .filter((request) => !isWhamAppsPath(request.path))
+      .filter((request) => !isOverviewHiddenPath(request.path))
       .map((request): ActivityRow => {
         const view = requestActivityViewModel(request, context)
         return viewRow(view, {
@@ -133,6 +136,7 @@ export function useActivityRows({ locale, snapshot, t }: PageProps): ActivityRow
       })
     const eventRows = snapshot.logEvents
       .filter((event) => !isWhamAppsPath(event.path))
+      .filter((event) => !isOverviewHiddenPath(event.path))
       .filter(isVisibleLogEvent)
       .map((event): ActivityRow => {
         const view = logActivityViewModel(event, context)
@@ -386,6 +390,7 @@ function isLowValueRequest(request: {
     'analytics_events',
     'connector_directory',
     'plugin_featured',
+    'plugin_installed',
     'codex_wss',
     'codex_response_sse'
   ].includes(request.requestPurpose ?? '')
@@ -393,6 +398,10 @@ function isLowValueRequest(request: {
 
 function isWhamAppsPath(path: string | null): boolean {
   return path?.includes('/backend-api/wham/apps') ?? false
+}
+
+export function isOverviewHiddenPath(path: string | null): boolean {
+  return isInstalledPluginsPath(path)
 }
 
 function isDashboardProtocolMessage(message: { kind: string }): boolean {

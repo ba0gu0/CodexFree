@@ -190,7 +190,8 @@ function routeSummary(input: HttpSummaryInput): Record<string, unknown> | undefi
     input.purpose === 'models' ||
     input.purpose === 'wham_apps' ||
     input.purpose === 'connector_directory' ||
-    input.purpose === 'plugin_featured'
+    input.purpose === 'plugin_featured' ||
+    input.purpose === 'plugin_installed'
   ) {
     return {
       ...base,
@@ -218,6 +219,7 @@ function describeHttpPurpose(path: string, method: string | undefined): string {
   if (path.includes('/analytics-events/')) return 'analytics_events'
   if (path.includes('/connectors/directory/list')) return 'connector_directory'
   if (path.includes('/plugins/featured')) return 'plugin_featured'
+  if (path.includes('/ps/plugins/installed')) return 'plugin_installed'
   if (path.includes('/wham/usage')) return 'account_usage'
   if (path.includes('/wham/apps')) return 'wham_apps'
   if (path === '/responses') return 'api_key_compat'

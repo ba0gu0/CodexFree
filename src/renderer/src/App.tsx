@@ -15,7 +15,6 @@ import type {
   SetupAssistantState,
   UsageProgress
 } from '@renderer/data/proxy-console'
-import { needsOnboarding } from '@renderer/data/setup-assistant'
 import { type CopyKey, createTranslator, type Locale, resolveLocale } from '@renderer/i18n/copy'
 import { AccountsPage } from '@renderer/pages/accounts'
 import { DashboardPage } from '@renderer/pages/dashboard'
@@ -35,7 +34,6 @@ const ACTIVITY_PAGE_SIZE = 50
 const ACTIVITY_MAX_LIMIT = 1_000
 const LOCALE_STORAGE_KEY = 'codexfree.locale'
 const ONBOARDING_COMPLETED_KEY = 'onboarding.completedAt'
-const SETUP_DISMISSED_WARNINGS_KEY = 'setupAssistant.dismissedWarnings'
 const SETUP_LAST_CHECKED_KEY = 'setupAssistant.lastCheckedAt'
 const THEME_STORAGE_KEY = 'codexfree.theme'
 const EMPTY_ACTIVITY_HAS_MORE: ConsoleActivityHasMore = {
@@ -167,21 +165,6 @@ function App(): React.JSX.Element {
   useEffect(() => {
     return window.api.onAccountUsageProgress((progress) => setUsageProgress(progress))
   }, [])
-
-  useEffect(() => {
-    if (!localStorage.getItem(SETUP_DISMISSED_WARNINGS_KEY)) {
-      localStorage.setItem(SETUP_DISMISSED_WARNINGS_KEY, '[]')
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!setupState || localStorage.getItem(ONBOARDING_COMPLETED_KEY)) {
-      return
-    }
-    if (needsOnboarding(setupState)) {
-      setWizardOpen(true)
-    }
-  }, [setupState])
 
   const switchView = useCallback(
     (view: ViewId, options?: { requestSearchQuery?: string | null }): void => {
@@ -317,6 +300,7 @@ function App(): React.JSX.Element {
       setBusyAction('import')
       setError(null)
       setNotice(null)
+      setUsageProgress(null)
       try {
         const result = await window.api.importAuthFiles()
         setNotice(importDoneText(result, t))
@@ -328,6 +312,7 @@ function App(): React.JSX.Element {
       } catch (importError) {
         setError(toErrorMessage(importError))
       } finally {
+        setUsageProgress(null)
         setBusyAction(null)
       }
     },
@@ -409,6 +394,12 @@ function App(): React.JSX.Element {
         'account',
         () => window.api.setAccountsDisabled(accountIds, disabled),
         () => (disabled ? t('notice.accountsDisabled') : t('notice.accountsEnabled'))
+      ),
+    setCurrentAccount: (accountId) =>
+      runAction(
+        'account',
+        () => window.api.setCurrentAccount(accountId),
+        () => t('notice.currentAccountSelected')
       ),
     deleteAccounts: (accountIds) =>
       runAction(

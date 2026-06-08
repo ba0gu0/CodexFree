@@ -56,6 +56,9 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   达到 95% 会按保护线退出可用池，避免继续打到真实 `usage_limit_reached`。WSS 有替代账号时
   关闭 client socket 触发 Codex 端口重连；所有账号都进入保护状态时，本地返回
   `usage_limit_reached`。
+- quota guard 的远程查量结果会通过 `proxy_accounts` 更新账号 plan、用量百分比和 reset
+  时间。真实上游 `usage_limit_reached` 或本地 95% 保护线标记账号耗尽时，也会在同一事务中
+  更新账号用量字段，避免账号已耗尽但 UI 仍显示旧额度。
 - Daemon 现在有 quota reset 刷新任务，每 30 分钟检查一次账号池，只刷新
   `rate_limit_resets_at` 已过 5 分钟且当前 reset 窗口尚未刷新过的非禁用账号。刷新成功会写入
   `last_quota_refreshed_at` 和 `last_quota_refreshed_reset_at`，并记录 quota event，避免同一
@@ -96,6 +99,9 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   `/admin/reload` 工具 endpoint。
 - 账号管理动作写 SQLite，然后只刷新 daemon 的内存 account-pool cache。它们不会重启
   proxy service，也不会关闭现有 WSS sessions。
+- 账号管理页的“设为当前账号”动作通过 daemon admin
+  `POST /admin/accounts/switch` 执行。daemon 会把目标可用账号写为 active account，
+  并关闭现有 upgraded WSS sessions，让后续请求按新的当前账号路由。
 - 内存 conversation bindings 会在 24 小时后裁剪，避免旧 session 永久占用账号。
 - 代理转发热路径不会刷新托管 ChatGPT token。daemon 账号维护任务会在启动时和每小时
   扫描可刷新账号，根据 access token `exp` 或 `last_refresh` 判断是否需要调用
@@ -197,7 +203,8 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   marking，以及 next-boundary replacement。
 - Renderer 已进入 V3 desktop-console 模式。Dashboard、Accounts、Proxy、Requests 和 Usage
   页面已经实现并连接；`docs/CodexFree-v2.pen` 和 preview assets 只是设计参考。
-- 首次引导与配置助手首版已实现。新增入口位于顶部导航“助手”，会基于真实 daemon
+- 首次引导与配置助手首版已实现。新增入口位于顶部导航“助手”，由用户手动打开，不会在
+  账号不足、代理停止、Codex config 未修复或 `auth.json` 未配置时自动弹窗。助手会基于真实 daemon
   status、`config.toml`、`~/.codex/auth.json`、账号池和最近成功请求/用量结果生成状态。
   配置助手 Sheet 可重复打开；每个状态项展示本次检查时间，面板提供代理、Codex config、
   Codex 登录、账号池和诊断目录动作。首次引导 Dialog 复用同一检测模型，按工作方式、代理、
@@ -207,8 +214,8 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   只支持二次确认后的重命名重新登录辅助；缺少 auth 文件时重命名按钮置灰，API-key 模式会提示
   重命名后重新走 ChatGPT 账号登录。不会自动覆盖、复制或从账号池写入本地 Codex 登录文件。
   工作方式说明明确区分本地 Codex 登录、CodexFree 代理转发、账号池授权和未来 API-key
-  compatibility。UI 状态使用 `onboarding.completedAt`、`setupAssistant.lastCheckedAt` 和
-  `setupAssistant.dismissedWarnings` 本地键，不能作为健康状态依据。
+  compatibility。UI 状态使用 `onboarding.completedAt` 和 `setupAssistant.lastCheckedAt`
+  本地键，不能作为健康状态依据。
 - README 已更新为默认中文入口，并新增英文 `README_EN.md`。两份 README 覆盖 CodexFree
   的定位、工作原理、账号池使用流程、`auth.json` 和 `config.toml` 配置边界、安全注意事项、
   本地开发命令、项目结构和当前限制。
@@ -336,6 +343,10 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - 当前 split validation 通过 repository runner：`rtk bun run lint`、`rtk bun run typecheck`、
   `rtk bun run test`、`rtk bun run build` 和 `rtk bun run build:unpack`。unpacked macOS app
   在 `out/daemon/cli.cjs` 包含 bundled daemon entry。
+- 当前 macOS packaging 已限定 Electron locales 为 `en` 和 `zh_CN`，并把 renderer-only
+  dependencies 移出 runtime dependencies。`rtk bun run build:mac` 在不清理 `dist` 的情况下通过；
+  产物约为 arm64 dmg `96M`、x64 dmg `97M`，两侧 `app.asar` 约 `7.9M`。详细记录见
+  `docs/packaging-size-optimization.md`。
 - Dev app runtime 已用 Computer Use 检查。dashboard 渲染 full-database historical request
   count、purpose distribution、proxy config，以及 animated background-service card。
 - Unpacked app 包含 `app-update.yml`；GitHub update-check failures 会作为 sanitized summaries

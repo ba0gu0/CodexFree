@@ -7,6 +7,8 @@ import {
   compactStrings,
   compactUniqueStrings,
   formatNumber,
+  installedPluginsScope,
+  isInstalledPluginsPath,
   kindBadgeForRequest,
   logActivityKind,
   logTypeLabel,
@@ -301,6 +303,12 @@ function requestTitle(
   if (request.requestPurpose === 'wham_apps') {
     return context.t('activity.summary.appsRpc', {
       method: routeName(request),
+      status
+    })
+  }
+  if (request.requestPurpose === 'plugin_installed' || isInstalledPluginsPath(request.path)) {
+    return context.t('activity.summary.installedPlugins', {
+      scope: installedPluginsScope(request.path),
       status
     })
   }

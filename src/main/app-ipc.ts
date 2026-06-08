@@ -85,7 +85,7 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     const { deletedEntries } = clearRawCaptures(await runtime.rawCaptureDir())
     return { deletedCaptureEntries: deletedEntries, deletedRequests: result.deletedRequests }
   })
-  ipcMain.handle('proxy:import-auth-files', async () => {
+  ipcMain.handle('proxy:import-auth-files', async (event) => {
     const dialogCopy = currentDialogCopy()
     const selection = await dialog.showOpenDialog({
       title: dialogCopy.importTitle,
@@ -110,7 +110,10 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     const importedAccountIds = uniqueAccountIds(result.accounts.map((account) => account.accountId))
     if (importedAccountIds.length > 0) {
       const usageResults = await checkAuthDirectoryUsage(runtime.importedAuthPoolPath, {
-        accountIds: importedAccountIds
+        accountIds: importedAccountIds,
+        onProgress: (progress) => {
+          event.sender.send('proxy:account-usage-progress', progress)
+        }
       })
       runtime.updateAccountUsage(usageResults)
     }
@@ -177,6 +180,16 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
   ipcMain.handle('proxy:set-account-disabled', async (_, accountId: string, disabled: boolean) => {
     const { accounts, updatedAccounts } = runtime.setAccountDisabled(accountId, disabled)
     return { updatedAccounts, accounts, status: await runtime.proxyStatus() }
+  })
+  ipcMain.handle('proxy:switch-account', async (_, accountId: string) => {
+    if (!accountId) {
+      throw new Error('accountId is required to switch the current account')
+    }
+    await runtime.daemonClient.status().catch((error: unknown) => {
+      throw new Error(daemonAdminUnavailableMessage(appLocale, error))
+    })
+    const { accounts, result } = await runtime.daemonClient.switchAccount(accountId)
+    return { accounts, result, status: (await runtime.daemonClient.status()).proxy }
   })
   ipcMain.handle(
     'proxy:set-accounts-disabled',
@@ -262,6 +275,24 @@ function resolveAppLocale(value: unknown): AppLocale {
 
 function uniqueAccountIds(accountIds: string[]): string[] {
   return [...new Set(accountIds)]
+}
+
+function daemonAdminUnavailableMessage(locale: AppLocale, error: unknown): string {
+  const detail = errorMessage(error)
+  if (locale === 'en') {
+    return `Daemon admin interface is unavailable. Start the proxy service and retry. ${detail}`
+  }
+  return `Daemon admin 接口未启动，请先启动代理服务后重试。${detail}`
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    return String(error.message)
+  }
+  return String(error)
 }
 
 async function openPathOrThrow(path: string): Promise<void> {

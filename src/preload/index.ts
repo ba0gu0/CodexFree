@@ -24,6 +24,7 @@ import type {
   ResetExhaustedAccountsDto,
   SetAccountDisabledDto,
   SetupAssistantStateDto,
+  SwitchAccountDto,
   TurnSummaryDto,
   UsageSummaryDto
 } from './proxy-api'
@@ -117,6 +118,8 @@ const api = {
     ipcRenderer.invoke('proxy:set-account-disabled', accountId, disabled),
   setAccountsDisabled: (accountIds: string[], disabled: boolean): Promise<SetAccountDisabledDto> =>
     ipcRenderer.invoke('proxy:set-accounts-disabled', accountIds, disabled),
+  setCurrentAccount: (accountId: string): Promise<SwitchAccountDto> =>
+    ipcRenderer.invoke('proxy:switch-account', accountId),
   deleteAccounts: (
     accountIds: string[]
   ): Promise<{ accounts: ManagedAccountDto[]; deletedAccounts: number; status: ProxyStatusDto }> =>
