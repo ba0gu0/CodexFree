@@ -1,0 +1,319 @@
+name: Release
+
+"on":
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semver version to publish, for example 0.1.0-alpha.1
+        required: true
+        type: string
+      prerelease:
+        default: true
+        description: Mark the GitHub release as a prerelease
+        required: true
+        type: boolean
+      release_notes:
+        description: Markdown release notes
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.version }}
+  cancel-in-progress: false
+
+env:
+  APP_ID: com.baoguo.codexfree
+  APP_NAME: CodexFree
+  BUN_VERSION: 1.3.14
+  VPK_VERSION: 1.2.0
+
+jobs:
+  prepare:
+    name: Prepare release tag
+    runs-on: ubuntu-latest
+    outputs:
+      prerelease: ${{ github.event.inputs.prerelease }}
+      tag: v${{ github.event.inputs.version }}
+      version: ${{ github.event.inputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate version
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Version must be semver2: $VERSION" >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "v$VERSION" >/dev/null 2>&1; then
+            echo "Tag already exists: v$VERSION" >&2
+            exit 1
+          fi
+
+      - name: Set package version
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs')
+          const version = process.env.VERSION
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
+          pkg.version = version
+          fs.writeFileSync('package.json', `${JSON.stringify(pkg, null, 2)}\n`)
+          NODE
+
+      - name: Commit and tag release
+        env:
+          TAG: v${{ github.event.inputs.version }}
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          if ! git diff --cached --quiet; then
+            git commit \
+              -m "chore(release): $TAG" \
+              -m "Set CodexFree package version to $VERSION for the manual GitHub release."
+          fi
+          git tag "$TAG"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git push origin "$TAG"
+
+  build-macos:
+    name: Build macOS full installers
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build macOS packages
+        run: bun run build:mac
+
+      - name: Upload macOS release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-packages
+          if-no-files-found: error
+          path: |
+            dist/*.dmg
+            dist/*.pkg
+            dist/*.zip
+            dist/*.blockmap
+
+  build-velopack:
+    name: Build ${{ matrix.name }} Velopack packages
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runner: windows-latest
+            channel: win-x64
+            runtime: win-x64
+            pack_dir: dist/win-unpacked
+            main_exe: CodexFree.exe
+            icon: build/icon.ico
+            build_command: bun run build:win
+          - name: Linux x64
+            runner: ubuntu-latest
+            channel: linux-x64
+            runtime: linux-x64
+            pack_dir: dist/linux-unpacked
+            main_exe: codexfree
+            icon: build/icon.png
+            build_command: bun run build:linux
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build unpacked app
+        shell: bash
+        run: ${{ matrix.build_command }}
+
+      - name: Install Velopack CLI
+        shell: bash
+        run: dotnet tool install --tool-path ./.tools vpk --version "$VPK_VERSION"
+
+      - name: Prepare release notes
+        shell: bash
+        env:
+          RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+        run: printf '%s\n' "$RELEASE_NOTES" > release-notes.md
+
+      - name: Download previous Velopack release
+        shell: bash
+        env:
+          CHANNEL: ${{ matrix.channel }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./.tools/vpk download github \
+            --repoUrl "https://github.com/${{ github.repository }}" \
+            --token "$GH_TOKEN" \
+            --outputDir Releases \
+            --channel "$CHANNEL" || true
+
+      - name: Pack Velopack release
+        shell: bash
+        env:
+          CHANNEL: ${{ matrix.channel }}
+          ICON: ${{ matrix.icon }}
+          MAIN_EXE: ${{ matrix.main_exe }}
+          PACK_DIR: ${{ matrix.pack_dir }}
+          RUNTIME: ${{ matrix.runtime }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          if [[ ! -e "$PACK_DIR/$MAIN_EXE" ]]; then
+            detected_exe="$(find "$PACK_DIR" -maxdepth 1 -type f -perm -111 | head -n 1 || true)"
+            if [[ -n "$detected_exe" ]]; then
+              MAIN_EXE="$(basename "$detected_exe")"
+            else
+              echo "Expected main executable missing: $PACK_DIR/$MAIN_EXE" >&2
+              find "$PACK_DIR" -maxdepth 2 -type f | sort >&2
+              exit 1
+            fi
+          fi
+          ./.tools/vpk pack \
+            --packId "$APP_ID" \
+            --packTitle "$APP_NAME" \
+            --packAuthors "BaoGuo" \
+            --packVersion "$VERSION" \
+            --packDir "$PACK_DIR" \
+            --mainExe "$MAIN_EXE" \
+            --runtime "$RUNTIME" \
+            --channel "$CHANNEL" \
+            --outputDir Releases \
+            --icon "$ICON" \
+            --releaseNotes release-notes.md
+
+      - name: Upload Velopack artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: velopack-${{ matrix.channel }}
+          if-no-files-found: error
+          path: Releases/**
+
+  publish:
+    name: Publish GitHub release
+    needs:
+      - prepare
+      - build-macos
+      - build-velopack
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Install Velopack CLI
+        run: dotnet tool install --tool-path ./.tools vpk --version "$VPK_VERSION"
+
+      - name: Prepare release notes
+        env:
+          RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+        run: printf '%s\n' "$RELEASE_NOTES" > release-notes.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          args=(--title "CodexFree $VERSION" --notes-file release-notes.md --verify-tag)
+          if [[ "$PRERELEASE" == "true" ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "$TAG" "${args[@]}"
+
+      - name: Upload macOS installers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find artifacts/macos-packages -type f | sort)
+          if [[ "${#files[@]}" -eq 0 ]]; then
+            echo "No macOS artifacts found" >&2
+            exit 1
+          fi
+          gh release upload "$TAG" "${files[@]}" --clobber
+
+      - name: Merge Velopack artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p Releases
+          find artifacts -path '*/velopack-*/*' -type f -exec cp {} Releases/ \;
+          find Releases -maxdepth 1 -type f | sort
+
+      - name: Upload Velopack releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          args=(
+            github
+            --repoUrl "https://github.com/${{ github.repository }}"
+            --token "$GH_TOKEN"
+            --outputDir Releases
+            --releaseName "CodexFree $VERSION"
+            --tag "$TAG"
+            --merge
+            --publish
+          )
+          if [[ "$PRERELEASE" == "true" ]]; then
+            args+=(--pre)
+          fi
+          ./.tools/vpk upload "${args[@]}"

@@ -16,9 +16,13 @@ export interface PageActions {
   exportAuthFiles: () => Promise<void>
   importAuthFiles: () => Promise<void>
   loadMoreActivity: () => void
+  applyUpdate: () => Promise<void>
+  checkForUpdate: () => Promise<void>
+  downloadUpdate: () => Promise<void>
   openCapture: (requestId: string) => Promise<void>
   openCodexDirectory: () => Promise<void>
   openManagedAuthDirectory: () => Promise<void>
+  openReleasePage: () => Promise<void>
   openRawCaptureDirectory: () => Promise<void>
   openWorkDirectory: () => Promise<void>
   refresh: () => Promise<void>

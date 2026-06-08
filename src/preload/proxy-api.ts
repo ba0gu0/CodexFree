@@ -43,6 +43,42 @@ export interface ProxyRuntimeStatusDto {
   uptimeSeconds: number
 }
 
+export type AppUpdateModeDto = 'managed' | 'manual-download'
+
+export type AppUpdateStateDto =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not_available'
+  | 'downloading'
+  | 'downloaded'
+  | 'unsupported'
+  | 'error'
+
+export interface AppUpdateInfoDto {
+  fileName: string
+  isDowngrade: boolean
+  notesMarkdown: string
+  size: number
+  version: string
+}
+
+export interface AppUpdateStatusDto {
+  availableUpdate: AppUpdateInfoDto | null
+  canApply: boolean
+  canCheck: boolean
+  canDownload: boolean
+  currentVersion: string
+  downloadedUpdate: AppUpdateInfoDto | null
+  errorMessage: string | null
+  lastCheckedAt: number | null
+  mode: AppUpdateModeDto
+  platform: string
+  progressPercent: number | null
+  releaseUrl: string
+  state: AppUpdateStateDto
+}
+
 export interface ProxyAccountSwitchResultDto {
   accountId?: string
   closedWebSockets: number

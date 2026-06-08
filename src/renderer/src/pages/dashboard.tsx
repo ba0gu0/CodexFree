@@ -70,7 +70,14 @@ export function DashboardPage(props: PageProps): ReactElement {
         <aside className="flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden bg-background pt-0 pr-0.5 pb-2 pl-3 min-[1400px]:gap-3 min-[1400px]:pr-1 min-[1400px]:pl-4 min-[1400px]:pb-5">
           <ServicePanel locale={locale} snapshot={snapshot} t={t} />
           <DirectoryPanel actions={actions} t={t} />
-          <VersionPanel lastRefresh={lastRefresh} locale={locale} snapshot={snapshot} t={t} />
+          <VersionPanel
+            actions={actions}
+            busyAction={busyAction}
+            lastRefresh={lastRefresh}
+            locale={locale}
+            snapshot={snapshot}
+            t={t}
+          />
         </aside>
 
         <section className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden px-1 pb-3 min-[1400px]:gap-4 min-[1400px]:px-1.5 min-[1400px]:pb-6">

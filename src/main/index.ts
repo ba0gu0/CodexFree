@@ -1,10 +1,12 @@
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { app, BrowserWindow, Menu } from 'electron'
 import { registerMainProcessHandlers } from './app-ipc'
-import { checkForAppUpdates } from './bootstrap/updater'
+import { appUpdateService, runVelopackStartup } from './bootstrap/updater'
 import { createMainWindow } from './bootstrap/window'
 import { logger } from './logger'
 import { createMainRuntime } from './runtime'
+
+runVelopackStartup()
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.baoguo.codexfree')
@@ -23,7 +25,7 @@ app.whenReady().then(() => {
     })
   })
 
-  checkForAppUpdates()
+  appUpdateService.checkForUpdatesInBackground()
   createMainWindow()
 
   app.on('activate', () => {

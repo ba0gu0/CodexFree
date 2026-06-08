@@ -3,7 +3,8 @@
 ## 阶段
 
 账号登录代理核心阶段。当前仓库已补齐 GitHub 开源 alpha 发布所需的基础边界：
-MIT 许可证、安全报告规则、README 发布说明，以及未签名/未公证 macOS 产物的明确告知。
+MIT 许可证、安全报告规则、README 发布说明、GitHub Actions 手动 release 工作流，以及
+未签名/未公证 macOS 产物的明确告知。
 
 目录在初始化时为空。Electron/Vite 项目现在已经使用确认后的技术栈完成初始化，
 包含 package manifest、lint、typecheck、testing、i18n、数据库 schema seed、本地
@@ -185,8 +186,9 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   record 和 `lucide-react`。
 - 添加 TanStack Query、TanStack Form、Valibot、Drizzle ORM、SQLite driver 和
   `electron-log`。
-- 恢复 `electron-updater` 和 GitHub publish/update 配置，因为已为未来 GitHub releases
-  启用 update checking。
+- 切换到 Velopack 发布路线。`electron-builder` 只负责生成 Electron app 和 macOS 完整
+  安装包；Windows/Linux 的 installer、portable、delta packages、`releases.{channel}.json`
+  和 GitHub Release 上传由 Velopack 处理。
 - 添加 metadata-only SQLite schema seed，并为 account records 中 auth-secret exclusion
   添加 Vitest 覆盖。
 - 在 V3 shell refactor 后验证 Electron renderer。desktop window 现在能加载重新设计后的
@@ -397,8 +399,17 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   `docs/packaging-size-optimization.md`。
 - Dev app runtime 已用 Computer Use 检查。dashboard 渲染 full-database historical request
   count、purpose distribution、proxy config，以及 animated background-service card。
-- Unpacked app 包含 `app-update.yml`；GitHub update-check failures 会作为 sanitized summaries
-  记录。
+- App 更新入口已接入 Velopack/GitHub release status。macOS alpha 只通过 GitHub Releases API
+  检查新版本，并引导用户打开 release 页面手动下载安装包；Windows/Linux 使用 Velopack
+  `UpdateManager` 检查、下载并应用更新。
+- GitHub 仓库 `ba0gu0/CodexFree` 已创建并绑定为 `origin`。发布流程改为手动触发的
+  GitHub Actions release workflow：输入版本号和 release notes 后，由 workflow 写入
+  `package.json` 版本、创建 `v{version}` tag、构建 macOS 完整安装包，并为 Windows/Linux
+  生成 Velopack packages 和 release feeds。
+- 最新 release/update wiring 验证通过：`rtk bun run lint`、`rtk bun run typecheck`、
+  `rtk bun run test`、`rtk bun run build`、`rtk bun run build:mac`。packaged macOS app
+  bundle 不包含旧 `app-update.yml`，Velopack native `.node` 文件位于
+  `app.asar.unpacked/node_modules/velopack/lib/native/`。
 - `/backend-api/wham/usage` client responses 现在在内部 usage parsing 后按上游返回原样透传。
   保留的 `user_id`/`account_id` rewrite helper 仍在代码中，但未激活；上游转发和 ledger
   updates 仍使用选中的托管账号。
@@ -441,10 +452,10 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - Admin write endpoints 现在会把成功 mutations 记录到 ledger audit log。
 - Request、routing、quota、protocol 和 log ledger tables 会按默认 30 天 retention window
   自动裁剪。
-- Electron main process 已拆分为 runtime、IPC handlers、window bootstrap 和 updater
-  bootstrap。它不再嵌入 proxy service。它通过受 token 保护的 daemon admin API 读取 live
-  daemon data，并在需要时从 SQLite 读取 summary aggregates，因此 stopped-daemon UI refresh
-  不会重新启动 daemon。
+- Electron main process 已拆分为 runtime、IPC handlers、window bootstrap 和 Velopack/GitHub
+  updater bootstrap。它不再嵌入 proxy service。它通过受 token 保护的 daemon admin API 读取
+  live daemon data，并在需要时从 SQLite 读取 summary aggregates，因此 stopped-daemon UI
+  refresh 不会重新启动 daemon。
 - Quota-exhausted response classification 现在有 packet-level WebSocket frame evidence、
   automatic WSS parsing、persistent account state，以及 next-boundary account replacement。
 - Daemon control config 已通过 Proxy 页面接线。Operators 可以编辑 management

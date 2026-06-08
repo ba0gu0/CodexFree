@@ -5,6 +5,7 @@ import { app, dialog, ipcMain, shell } from 'electron'
 import { importAuthFilesToDirectory, readImportedAuthAccounts } from './auth/import'
 import { writePlaceholderAuthFile } from './auth/placeholder'
 import { checkAuthDirectoryUsage } from './auth/usage-check'
+import { appUpdateService } from './bootstrap/updater'
 import { clearRawCaptures, readRawCaptureDetail } from './proxy/raw-capture'
 import type { ProxyConfig } from './proxy/types'
 import type { DaemonControlSaveInput, MainRuntime } from './runtime'
@@ -45,6 +46,11 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
   const currentDialogCopy = (): DialogCopy => dialogCopyByLocale[appLocale]
 
   ipcMain.handle('app:version', () => app.getVersion())
+  ipcMain.handle('app:update-status', () => appUpdateService.currentStatus())
+  ipcMain.handle('app:check-update', () => appUpdateService.checkForUpdates())
+  ipcMain.handle('app:download-update', () => appUpdateService.downloadAvailableUpdate())
+  ipcMain.handle('app:apply-update', () => appUpdateService.applyDownloadedUpdate())
+  ipcMain.handle('app:open-release-page', () => appUpdateService.openReleasePage())
   ipcMain.handle('app:set-locale', (_, locale: unknown) => {
     appLocale = resolveAppLocale(locale)
   })

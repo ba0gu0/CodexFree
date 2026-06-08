@@ -49,6 +49,7 @@ compression: maximum
 electronLanguages:
   - en
   - zh_CN
+publish: null
 files:
   - out/**
   - resources/**
@@ -70,7 +71,8 @@ mac:
 - 继续显式排除 `dist/**`，防止多架构构建时旧产物被重新打包。
 - 继续显式排除 `test/**` 和 `*.har`，防止大抓包文件进入 asar。
 - `resources/**` 保留在 asar 中，不再重复 unpack。
-- `.node` native module 继续 unpack，保证 `better-sqlite3` 可正常加载。
+- `publish: null` 防止 `electron-builder` 根据 GitHub metadata 自动生成旧 updater 配置。
+- `.node` native module 继续 unpack，保证 `better-sqlite3` 和 Velopack native runtime 可正常加载。
 - `build:mac` 使用 `bun electron-builder --mac -c.mac.identity=null`，本地不签名。
 - macOS Info.plist 不声明 Camera、Microphone、Documents 或 Downloads 等未使用权限。
 
@@ -93,7 +95,7 @@ mac:
 `out/daemon/cli.cjs` 仍以 `require(...)` 加载；包含 native binary，需要由
 electron-builder 按目标 arch rebuild 或 unpack；updater/logging 等 main runtime 需要在
 安装后的 app 中解析。当前核心运行时依赖是 `better-sqlite3`、`electron-log`、
-`electron-updater`、`@electron-toolkit/utils`、`valibot`、`http-proxy-agent`、
+`velopack`、`@electron-toolkit/utils`、`valibot`、`http-proxy-agent`、
 `https-proxy-agent` 和 `socks-proxy-agent`。
 
 ## outbound proxy 依赖裁剪
@@ -109,9 +111,10 @@ electron-builder 按目标 arch rebuild 或 unpack；updater/logging 等 main ru
 验证命令：
 
 ```bash
-rtk bun run typecheck
 rtk bun run lint
-rtk bun run test src/main/proxy/service.test.ts src/main/proxy/config.test.ts
+rtk bun run typecheck
+rtk bun run test
+rtk bun run build
 rtk bun run build:mac
 ```
 
@@ -119,18 +122,20 @@ rtk bun run build:mac
 
 | 产物 | 体积 |
 | --- | ---: |
-| `dist/CodexFree-1.0.0-arm64.dmg` | `96M` |
-| `dist/CodexFree-1.0.0-x64.dmg` | `97M` |
-| arm64 `app.asar` | `7.9M` |
-| x64 `app.asar` | `7.9M` |
-| arm64 `app.asar.unpacked` | `12M` |
-| x64 `app.asar.unpacked` | `12M` |
-| arm64 Electron Framework | `221M` |
-| x64 Electron Framework | `226M` |
+| `dist/CodexFree-0.1.0-alpha.0-arm64.dmg` | `112M` |
+| `dist/CodexFree-0.1.0-alpha.0-x64.dmg` | `112M` |
+| arm64 `app.asar` | `6.6M` |
+| x64 `app.asar` | `6.6M` |
+| arm64 `app.asar.unpacked` | `31M` |
+| x64 `app.asar.unpacked` | `31M` |
+| arm64 Electron Framework | `225M` |
+| x64 Electron Framework | `224M` |
 
 Electron locale 检查结果只剩 `en.lproj` 和 `zh_CN.lproj`。asar 抽查确认未包含 `/dist`、
 `/test`、`/docs`、`/src`、`/.git`、`*.har`，也未包含 `date-fns`、`lucide-react`、
 `react`、`react-dom`、`@base-ui`、`drizzle-orm`、`proxy-agent`、`quickjs-wasi`。
+接入 Velopack 后，`app.asar.unpacked` 额外包含约 `19M` Velopack native runtime；macOS
+bundle 抽查确认没有旧 `app-update.yml`。
 
 packaged daemon smoke 使用 `ELECTRON_RUN_AS_NODE=1` 从 `app.asar` 内执行
 `out/daemon/cli.cjs --help`，可以正常输出 `codexfree-daemon` help，说明 daemon 入口和
@@ -156,8 +161,8 @@ native module 解析路径未被破坏。
    `enableEmbeddedAsarIntegrityValidation: true`。这主要提升安全性，体积收益很小。
 2. 用 `onNodeModuleFile` 做更细的 node_modules 过滤。适合发现某个生产依赖带入大量
    docs/tests/examples 时使用，但必须配套 packaged smoke，避免误删 runtime 文件。
-3. 审核 `electron-updater` 是否仍需要。如果短期不做自动更新，可以移除它和
-   `app-update.yml` 相关路径，但这会改变产品能力。
+3. 继续审核 Velopack 的 platform package 输出。macOS 当前只上传完整安装包并通过
+   GitHub Releases API 检查版本；Windows/Linux 由 Velopack release feeds 支持自动更新。
 4. 长期改用 Utility Process 替代 `ELECTRON_RUN_AS_NODE` daemon。这样未来才可能关闭
    `runAsNode` fuse；这是架构改造，不是单纯体积优化。
 

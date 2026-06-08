@@ -1,6 +1,7 @@
 import { Button } from '@renderer/components/ui/button'
 import { ActiveProxyCard } from '@renderer/components/vectormotion/codexfree-cards'
-import { formatDateTime } from '@renderer/data/format'
+import { formatBytes, formatDateTime } from '@renderer/data/format'
+import { DownloadIcon, ExternalLinkIcon, RefreshCwIcon, RocketIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
 import { type ActivityRow, rowTone, typeLabel } from './dashboard-model'
 import type { PageProps } from './types'
@@ -99,21 +100,90 @@ export function AlertPanel({ rows, t }: { rows: ActivityRow[]; t: PageProps['t']
 }
 
 export function VersionPanel({
+  actions,
+  busyAction,
   lastRefresh,
   locale,
   snapshot,
   t
-}: Pick<PageProps, 'lastRefresh' | 'locale' | 'snapshot' | 't'>): ReactElement {
+}: Pick<
+  PageProps,
+  'actions' | 'busyAction' | 'lastRefresh' | 'locale' | 'snapshot' | 't'
+>): ReactElement {
+  const update = snapshot.updateStatus
+  const available = update.availableUpdate
+  const downloaded = update.downloadedUpdate
+  const primaryAction = updatePrimaryAction(update)
   return (
     <section
-      className={`${panel} mt-auto flex min-h-[92px] shrink-0 flex-col justify-center gap-1.5 p-3 min-[1400px]:min-h-[126px] min-[1400px]:gap-2`}
+      className={`${panel} mt-auto flex min-h-[132px] shrink-0 flex-col justify-center gap-1.5 p-3 min-[1400px]:min-h-[152px] min-[1400px]:gap-2`}
     >
       <div className={`${muted} font-bold text-xs`}>{t('dashboard.versionUpdate')}</div>
       <div className="flex items-center justify-between gap-2">
         <div className={`${title} text-lg`}>v{snapshot.version}</div>
-        <span className="shrink-0 rounded-full bg-success/12 px-2 py-1 font-bold text-success text-xs">
-          {t('dashboard.latest')}
+        <span
+          className={`shrink-0 rounded-full px-2 py-1 font-bold text-xs ${updateBadgeTone(update.state)}`}
+        >
+          {t(updateStateLabel(update.state))}
         </span>
+      </div>
+      <div className="min-h-4 truncate font-semibold text-muted-foreground text-xs">
+        {downloaded
+          ? t('dashboard.updateDownloadedVersion', { version: downloaded.version })
+          : available
+            ? t('dashboard.updateAvailableVersion', {
+                size: formatBytes(available.size, locale),
+                version: available.version
+              })
+            : update.errorMessage ||
+              t(
+                update.mode === 'manual-download'
+                  ? 'dashboard.updateManualMac'
+                  : 'dashboard.autoUpdate'
+              )}
+      </div>
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+        <Button
+          className="min-w-0"
+          disabled={!update.canCheck && primaryAction === 'check'}
+          loading={busyAction === 'updateCheck' || update.state === 'checking'}
+          onClick={actions.checkForUpdate}
+          size="xs"
+          variant="outline"
+        >
+          <RefreshCwIcon data-icon="inline-start" />
+          {t('action.checkUpdate')}
+        </Button>
+        {primaryAction === 'release' ? (
+          <Button
+            loading={busyAction === 'openRelease'}
+            onClick={actions.openReleasePage}
+            size="xs"
+            variant="secondary"
+          >
+            <ExternalLinkIcon data-icon="inline-start" />
+            {t('action.openRelease')}
+          </Button>
+        ) : null}
+        {primaryAction === 'download' ? (
+          <Button
+            loading={busyAction === 'updateDownload' || update.state === 'downloading'}
+            onClick={actions.downloadUpdate}
+            size="xs"
+            variant="secondary"
+          >
+            <DownloadIcon data-icon="inline-start" />
+            {update.progressPercent !== null
+              ? `${Math.round(update.progressPercent)}%`
+              : t('action.downloadUpdate')}
+          </Button>
+        ) : null}
+        {primaryAction === 'apply' ? (
+          <Button loading={busyAction === 'updateApply'} onClick={actions.applyUpdate} size="xs">
+            <RocketIcon data-icon="inline-start" />
+            {t('action.installUpdate')}
+          </Button>
+        ) : null}
       </div>
       {lastRefresh ? (
         <div className="truncate text-muted-foreground text-xs">
@@ -122,4 +192,53 @@ export function VersionPanel({
       ) : null}
     </section>
   )
+}
+
+function updatePrimaryAction(
+  update: PageProps['snapshot']['updateStatus']
+): 'apply' | 'download' | 'release' | 'check' {
+  if (update.canApply) {
+    return 'apply'
+  }
+  if (update.mode === 'manual-download' && update.availableUpdate) {
+    return 'release'
+  }
+  return update.canDownload ? 'download' : 'check'
+}
+
+function updateStateLabel(
+  state: PageProps['snapshot']['updateStatus']['state']
+): Parameters<PageProps['t']>[0] {
+  switch (state) {
+    case 'available':
+      return 'dashboard.updateAvailable'
+    case 'checking':
+      return 'dashboard.updateChecking'
+    case 'downloaded':
+      return 'dashboard.updateReady'
+    case 'downloading':
+      return 'dashboard.updateDownloading'
+    case 'error':
+      return 'dashboard.updateError'
+    case 'unsupported':
+      return 'dashboard.updateUnsupported'
+    default:
+      return 'dashboard.latest'
+  }
+}
+
+function updateBadgeTone(state: PageProps['snapshot']['updateStatus']['state']): string {
+  switch (state) {
+    case 'available':
+    case 'downloaded':
+      return 'bg-info/12 text-info'
+    case 'downloading':
+    case 'checking':
+      return 'bg-warning/12 text-warning'
+    case 'error':
+    case 'unsupported':
+      return 'bg-destructive/12 text-destructive-foreground'
+    default:
+      return 'bg-success/12 text-success'
+  }
 }

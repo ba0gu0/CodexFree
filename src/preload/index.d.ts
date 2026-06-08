@@ -2,6 +2,7 @@ import type {
   AccountUsageCheckBatchDto,
   AccountUsageCheckProgressDto,
   ActivityPageDto,
+  AppUpdateStatusDto,
   AuthExportResultDto,
   AuthImportResultDto,
   CleanExpiredAccountsDto,
@@ -41,6 +42,12 @@ declare global {
     }
     api: {
       getVersion: () => Promise<string>
+      getUpdateStatus: () => Promise<AppUpdateStatusDto>
+      checkForUpdate: () => Promise<AppUpdateStatusDto>
+      downloadUpdate: () => Promise<AppUpdateStatusDto>
+      applyUpdate: () => Promise<AppUpdateStatusDto>
+      openReleasePage: () => Promise<void>
+      onUpdateStatusChanged: (listener: (status: AppUpdateStatusDto) => void) => () => void
       setLocale: (locale: string) => Promise<void>
       getProxyConfig: () => Promise<ProxyConfigDto>
       getProxyStatus: () => Promise<ProxyStatusDto>

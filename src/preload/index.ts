@@ -3,6 +3,7 @@ import type {
   AccountUsageCheckBatchDto,
   AccountUsageCheckProgressDto,
   ActivityPageDto,
+  AppUpdateStatusDto,
   AuthExportResultDto,
   AuthImportResultDto,
   CleanExpiredAccountsDto,
@@ -42,6 +43,18 @@ const electronBridge = {
 
 const api = {
   getVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+  getUpdateStatus: (): Promise<AppUpdateStatusDto> => ipcRenderer.invoke('app:update-status'),
+  checkForUpdate: (): Promise<AppUpdateStatusDto> => ipcRenderer.invoke('app:check-update'),
+  downloadUpdate: (): Promise<AppUpdateStatusDto> => ipcRenderer.invoke('app:download-update'),
+  applyUpdate: (): Promise<AppUpdateStatusDto> => ipcRenderer.invoke('app:apply-update'),
+  openReleasePage: (): Promise<void> => ipcRenderer.invoke('app:open-release-page'),
+  onUpdateStatusChanged: (listener: (status: AppUpdateStatusDto) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, status: AppUpdateStatusDto) => {
+      listener(status)
+    }
+    ipcRenderer.on('app:update-status-changed', handler)
+    return () => ipcRenderer.off('app:update-status-changed', handler)
+  },
   setLocale: async (locale: string): Promise<void> => {
     try {
       await ipcRenderer.invoke('app:set-locale', locale)

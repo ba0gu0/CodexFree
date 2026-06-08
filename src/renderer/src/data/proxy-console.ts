@@ -6,6 +6,7 @@ export type DaemonControlSettings = Awaited<ReturnType<Api['getDaemonControlSett
 export type DaemonControlSaveInput = Parameters<Api['saveDaemonControlSettings']>[0]
 export type ProxyConfig = Awaited<ReturnType<Api['getProxyConfig']>>
 export type ProxyStatus = Awaited<ReturnType<Api['getProxyStatus']>>
+export type AppUpdateStatus = Awaited<ReturnType<Api['getUpdateStatus']>>
 export type ManagedAccount = Awaited<ReturnType<Api['getManagedAccounts']>>[number]
 export type RequestSummary = Awaited<ReturnType<Api['getRequestSummary']>>
 export type UsageSummary = Awaited<ReturnType<Api['getUsageSummary']>>
@@ -34,6 +35,7 @@ export interface ConsoleSnapshot {
   requests: RecentRequest[]
   status: ProxyStatus
   turnSummaries: TurnSummary[]
+  updateStatus: AppUpdateStatus
   usageSummary: UsageSummary
   version: string
 }

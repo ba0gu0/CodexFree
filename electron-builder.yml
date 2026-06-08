@@ -7,6 +7,7 @@ compression: maximum
 electronLanguages:
   - en
   - zh_CN
+publish: null
 files:
   - out/**
   - resources/**
@@ -17,9 +18,6 @@ files:
   - "!out/**/*.map"
 asarUnpack:
   - node_modules/**/*.node
-extraResources:
-  - from: dev-app-update.yml
-    to: app-update.yml
 win:
   executableName: CodexFree
   icon: icon.ico
@@ -58,9 +56,5 @@ linux:
   category: Development
 appImage:
   artifactName: ${productName}-${version}-${arch}.${ext}
-publish:
-  provider: github
-  owner: ba0gu0
-  repo: CodexFree
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/

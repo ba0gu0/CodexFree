@@ -71,6 +71,7 @@ function App(): React.JSX.Element {
       version,
       config,
       status,
+      updateStatus,
       daemonControl,
       managedAuthDirectory,
       requestPage,
@@ -85,6 +86,7 @@ function App(): React.JSX.Element {
       window.api.getVersion(),
       window.api.getProxyConfig(),
       window.api.getProxyStatus(),
+      window.api.getUpdateStatus(),
       window.api.getDaemonControlSettings(),
       window.api.getManagedAuthDirectory(),
       window.api.getRecentRequests(activityLimit),
@@ -107,6 +109,7 @@ function App(): React.JSX.Element {
       requests: requestPage.items,
       status,
       turnSummaries: turnSummaryPage.items,
+      updateStatus,
       usageSummary,
       version
     })
@@ -120,6 +123,12 @@ function App(): React.JSX.Element {
     localStorage.setItem(SETUP_LAST_CHECKED_KEY, String(setupAssistant.checkedAt))
     setLastRefresh(Date.now())
   }, [activityLimit])
+
+  useEffect(() => {
+    return window.api.onUpdateStatusChanged((updateStatus) => {
+      setSnapshot((current) => (current ? { ...current, updateStatus } : current))
+    })
+  }, [])
 
   useEffect(() => {
     refresh().catch((refreshError: unknown) => setError(toErrorMessage(refreshError)))
@@ -276,8 +285,23 @@ function App(): React.JSX.Element {
   )
 
   const actions: PageActions = {
+    applyUpdate: () =>
+      runAction(
+        'updateApply',
+        () => window.api.applyUpdate(),
+        () => t('notice.updateApplyStarted')
+      ),
     checkUsage: () => runUsageTask(() => window.api.checkAccountUsage()),
     checkUsageForAccounts: runSingleUsageTask,
+    checkForUpdate: () =>
+      runAction(
+        'updateCheck',
+        () => window.api.checkForUpdate(),
+        (status) =>
+          status.availableUpdate
+            ? t('notice.updateAvailable', { version: status.availableUpdate.version })
+            : t('notice.updateLatest')
+      ),
     cleanExpired: () =>
       runAction(
         'clean',
@@ -317,6 +341,12 @@ function App(): React.JSX.Element {
       }
     },
     loadMoreActivity,
+    downloadUpdate: () =>
+      runAction(
+        'updateDownload',
+        () => window.api.downloadUpdate(),
+        () => t('notice.updateDownloaded')
+      ),
     openManagedAuthDirectory: () =>
       runAction(
         'openAuthDir',
@@ -334,6 +364,12 @@ function App(): React.JSX.Element {
         'openRawDir',
         () => window.api.openRawCaptureDirectory(),
         () => t('notice.directoryOpened')
+      ),
+    openReleasePage: () =>
+      runAction(
+        'openRelease',
+        () => window.api.openReleasePage(),
+        () => t('notice.releasePageOpened')
       ),
     openWorkDirectory: () =>
       runAction(

@@ -1,6 +1,6 @@
 {
   "name": "codexfree",
-  "version": "1.0.0",
+  "version": "0.1.0-alpha.0",
   "description": "Electron desktop app and local Codex account proxy",
   "main": "./out/main/index.js",
   "author": "BaoGuo",
@@ -18,10 +18,11 @@
     "dev": "bun electron-vite dev",
     "build": "bun run typecheck && bun run daemon:bundle && bun electron-vite build",
     "postinstall": "bun node_modules/electron/install.js && electron-builder install-app-deps",
-    "build:unpack": "bun run build && bun electron-builder --dir -c.mac.identity=null",
-    "build:win": "bun run build && bun electron-builder --win",
-    "build:mac": "bun run build && bun electron-builder --mac -c.mac.identity=null",
-    "build:linux": "bun run build && bun electron-builder --linux",
+    "clean:packaged-apps": "bun -e \"const { rmSync } = require('node:fs'); for (const path of ['dist/mac', 'dist/mac-arm64', 'dist/win-unpacked', 'dist/linux-unpacked']) rmSync(path, { recursive: true, force: true });\"",
+    "build:unpack": "bun run clean:packaged-apps && bun run build && bun electron-builder --dir -c.mac.identity=null",
+    "build:win": "bun run clean:packaged-apps && bun run build && bun electron-builder --win --dir",
+    "build:mac": "bun run clean:packaged-apps && bun run build && bun electron-builder --mac -c.mac.identity=null",
+    "build:linux": "bun run clean:packaged-apps && bun run build && bun electron-builder --linux --dir",
     "daemon:bundle": "bun build --target=node --format=cjs --packages=external --outfile out/daemon/cli.cjs src/main/daemon/cli.ts",
     "daemon": "bun run daemon:bundle && ELECTRON_RUN_AS_NODE=1 NODE_NO_WARNINGS=1 electron out/daemon/cli.cjs"
   },
@@ -29,11 +30,11 @@
     "@electron-toolkit/utils": "^4.0.0",
     "better-sqlite3": "^12.10.0",
     "electron-log": "^5.4.3",
-    "electron-updater": "^6.8.3",
     "http-proxy-agent": "^9.0.0",
     "https-proxy-agent": "^9.0.0",
     "socks-proxy-agent": "^10.0.0",
-    "valibot": "^1.4.0"
+    "valibot": "^1.4.0",
+    "velopack": "1.2.0"
   },
   "devDependencies": {
     "@base-ui/react": "^1.4.1",
