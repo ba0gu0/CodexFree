@@ -295,16 +295,18 @@ export class TransparentProxyService {
       rateLimitResetsAt: usage.rateLimitResetsAt,
       secondaryRateLimitResetsAt: usage.secondaryRateLimitResetsAt
     })
-    if (isUsageQuotaProtected(usage.primaryUsedPercent)) {
+    const exhausted = isUsageQuotaProtected(usage.primaryUsedPercent, usage.secondaryUsedPercent)
+    if (exhausted) {
       this.log.warn('Usage limit reached; marking account exhausted', {
         accountId,
         used: usage.primaryUsedPercent,
+        secondaryUsed: usage.secondaryUsedPercent,
         resetsAt: usage.rateLimitResetsAt
       })
     }
     return {
       ...usage,
-      exhausted: isUsageQuotaProtected(usage.primaryUsedPercent)
+      exhausted
     }
   }
 
@@ -574,7 +576,7 @@ export class TransparentProxyService {
       this.log.info('Quota guard requested websocket reconnect before response.create', {
         id: requestId,
         accountId: account.accountId,
-        used: evaluation.primaryUsedPercent
+        used: protectedUsagePercent(evaluation)
       })
       return { action: 'reconnect' }
     }
@@ -587,18 +589,19 @@ export class TransparentProxyService {
     conversationKey: string | undefined,
     evaluation: AccountQuotaEvaluation
   ): QuotaExhaustionEvent {
+    const resetAt = protectedResetAt(evaluation)
     const event: QuotaExhaustionEvent = {
       errorType: 'usage_limit_reached',
       planType: evaluation.planType,
-      primaryUsedPercent: evaluation.primaryUsedPercent ?? '95',
-      resetsAt: evaluation.rateLimitResetsAt
-        ? String(Math.floor(evaluation.rateLimitResetsAt / 1000))
-        : undefined,
+      activeLimit: evaluation.protectedWindow,
+      primaryUsedPercent: protectedUsagePercent(evaluation) ?? '95',
+      resetsAt: resetAt ? String(Math.floor(resetAt / 1000)) : undefined,
       statusCode: 429
     }
     this.log.warn('Quota guard protected account before forwarding turn', {
       accountId,
       source: evaluation.source,
+      window: evaluation.protectedWindow,
       used: event.primaryUsedPercent
     })
     this.markHttpQuotaExhausted(requestId, accountId, conversationKey, event)
@@ -666,4 +669,16 @@ export class TransparentProxyService {
       return AccountPool.disabled()
     }
   }
+}
+
+function protectedUsagePercent(evaluation: AccountQuotaEvaluation): string | undefined {
+  return evaluation.protectedWindow === 'secondary'
+    ? evaluation.secondaryUsedPercent
+    : evaluation.primaryUsedPercent
+}
+
+function protectedResetAt(evaluation: AccountQuotaEvaluation): number | undefined {
+  return evaluation.protectedWindow === 'secondary'
+    ? evaluation.secondaryRateLimitResetsAt
+    : evaluation.rateLimitResetsAt
 }

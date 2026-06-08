@@ -214,6 +214,11 @@ T12 当前实现证据：
 - Confirmed：Usage 显示 token totals，并按 source、model、account、day 和 thread/turn 分组。
 - Confirmed：Accounts 在 light 和 dark modes 下显示 email-first account names、
   plan/usage/reset/check fields，以及 typed quota-event history sections。
+- Confirmed：真实 `/backend-api/wham/usage` 响应已重新抽样。free 只有
+  `rate_limit.primary_window` 且 `secondary_window` 为 `null`；team 的
+  `primary_window` 是 18000 秒 5 小时窗口，`secondary_window` 是 604800 秒周窗口。Accounts、
+  Inspector、Dashboard 和 quota guard 已统一使用双窗口模型，team 不再只显示被错标的
+  “周额度”，任一窗口达到 95% 保护线都会退出可用池。
 
 T13 当前实现证据：
 

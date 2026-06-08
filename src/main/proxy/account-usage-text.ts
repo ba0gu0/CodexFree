@@ -13,7 +13,10 @@ export function formatAccountUsageText(
     return undefined
   }
 
-  const used = usage.primaryUsedPercent ?? 'unknown'
+  const used =
+    usage.secondaryUsedPercent === null
+      ? (usage.primaryUsedPercent ?? 'unknown')
+      : `${usage.primaryUsedPercent ?? 'unknown'}/${usage.secondaryUsedPercent}`
   const reset = usage.rateLimitResetsAt
     ? new Date(usage.rateLimitResetsAt).toISOString()
     : 'unknown'

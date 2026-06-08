@@ -10,9 +10,11 @@ export interface AccountQuotaEvaluation {
   error?: string
   planType?: string
   primaryUsedPercent?: string
+  protectedWindow?: 'primary' | 'secondary'
   protectedByQuota: boolean
   rateLimitResetsAt?: number
   secondaryRateLimitResetsAt?: number
+  secondaryUsedPercent?: string
   source: 'cache' | 'error' | 'remote'
 }
 
@@ -77,13 +79,17 @@ export class AccountQuotaGuard {
 
     const fallback = this.cachedEvaluation(account.accountId, false)
     const primaryUsedPercent = result.primaryUsedPercent ?? fallback?.primaryUsedPercent
+    const secondaryUsedPercent = result.secondaryUsedPercent ?? fallback?.secondaryUsedPercent
+    const protectedWindow = quotaProtectedWindow(primaryUsedPercent, secondaryUsedPercent)
     return {
       planType: result.planType ?? fallback?.planType,
       primaryUsedPercent,
-      protectedByQuota: isPercentQuotaProtected(primaryUsedPercent),
+      protectedByQuota: protectedWindow !== undefined,
+      protectedWindow,
       rateLimitResetsAt: result.rateLimitResetsAt ?? fallback?.rateLimitResetsAt,
       secondaryRateLimitResetsAt:
         result.secondaryRateLimitResetsAt ?? fallback?.secondaryRateLimitResetsAt,
+      secondaryUsedPercent,
       source: 'remote'
     }
   }
@@ -123,12 +129,16 @@ export class AccountQuotaGuard {
       }
     }
     const primaryUsedPercent = row.primaryUsedPercent ?? undefined
+    const secondaryUsedPercent = row.secondaryUsedPercent ?? undefined
+    const protectedWindow = quotaProtectedWindow(primaryUsedPercent, secondaryUsedPercent)
     return {
       planType: row.planType ?? undefined,
       primaryUsedPercent,
-      protectedByQuota: isPercentQuotaProtected(primaryUsedPercent),
+      protectedByQuota: protectedWindow !== undefined,
+      protectedWindow,
       rateLimitResetsAt: row.rateLimitResetsAt ?? undefined,
       secondaryRateLimitResetsAt: row.secondaryRateLimitResetsAt ?? undefined,
+      secondaryUsedPercent,
       source: 'cache'
     }
   }
@@ -137,4 +147,17 @@ export class AccountQuotaGuard {
     const ledger = this.options.ledger as ProxyLedger & { accounts?: () => ManagedAccountRow[] }
     return ledger.accounts?.().find((account) => account.accountId === accountId)
   }
+}
+
+function quotaProtectedWindow(
+  primaryUsedPercent: string | undefined,
+  secondaryUsedPercent: string | undefined
+): AccountQuotaEvaluation['protectedWindow'] {
+  if (isPercentQuotaProtected(primaryUsedPercent)) {
+    return 'primary'
+  }
+  if (isPercentQuotaProtected(secondaryUsedPercent)) {
+    return 'secondary'
+  }
+  return undefined
 }

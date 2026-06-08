@@ -7,7 +7,7 @@ import {
   requestActivityViewModel,
   turnActivityViewModel
 } from '@renderer/data/activity-view-model'
-import { formatDateTime, formatDuration, normalizePercent } from '@renderer/data/format'
+import { formatDateTime, formatDuration } from '@renderer/data/format'
 import {
   accountDisplayForPathFromLookup,
   accountDisplayLookup,
@@ -15,6 +15,7 @@ import {
 } from '@renderer/data/proxy-console'
 import type { CopyKey } from '@renderer/i18n/copy'
 import { useMemo } from 'react'
+import { accountRemainingQuotaPercent } from './accounts-model'
 import type { PageProps } from './types'
 
 export type ActivityFilter =
@@ -253,9 +254,10 @@ export function remainingQuota(account: ManagedAccount | undefined): number | un
   if (!account) {
     return undefined
   }
-  const used =
-    normalizePercent(account.primaryUsedPercent) ?? normalizePercent(account.secondaryUsedPercent)
-  return used === undefined ? undefined : Math.max(0, Math.min(100, 100 - used))
+  if (!account.primaryUsedPercent && !account.secondaryUsedPercent) {
+    return undefined
+  }
+  return accountRemainingQuotaPercent(account)
 }
 
 export function listenValue(endpoint: string): string {

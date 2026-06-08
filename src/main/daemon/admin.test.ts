@@ -503,7 +503,10 @@ function fakeLedger(
               secondaryRateLimitResetsAt:
                 input.secondaryRateLimitResetsAt ?? account.secondaryRateLimitResetsAt,
               secondaryUsedPercent: input.secondaryUsedPercent ?? account.secondaryUsedPercent,
-              status: input.primaryUsedPercent === '100' ? 'exhausted' : account.status
+              status:
+                input.primaryUsedPercent === '100' || input.secondaryUsedPercent === '100'
+                  ? 'exhausted'
+                  : account.status
             }
           : account
       )

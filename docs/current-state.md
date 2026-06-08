@@ -67,6 +67,14 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   WebSocket 抓包和内存 probe buffer 是调试/重试辅助，不是持久 message-history 模型。
 - Usage 查询会使用当前绑定/默认可用账号转发，并返回真实的上游 usage。代理不会伪造
   固定 100% 的 usage 响应。
+- 2026-06-08 使用 `/Users/baoguo/Downloads/cpa` 中的真实 free/team auth 文件重新确认
+  `/backend-api/wham/usage` 当前响应：额度信息不在 `x-codex-*` 响应头里，而在 JSON
+  body 的 `rate_limit` 下。free 账号只有 `primary_window`，当前样本窗口为 2592000 秒且
+  `secondary_window` 为 `null`；team 账号有两个窗口，`primary_window.limit_window_seconds`
+  为 18000（5 小时额度），`secondary_window.limit_window_seconds` 为 604800（周额度）。
+  CodexFree 现在把 team、plus、pro 以及任何带 secondary quota window 的账号按双窗口处理；
+  账号列表、详情面板和 dashboard 不再把 team 的 primary window 错标成周额度。quota guard
+  和 SQLite 账号状态保护线也会同时检查 primary/secondary，任一窗口达到 95% 都会退出可用池。
 - `/backend-api/wham/remote` 及其子路径是透明例外：代理会保留原始 Codex
   `Authorization` 和 `chatgpt-account-id` headers，而不是从 HTTP 和 WSS upgrade
   流量的托管 auth pool 中替换。

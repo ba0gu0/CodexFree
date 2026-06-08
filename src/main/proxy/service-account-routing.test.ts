@@ -282,8 +282,8 @@ describe('transparent proxy service account routing', () => {
         return 1
       },
       syncAccountPool: () => undefined,
-      updateAccountUsage: (input: { accountId: string; primaryUsedPercent?: string }) => {
-        if (input.primaryUsedPercent === '100') {
+      updateAccountUsage: (input: AccountUsageInput) => {
+        if (input.primaryUsedPercent === '100' || input.secondaryUsedPercent === '100') {
           exhaustedAccounts.push(input.accountId)
         }
       }
@@ -456,7 +456,12 @@ describe('transparent proxy service account routing', () => {
                 rateLimitResetsAt: input.rateLimitResetsAt ?? account.rateLimitResetsAt,
                 secondaryRateLimitResetsAt:
                   input.secondaryRateLimitResetsAt ?? account.secondaryRateLimitResetsAt,
-                status: Number(input.primaryUsedPercent ?? 0) >= 95 ? 'exhausted' : account.status
+                secondaryUsedPercent: input.secondaryUsedPercent ?? account.secondaryUsedPercent,
+                status:
+                  Number(input.primaryUsedPercent ?? 0) >= 95 ||
+                  Number(input.secondaryUsedPercent ?? 0) >= 95
+                    ? 'exhausted'
+                    : account.status
               }
             : account
         )

@@ -16,7 +16,12 @@ import {
 } from '@renderer/data/proxy-console'
 import { UserCheckIcon } from 'lucide-react'
 import { type ReactElement, useMemo } from 'react'
-import { accountFormatLabel, statusTone } from './accounts-model'
+import {
+  accountFormatLabel,
+  fiveHourQuotaResetAt,
+  statusTone,
+  weeklyQuotaResetAt
+} from './accounts-model'
 import type { PageProps } from './types'
 
 export function AccountInspector({
@@ -121,17 +126,12 @@ export function AccountInspector({
   )
 }
 
-function isShortWindowPlan(account: ManagedAccount): boolean {
-  const plan = account.planType?.trim().toLowerCase()
-  return plan === 'plus' || plan === 'pro'
-}
-
 function weeklyResetAt(account: ManagedAccount): number | null {
-  return isShortWindowPlan(account) ? account.secondaryRateLimitResetsAt : account.rateLimitResetsAt
+  return weeklyQuotaResetAt(account)
 }
 
 function fiveHourResetAt(account: ManagedAccount): number | null {
-  return isShortWindowPlan(account) ? account.rateLimitResetsAt : null
+  return fiveHourQuotaResetAt(account)
 }
 
 export function AccountStatus({

@@ -191,6 +191,41 @@ describe('proxy ledger account sync', () => {
     }
   })
 
+  it('marks accounts exhausted when the secondary quota window reaches the guard line', () => {
+    const ledger = new ProxyLedger(':memory:')
+    try {
+      ledger.syncAccountPool([
+        {
+          accountId: 'account-a',
+          fingerprint: 'fingerprint-a',
+          label: 'Account A',
+          sourceFormat: 'codex'
+        }
+      ])
+
+      ledger.updateAccountUsage({
+        accountId: 'account-a',
+        planType: 'team',
+        primaryUsedPercent: '10',
+        rateLimitResetsAt: 1_780_927_748_000,
+        secondaryRateLimitResetsAt: 1_781_496_691_000,
+        secondaryUsedPercent: '99'
+      })
+
+      expect(ledger.accounts()).toEqual([
+        expect.objectContaining({
+          accountId: 'account-a',
+          planType: 'team',
+          primaryUsedPercent: '10',
+          secondaryUsedPercent: '99',
+          status: 'exhausted'
+        })
+      ])
+    } finally {
+      ledger.close()
+    }
+  })
+
   it('updates account usage fields when marking quota exhausted', () => {
     const ledger = new ProxyLedger(':memory:')
     const completedAt = new Date(1_800_000_000_000)

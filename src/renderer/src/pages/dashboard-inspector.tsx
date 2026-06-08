@@ -2,6 +2,7 @@ import { Button } from '@renderer/components/ui/button'
 import { formatDateTime, formatTokenCost, formatTokenCount } from '@renderer/data/format'
 import { accountDisplayName, type ManagedAccount } from '@renderer/data/proxy-console'
 import { type ReactElement, useState } from 'react'
+import { accountQuotaResetAt } from './accounts-model'
 import { remainingQuota } from './dashboard-model'
 import type { PageProps } from './types'
 
@@ -52,7 +53,9 @@ export function ActiveAccountPanel({
         />
       </div>
       <div className={`${muted} font-bold text-[11px]`}>
-        {t('dashboard.resetAt', { time: formatDateTime(active?.rateLimitResetsAt, locale) })}
+        {t('dashboard.resetAt', {
+          time: formatDateTime(active ? accountQuotaResetAt(active) : null, locale)
+        })}
       </div>
       <div className="grid shrink-0 grid-cols-1 gap-2.5">
         <MiniMeta

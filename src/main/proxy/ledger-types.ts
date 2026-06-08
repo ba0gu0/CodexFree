@@ -61,6 +61,7 @@ export interface AccountUsageSummary {
   primaryUsedPercent: string | null
   rateLimitResetsAt: number | null
   secondaryRateLimitResetsAt: number | null
+  secondaryUsedPercent: string | null
 }
 
 export interface ProtocolMessageInput {

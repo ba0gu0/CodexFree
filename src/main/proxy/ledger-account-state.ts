@@ -94,8 +94,10 @@ export function updateAccountUsageInLedger(
   checkedAt: Date
 ): void {
   const primaryUsedPercent = input.primaryUsedPercent ?? null
-  const hasUsageResult = input.primaryUsedPercent !== undefined
-  const isQuotaProtected = isPercentQuotaProtected(primaryUsedPercent) ? 1 : 0
+  const secondaryUsedPercent = input.secondaryUsedPercent ?? null
+  const hasUsageResult =
+    input.primaryUsedPercent !== undefined || input.secondaryUsedPercent !== undefined
+  const isQuotaProtected = isPercentQuotaProtected(primaryUsedPercent, secondaryUsedPercent) ? 1 : 0
   sqlite
     .prepare(`
       UPDATE proxy_accounts
@@ -152,7 +154,7 @@ export function updateAccountUsageInLedger(
       label: input.email ?? input.label ?? null,
       planType: input.planType ?? null,
       primaryUsedPercent,
-      secondaryUsedPercent: input.secondaryUsedPercent ?? null,
+      secondaryUsedPercent,
       rateLimitResetsAt: input.rateLimitResetsAt ?? null,
       secondaryRateLimitResetsAt: input.secondaryRateLimitResetsAt ?? null,
       lastUsageError: input.lastUsageError ?? null,

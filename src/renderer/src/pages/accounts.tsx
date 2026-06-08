@@ -3,7 +3,7 @@ import { PageHeader } from '@renderer/components/app-shell/page-header'
 import { Button } from '@renderer/components/ui/button'
 import { Card, CardHeader, CardPanel, CardTitle } from '@renderer/components/ui/card'
 import { Checkbox } from '@renderer/components/ui/checkbox'
-import { formatDateTime, normalizePercent } from '@renderer/data/format'
+import { formatDateTime } from '@renderer/data/format'
 import { accountDisplayName, type ManagedAccount } from '@renderer/data/proxy-console'
 import { useVirtualRows, VIRTUAL_ROW_BATCH_SIZE } from '@renderer/hooks/use-virtual-rows'
 import {
@@ -23,7 +23,12 @@ import {
   type AccountStatusFilter,
   accountFormatLabel,
   accountPlanKind,
-  filterAccounts
+  accountRemainingQuotaPercent,
+  filterAccounts,
+  fiveHourQuotaResetAt,
+  hasShortQuotaWindow,
+  remainingUsagePercent,
+  weeklyQuotaResetAt
 } from './accounts-model'
 import type { PageProps } from './types'
 
@@ -450,8 +455,8 @@ function compareAccounts(left: ManagedAccount, right: ManagedAccount, sort: Acco
     if (planPriority !== 0) {
       return planPriority
     }
-    const leftUsage = accountRemainingSortPercent(left)
-    const rightUsage = accountRemainingSortPercent(right)
+    const leftUsage = accountRemainingQuotaPercent(left)
+    const rightUsage = accountRemainingQuotaPercent(right)
     return (leftUsage - rightUsage) * direction
   }
   const leftValue = accountSortValue(left, sort.key)
@@ -459,35 +464,21 @@ function compareAccounts(left: ManagedAccount, right: ManagedAccount, sort: Acco
   return leftValue.localeCompare(rightValue) * direction
 }
 
-function remainingUsagePercent(value: string | null | undefined): number {
-  const used = normalizePercent(value)
-  return used === undefined ? 0 : Math.max(0, Math.min(100, 100 - used))
-}
-
-function accountRemainingSortPercent(account: ManagedAccount): number {
-  const primary = remainingUsagePercent(account.primaryUsedPercent)
-  if (accountPlanKind(account) !== 'plus' && accountPlanKind(account) !== 'pro') {
-    return primary
-  }
-  const secondary = remainingUsagePercent(account.secondaryUsedPercent)
-  if (account.secondaryUsedPercent === null || account.secondaryUsedPercent === undefined) {
-    return primary
-  }
-  return Math.min(primary, secondary)
-}
-
 function accountPlanSortPriority(account: ManagedAccount): number {
   const plan = accountPlanKind(account)
   if (plan === 'pro') {
     return 0
   }
-  if (plan === 'plus') {
+  if (plan === 'team') {
     return 1
   }
-  if (plan === 'free') {
+  if (plan === 'plus') {
     return 2
   }
-  return 3
+  if (plan === 'free') {
+    return 3
+  }
+  return 4
 }
 
 function AccountQuota({
@@ -499,13 +490,11 @@ function AccountQuota({
   locale: PageProps['locale']
   t: PageProps['t']
 }): ReactElement {
-  const showFiveHour = accountPlanKind(account) === 'plus' || accountPlanKind(account) === 'pro'
+  const showFiveHour = hasShortQuotaWindow(account)
   const weeklyPercent = showFiveHour ? account.secondaryUsedPercent : account.primaryUsedPercent
-  const weeklyResetAt = showFiveHour
-    ? account.secondaryRateLimitResetsAt
-    : account.rateLimitResetsAt
+  const weeklyResetAt = weeklyQuotaResetAt(account)
   const fiveHourPercent = account.primaryUsedPercent
-  const fiveHourResetAt = account.rateLimitResetsAt
+  const fiveHourResetAt = fiveHourQuotaResetAt(account)
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
       {showFiveHour ? (

@@ -5,8 +5,8 @@ export function isPercentExhausted(value: string | null): boolean {
   return isPercentAtLeast(value, 100)
 }
 
-export function isPercentQuotaProtected(value: string | null | undefined): boolean {
-  return isPercentAtLeast(value, 95)
+export function isPercentQuotaProtected(...values: Array<string | null | undefined>): boolean {
+  return values.some((value) => isPercentAtLeast(value, 95))
 }
 
 function isPercentAtLeast(value: string | null | undefined, threshold: number): boolean {

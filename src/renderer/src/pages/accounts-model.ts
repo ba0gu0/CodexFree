@@ -1,9 +1,10 @@
+import { normalizePercent } from '@renderer/data/format'
 import { accountStatusKey, type ManagedAccount } from '@renderer/data/proxy-console'
 import type { PageProps } from './types'
 
 export type AccountStatusFilter = 'all' | 'available' | 'exhausted' | 'disabled' | 'invalid'
 export type AccountFormatFilter = 'all' | 'codex' | 'cpa' | 'sub2api' | 'unknown'
-export type AccountPlanFilter = 'all' | 'free' | 'plus' | 'pro' | 'unknown'
+export type AccountPlanFilter = 'all' | 'free' | 'plus' | 'pro' | 'team' | 'unknown'
 
 export const statusFilters: AccountStatusFilter[] = [
   'all',
@@ -14,7 +15,7 @@ export const statusFilters: AccountStatusFilter[] = [
 ]
 
 export const formatFilters: AccountFormatFilter[] = ['all', 'codex', 'cpa', 'sub2api', 'unknown']
-export const planFilters: AccountPlanFilter[] = ['all', 'free', 'plus', 'pro', 'unknown']
+export const planFilters: AccountPlanFilter[] = ['all', 'free', 'plus', 'pro', 'team', 'unknown']
 
 export function filterAccounts(
   accounts: ManagedAccount[],
@@ -42,10 +43,63 @@ export function filterAccounts(
 
 export function accountPlanKind(account: ManagedAccount): AccountPlanFilter {
   const plan = account.planType?.trim().toLowerCase()
-  if (plan === 'free' || plan === 'plus' || plan === 'pro') {
+  if (plan === 'free' || plan === 'plus' || plan === 'pro' || plan === 'team') {
     return plan
   }
   return 'unknown'
+}
+
+export function hasShortQuotaWindow(account: ManagedAccount): boolean {
+  const plan = accountPlanKind(account)
+  return plan === 'plus' || plan === 'pro' || plan === 'team' || hasSecondaryQuotaWindow(account)
+}
+
+export function remainingUsagePercent(value: string | null | undefined): number {
+  const used = normalizePercent(value)
+  return used === undefined ? 0 : Math.max(0, Math.min(100, 100 - used))
+}
+
+export function accountRemainingQuotaPercent(account: ManagedAccount): number {
+  const primary = remainingUsagePercent(account.primaryUsedPercent)
+  if (!hasShortQuotaWindow(account) || !hasSecondaryQuotaWindow(account)) {
+    return primary
+  }
+
+  return Math.min(primary, remainingUsagePercent(account.secondaryUsedPercent))
+}
+
+export function accountQuotaResetAt(account: ManagedAccount): number | null {
+  const primary = account.rateLimitResetsAt
+  if (!hasShortQuotaWindow(account) || !hasSecondaryQuotaWindow(account)) {
+    return primary
+  }
+
+  const primaryRemaining = remainingUsagePercent(account.primaryUsedPercent)
+  const secondaryRemaining = remainingUsagePercent(account.secondaryUsedPercent)
+  return primaryRemaining <= secondaryRemaining
+    ? primary
+    : (account.secondaryRateLimitResetsAt ?? primary)
+}
+
+export function weeklyQuotaResetAt(account: ManagedAccount): number | null {
+  if (!hasShortQuotaWindow(account)) {
+    return account.rateLimitResetsAt
+  }
+  return account.secondaryRateLimitResetsAt ?? account.rateLimitResetsAt
+}
+
+export function fiveHourQuotaResetAt(account: ManagedAccount): number | null {
+  return hasShortQuotaWindow(account) ? account.rateLimitResetsAt : null
+}
+
+function hasSecondaryQuotaWindow(account: ManagedAccount): boolean {
+  return (
+    hasQuotaValue(account.secondaryUsedPercent) || hasQuotaValue(account.secondaryRateLimitResetsAt)
+  )
+}
+
+function hasQuotaValue(value: number | string | null | undefined): boolean {
+  return value !== null && value !== undefined
 }
 
 export function planFilterLabel(filter: AccountPlanFilter, t: PageProps['t']): string {
@@ -64,6 +118,7 @@ export function isPlanFilter(value: unknown): value is AccountPlanFilter {
     value === 'free' ||
     value === 'plus' ||
     value === 'pro' ||
+    value === 'team' ||
     value === 'unknown'
   )
 }

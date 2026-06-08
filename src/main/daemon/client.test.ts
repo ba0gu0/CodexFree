@@ -227,7 +227,10 @@ function fakeLedger(): AdminLedger {
               ...account,
               planType: input.planType ?? account.planType,
               primaryUsedPercent: input.primaryUsedPercent ?? account.primaryUsedPercent,
-              status: input.primaryUsedPercent === '100' ? 'exhausted' : account.status
+              status:
+                input.primaryUsedPercent === '100' || input.secondaryUsedPercent === '100'
+                  ? 'exhausted'
+                  : account.status
             }
           : account
       )

@@ -342,7 +342,8 @@ export class ProxyLedger {
           plan_type AS planType,
           primary_used_percent AS primaryUsedPercent,
           rate_limit_resets_at AS rateLimitResetsAt,
-          secondary_rate_limit_resets_at AS secondaryRateLimitResetsAt
+          secondary_rate_limit_resets_at AS secondaryRateLimitResetsAt,
+          secondary_used_percent AS secondaryUsedPercent
         FROM proxy_accounts
         WHERE account_id = ?
       `)

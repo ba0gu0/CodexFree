@@ -68,10 +68,12 @@ export function usageResetMillis(
   return numeric > 10_000_000_000 ? numeric : numeric * 1000
 }
 
-export function isUsageQuotaProtected(value: string | undefined): boolean {
-  if (!value) {
-    return false
-  }
-  const numeric = Number.parseFloat(value)
-  return Number.isFinite(numeric) && numeric >= 95
+export function isUsageQuotaProtected(...values: Array<string | undefined>): boolean {
+  return values.some((value) => {
+    if (!value) {
+      return false
+    }
+    const numeric = Number.parseFloat(value)
+    return Number.isFinite(numeric) && numeric >= 95
+  })
 }
