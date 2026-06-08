@@ -18,6 +18,7 @@ interface SetupActionProps {
   actions: SetupAssistantActions
   busyAction: string | null
   onConfirmRename: () => void
+  onConfirmRestore: () => void
   state: SetupAssistantState
   t: (key: CopyKey, values?: Record<string, string | number>) => string
 }
@@ -26,6 +27,7 @@ export function AssistantActions({
   actions,
   busyAction,
   onConfirmRename,
+  onConfirmRestore,
   state,
   t
 }: SetupActionProps): ReactElement {
@@ -80,6 +82,16 @@ export function AssistantActions({
         <KeyRoundIcon data-icon="inline-start" />
         {t('setup.renameAuth')}
       </Button>
+      <Button
+        className="col-span-2"
+        disabled={state.auth.backupFileNames.length === 0}
+        loading={busyAction === 'setupRestoreAuth'}
+        onClick={onConfirmRestore}
+        variant="outline"
+      >
+        <RotateCcwIcon data-icon="inline-start" />
+        {t('setup.restoreAuth')}
+      </Button>
     </div>
   )
 }
@@ -88,6 +100,7 @@ export function WizardStepActions({
   actions,
   busyAction,
   onConfirmRename,
+  onConfirmRestore,
   state,
   step,
   t
@@ -142,6 +155,15 @@ export function WizardStepActions({
         >
           <KeyRoundIcon data-icon="inline-start" />
           {t('setup.renameAuth')}
+        </Button>
+        <Button
+          disabled={state.auth.backupFileNames.length === 0}
+          loading={busyAction === 'setupRestoreAuth'}
+          onClick={onConfirmRestore}
+          variant="outline"
+        >
+          <RotateCcwIcon data-icon="inline-start" />
+          {t('setup.restoreAuth')}
         </Button>
       </div>
     )

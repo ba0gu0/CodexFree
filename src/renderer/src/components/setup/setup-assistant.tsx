@@ -11,6 +11,14 @@ import {
 } from '@renderer/components/ui/dialog'
 import { Progress } from '@renderer/components/ui/progress'
 import {
+  Select,
+  SelectGroup,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue
+} from '@renderer/components/ui/select'
+import {
   Sheet,
   SheetDescription,
   SheetFooter,
@@ -19,6 +27,7 @@ import {
   SheetPopup,
   SheetTitle
 } from '@renderer/components/ui/sheet'
+import { accountDisplayName, type ManagedAccount } from '@renderer/data/proxy-console'
 import { type SetupSectionKey, setupPercent, setupSections } from '@renderer/data/setup-assistant'
 import type { CopyKey, Locale } from '@renderer/i18n/copy'
 import {
@@ -26,10 +35,11 @@ import {
   CircleAlertIcon,
   KeyRoundIcon,
   RefreshCwIcon,
+  RotateCcwIcon,
   ShieldAlertIcon
 } from 'lucide-react'
 import type { ReactElement } from 'react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { SetupAssistantState } from '../../data/proxy-console'
 import { AssistantActions, WizardStepActions } from './setup-action-buttons'
 
@@ -42,13 +52,16 @@ export interface SetupAssistantActions {
   openWorkDirectory: () => Promise<void>
   refresh: () => Promise<void>
   renameCodexAuth: () => Promise<void>
+  restoreCodexAuth: (backupFileName: string) => Promise<void>
   restartProxy: () => Promise<void>
   startProxy: () => Promise<void>
+  writeImportedCodexAuth: (accountId: string) => Promise<void>
   writeCodexConfig: () => Promise<void>
 }
 
 export interface SetupAssistantProps {
   actions: SetupAssistantActions
+  accounts: ManagedAccount[]
   busyAction: string | null
   locale: Locale
   onOpenChange: (open: boolean) => void
@@ -59,11 +72,12 @@ export interface SetupAssistantProps {
   wizardOpen: boolean
 }
 
-const wizardSteps = ['intro', 'proxy', 'config', 'auth', 'accounts', 'finish'] as const
+const wizardSteps = ['intro', 'accounts', 'auth', 'proxy', 'config', 'finish'] as const
 export type WizardStep = (typeof wizardSteps)[number]
 
 export function SetupAssistant({
   actions,
+  accounts,
   busyAction,
   locale,
   onOpenChange,
@@ -74,8 +88,38 @@ export function SetupAssistant({
   wizardOpen
 }: SetupAssistantProps): ReactElement {
   const [confirmRenameOpen, setConfirmRenameOpen] = useState(false)
+  const [confirmRestoreOpen, setConfirmRestoreOpen] = useState(false)
+  const [confirmWriteAuthOpen, setConfirmWriteAuthOpen] = useState(false)
+  const [selectedAuthBackupFileName, setSelectedAuthBackupFileName] = useState('')
+  const [selectedAuthAccountId, setSelectedAuthAccountId] = useState('')
   const [step, setStep] = useState<WizardStep>('intro')
   const sections = useMemo(() => (state ? setupSections(state, t, locale) : []), [locale, state, t])
+  const authCandidateAccounts = useMemo(
+    () => accounts.filter((account) => account.status === 'available'),
+    [accounts]
+  )
+  useEffect(() => {
+    if (authCandidateAccounts.length === 0) {
+      setSelectedAuthAccountId('')
+      return
+    }
+    if (!authCandidateAccounts.some((account) => account.accountId === selectedAuthAccountId)) {
+      setSelectedAuthAccountId(authCandidateAccounts[0]?.accountId ?? '')
+    }
+  }, [authCandidateAccounts, selectedAuthAccountId])
+  useEffect(() => {
+    const backups = state?.auth.backupFileNames ?? []
+    if (backups.length === 0) {
+      setSelectedAuthBackupFileName('')
+      return
+    }
+    if (!backups.includes(selectedAuthBackupFileName)) {
+      setSelectedAuthBackupFileName(backups[0] ?? '')
+    }
+  }, [selectedAuthBackupFileName, state?.auth.backupFileNames])
+  const selectedAuthAccount = authCandidateAccounts.find(
+    (account) => account.accountId === selectedAuthAccountId
+  )
   const openWizardAt = (next: WizardStep): void => {
     setStep(next)
     onWizardOpenChange(true)
@@ -108,6 +152,7 @@ export function SetupAssistant({
                   actions={actions}
                   busyAction={busyAction}
                   onConfirmRename={() => setConfirmRenameOpen(true)}
+                  onConfirmRestore={() => setConfirmRestoreOpen(true)}
                   state={state}
                   t={t}
                 />
@@ -141,9 +186,14 @@ export function SetupAssistant({
             {state ? (
               <WizardBody
                 actions={actions}
+                accounts={authCandidateAccounts}
                 busyAction={busyAction}
                 locale={locale}
                 onConfirmRename={() => setConfirmRenameOpen(true)}
+                onConfirmRestore={() => setConfirmRestoreOpen(true)}
+                onConfirmWriteAuth={() => setConfirmWriteAuthOpen(true)}
+                onSelectAuthAccount={setSelectedAuthAccountId}
+                selectedAuthAccountId={selectedAuthAccountId}
                 state={state}
                 step={step}
                 t={t}
@@ -191,7 +241,7 @@ export function SetupAssistant({
             <DialogTitle>{t('setup.renameAuthTitle')}</DialogTitle>
             <DialogDescription>
               {t('setup.renameAuthDesc', {
-                file: state?.auth.backupFileName ?? 'auth.backup.json'
+                file: state?.auth.backupFileName ?? 'codexfree-auth.json'
               })}
             </DialogDescription>
           </DialogHeader>
@@ -210,6 +260,102 @@ export function SetupAssistant({
             >
               <KeyRoundIcon data-icon="inline-start" />
               {t('setup.renameAuth')}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      <Dialog open={confirmRestoreOpen} onOpenChange={setConfirmRestoreOpen}>
+        <DialogPopup>
+          <DialogHeader>
+            <DialogTitle>{t('setup.restoreAuthTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('setup.restoreAuthDesc', {
+                file: selectedAuthBackupFileName || 'codexfree-auth.json'
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          {state && state.auth.backupFileNames.length > 0 ? (
+            <Select
+              items={state.auth.backupFileNames.map((fileName) => ({
+                label: fileName,
+                value: fileName
+              }))}
+              onValueChange={(fileName) => setSelectedAuthBackupFileName(fileName ?? '')}
+              value={selectedAuthBackupFileName}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectGroup>
+                  {state.auth.backupFileNames.map((fileName) => (
+                    <SelectItem key={fileName} value={fileName}>
+                      {fileName}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectPopup>
+            </Select>
+          ) : (
+            <div className="rounded-lg border bg-muted/25 p-3 text-muted-foreground text-sm">
+              {t('setup.restoreAuthEmpty')}
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setConfirmRestoreOpen(false)} variant="outline">
+              {t('action.cancel')}
+            </Button>
+            <Button
+              disabled={!selectedAuthBackupFileName}
+              loading={busyAction === 'setupRestoreAuth'}
+              onClick={() => {
+                if (!selectedAuthBackupFileName) {
+                  return
+                }
+                setConfirmRestoreOpen(false)
+                void actions.restoreCodexAuth(selectedAuthBackupFileName)
+              }}
+              variant="destructive-outline"
+            >
+              <RotateCcwIcon data-icon="inline-start" />
+              {t('setup.restoreAuth')}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      <Dialog open={confirmWriteAuthOpen} onOpenChange={setConfirmWriteAuthOpen}>
+        <DialogPopup>
+          <DialogHeader>
+            <DialogTitle>{t('setup.writeImportedAuthTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('setup.writeImportedAuthDesc', {
+                account: selectedAuthAccount
+                  ? accountDisplayName(selectedAuthAccount, t('accounts.emailPending'))
+                  : '-',
+                file: state?.auth.backupFileName ?? 'codexfree-auth.json'
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setConfirmWriteAuthOpen(false)} variant="outline">
+              {t('action.cancel')}
+            </Button>
+            <Button
+              disabled={!selectedAuthAccount}
+              loading={busyAction === 'setupWriteImportedAuth'}
+              onClick={() => {
+                if (!selectedAuthAccount) {
+                  return
+                }
+                setConfirmWriteAuthOpen(false)
+                void actions.writeImportedCodexAuth(selectedAuthAccount.accountId)
+              }}
+              variant="destructive-outline"
+            >
+              <KeyRoundIcon data-icon="inline-start" />
+              {t('setup.writeImportedAuth')}
             </Button>
           </DialogFooter>
         </DialogPopup>
@@ -284,17 +430,27 @@ function StatusRow({
 
 function WizardBody({
   actions,
+  accounts,
   busyAction,
   locale,
   onConfirmRename,
+  onConfirmRestore,
+  onConfirmWriteAuth,
+  onSelectAuthAccount,
+  selectedAuthAccountId,
   state,
   step,
   t
 }: {
   actions: SetupAssistantActions
+  accounts: ManagedAccount[]
   busyAction: string | null
   locale: Locale
   onConfirmRename: () => void
+  onConfirmRestore: () => void
+  onConfirmWriteAuth: () => void
+  onSelectAuthAccount: (accountId: string) => void
+  selectedAuthAccountId: string
   state: SetupAssistantState
   step: WizardStep
   t: SetupAssistantProps['t']
@@ -311,14 +467,94 @@ function WizardBody({
       {section ? <StatusRow {...section} /> : null}
       {step === 'config' ? <ConfigPreview state={state} t={t} /> : null}
       {step === 'accounts' ? <AccountsGate state={state} t={t} /> : null}
+      {step === 'auth' ? (
+        <ImportedAuthChooser
+          accounts={accounts}
+          busyAction={busyAction}
+          onConfirmWriteAuth={onConfirmWriteAuth}
+          onSelectAuthAccount={onSelectAuthAccount}
+          selectedAuthAccountId={selectedAuthAccountId}
+          t={t}
+        />
+      ) : null}
       <WizardStepActions
         actions={actions}
         busyAction={busyAction}
         onConfirmRename={onConfirmRename}
+        onConfirmRestore={onConfirmRestore}
         state={state}
         step={step}
         t={t}
       />
+    </div>
+  )
+}
+
+function ImportedAuthChooser({
+  accounts,
+  busyAction,
+  onConfirmWriteAuth,
+  onSelectAuthAccount,
+  selectedAuthAccountId,
+  t
+}: {
+  accounts: ManagedAccount[]
+  busyAction: string | null
+  onConfirmWriteAuth: () => void
+  onSelectAuthAccount: (accountId: string) => void
+  selectedAuthAccountId: string
+  t: SetupAssistantProps['t']
+}): ReactElement {
+  const selected = accounts.find((account) => account.accountId === selectedAuthAccountId)
+  return (
+    <div className="grid gap-2 rounded-lg border border-warning/35 bg-warning/5 p-3 text-sm">
+      <div className="font-semibold">{t('setup.importedAuthTitle')}</div>
+      <p className="text-muted-foreground">{t('setup.importedAuthDesc')}</p>
+      {accounts.length > 0 ? (
+        <div className="grid gap-2">
+          <Select
+            items={accounts.map((account) => ({
+              label: accountDisplayName(account, t('accounts.emailPending')),
+              value: account.accountId
+            }))}
+            onValueChange={(accountId) => {
+              if (accountId) {
+                onSelectAuthAccount(accountId)
+              }
+            }}
+            value={selectedAuthAccountId}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectGroup>
+                {accounts.map((account) => (
+                  <SelectItem key={account.accountId} value={account.accountId}>
+                    {accountDisplayName(account, t('accounts.emailPending'))}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectPopup>
+          </Select>
+          <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
+            <span>{selected?.planType ?? '-'}</span>
+          </div>
+          <Button
+            disabled={!selected}
+            loading={busyAction === 'setupWriteImportedAuth'}
+            onClick={onConfirmWriteAuth}
+            variant="outline"
+          >
+            <KeyRoundIcon data-icon="inline-start" />
+            {t('setup.writeImportedAuth')}
+          </Button>
+        </div>
+      ) : (
+        <div className="rounded-md border bg-background p-2 text-muted-foreground text-xs">
+          {t('setup.importedAuthEmpty')}
+        </div>
+      )}
     </div>
   )
 }

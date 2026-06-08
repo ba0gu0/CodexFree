@@ -1,39 +1,30 @@
-import {
-  chmodSync,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync
-} from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import {
+  backupCodexFile,
+  listCodexBackupFileNames,
+  restoreCodexFileBackup,
+  sourceCodexFilePath
+} from './backup-files'
 
 export interface CodexConfigWriteInput {
   chatgptBaseUrl: string
   openaiBaseUrl: string
 }
 
-export interface CodexTopLevelConfigSnapshot {
-  capturedAt: number
-  chatgptBaseUrl: string | null
-  modelProvider: string | null
-  openaiBaseUrl: string | null
-  path: string
-}
-
 export interface CodexConfigWriteResult {
+  authBackupPath: string | null
   backupPath: string | null
   changed: boolean
   path: string
-  snapshot: CodexTopLevelConfigSnapshot | null
 }
 
-export interface CodexConfigRestoreResult {
+export interface CodexConfigBackupRestoreResult {
   backupPath: string | null
   changed: boolean
   path: string
-  snapshot: CodexTopLevelConfigSnapshot
+  restoredFileName: string
 }
 
 export interface CodexSessionProviderTarget {
@@ -54,49 +45,50 @@ export function writeCodexConfigFile(
   homeDirectory = homedir()
 ): CodexConfigWriteResult {
   const codexDirectory = join(homeDirectory, '.codex')
-  const configPath = join(codexDirectory, 'config.toml')
+  const configPath = sourceCodexFilePath(codexDirectory, 'config')
   mkdirSync(codexDirectory, { recursive: true, mode: 0o700 })
 
   const existing = existsSync(configPath) ? readFileSync(configPath, 'utf8') : ''
   if (existing && codexConfigContentLooksCurrent(existing, input)) {
-    return { backupPath: null, changed: false, path: configPath, snapshot: null }
+    return {
+      authBackupPath: null,
+      backupPath: null,
+      changed: false,
+      path: configPath
+    }
   }
-  const snapshot = snapshotTopLevelCodexConfig(configPath, existing)
   const next = upsertCodexProxyBaseUrls(existing, input)
   if (existing === next) {
-    return { backupPath: null, changed: false, path: configPath, snapshot: null }
+    return {
+      authBackupPath: null,
+      backupPath: null,
+      changed: false,
+      path: configPath
+    }
   }
-  const backupPath = backupExistingConfigFile(configPath)
+  const backupPath = backupCodexFile(codexDirectory, 'config')
+  const authBackupPath = backupCodexFile(codexDirectory, 'auth')
   writeFileSync(configPath, next, { encoding: 'utf8', mode: 0o600 })
   chmodSync(configPath, 0o600)
-  return { backupPath, changed: true, path: configPath, snapshot }
+  return { authBackupPath, backupPath, changed: true, path: configPath }
 }
 
-export function restoreCodexConfigSnapshot(
-  snapshot: CodexTopLevelConfigSnapshot,
+export function listCodexConfigBackupFileNames(homeDirectory = homedir()): string[] {
+  return listCodexBackupFileNames(join(homeDirectory, '.codex'), 'config')
+}
+
+export function restoreCodexConfigBackup(
+  backupFileName: string,
   homeDirectory = homedir()
-): CodexConfigRestoreResult {
+): CodexConfigBackupRestoreResult {
   const codexDirectory = join(homeDirectory, '.codex')
-  const configPath = join(codexDirectory, 'config.toml')
-  mkdirSync(codexDirectory, { recursive: true, mode: 0o700 })
-
-  const existing = existsSync(configPath) ? readFileSync(configPath, 'utf8') : ''
-  const next = restoreTopLevelCodexConfig(existing, snapshot)
-  if (existing === next) {
-    return { backupPath: null, changed: false, path: configPath, snapshot }
+  const result = restoreCodexFileBackup(codexDirectory, 'config', backupFileName)
+  return {
+    backupPath: result.backupFileName ? join(codexDirectory, result.backupFileName) : null,
+    changed: true,
+    path: result.path,
+    restoredFileName: result.restoredFileName
   }
-  const backupPath = backupExistingConfigFile(configPath)
-  writeFileSync(configPath, next, { encoding: 'utf8', mode: 0o600 })
-  chmodSync(configPath, 0o600)
-  return { backupPath, changed: true, path: configPath, snapshot }
-}
-
-export function readCurrentCodexTopLevelConfig(
-  homeDirectory = homedir()
-): CodexTopLevelConfigSnapshot {
-  const configPath = join(homeDirectory, '.codex', 'config.toml')
-  const content = existsSync(configPath) ? readFileSync(configPath, 'utf8') : ''
-  return snapshotTopLevelCodexConfig(configPath, content)
 }
 
 export function resolveCodexSessionProviderTarget(
@@ -146,24 +138,6 @@ function upsertCodexProxyBaseUrls(content: string, input: CodexConfigWriteInput)
   ])
 }
 
-function restoreTopLevelCodexConfig(
-  content: string,
-  snapshot: CodexTopLevelConfigSnapshot
-): string {
-  const assignments = [
-    snapshot.modelProvider === null
-      ? null
-      : `model_provider = "${escapeTomlString(snapshot.modelProvider)}"`,
-    snapshot.chatgptBaseUrl === null
-      ? null
-      : `chatgpt_base_url = "${escapeTomlString(snapshot.chatgptBaseUrl)}"`,
-    snapshot.openaiBaseUrl === null
-      ? null
-      : `openai_base_url = "${escapeTomlString(snapshot.openaiBaseUrl)}"`
-  ].filter((line): line is string => line !== null)
-  return rewriteTopLevelManagedConfig(content, assignments)
-}
-
 function rewriteTopLevelManagedConfig(content: string, assignments: string[]): string {
   const preserved: string[] = []
   let table: string | null = null
@@ -184,19 +158,6 @@ function rewriteTopLevelManagedConfig(content: string, assignments: string[]): s
   const header = assignments.join('\n')
   const body = header && preservedBody ? `${header}\n\n${preservedBody}` : header || preservedBody
   return `${body}\n`
-}
-
-function snapshotTopLevelCodexConfig(
-  configPath: string,
-  content: string
-): CodexTopLevelConfigSnapshot {
-  return {
-    capturedAt: Date.now(),
-    chatgptBaseUrl: topLevelValue(content, 'chatgpt_base_url'),
-    modelProvider: topLevelValue(content, 'model_provider'),
-    openaiBaseUrl: topLevelValue(content, 'openai_base_url'),
-    path: configPath
-  }
 }
 
 function topLevelValue(content: string, key: ManagedTopLevelKey): string | null {
@@ -231,18 +192,6 @@ function topLevelAssignments(content: string): TopLevelAssignment[] {
 
 function topLevelManagedAssignment(line: string): boolean {
   return /^\s*(chatgpt_base_url|openai_base_url|model_provider)\s*=/.test(line)
-}
-
-function backupExistingConfigFile(configPath: string): string | null {
-  if (!existsSync(configPath)) {
-    return null
-  }
-
-  const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
-  const backupPath = `${configPath}.codexfree-backup-${stamp}`
-  copyFileSync(configPath, backupPath)
-  chmodSync(backupPath, 0o600)
-  return backupPath
 }
 
 function parseTomlString(value: string): string | null {

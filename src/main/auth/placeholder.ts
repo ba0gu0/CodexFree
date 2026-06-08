@@ -1,7 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { backupCodexFile, sourceCodexFilePath } from '../codex/backup-files'
 
 export interface PlaceholderAuthResult {
   path: string
@@ -11,10 +12,10 @@ export interface PlaceholderAuthResult {
 
 export function writePlaceholderAuthFile(homeDirectory = homedir()): PlaceholderAuthResult {
   const codexDirectory = join(homeDirectory, '.codex')
-  const authPath = join(codexDirectory, 'auth.json')
+  const authPath = sourceCodexFilePath(codexDirectory, 'auth')
   mkdirSync(codexDirectory, { recursive: true, mode: 0o700 })
 
-  const backupPath = backupExistingAuthFile(authPath)
+  const backupPath = backupCodexFile(codexDirectory, 'auth')
   const now = new Date().toISOString()
   const accountId = `placeholder-${randomUUID()}`
   const placeholder = {
@@ -35,18 +36,6 @@ export function writePlaceholderAuthFile(homeDirectory = homedir()): Placeholder
   })
   chmodSync(authPath, 0o600)
   return { path: authPath, backedUp: backupPath !== null, backupPath }
-}
-
-function backupExistingAuthFile(authPath: string): string | null {
-  if (!existsSync(authPath)) {
-    return null
-  }
-
-  const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
-  const backupPath = `${authPath}.codexfree-backup-${stamp}`
-  copyFileSync(authPath, backupPath)
-  chmodSync(backupPath, 0o600)
-  return backupPath
 }
 
 function randomToken(): string {

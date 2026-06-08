@@ -46,6 +46,36 @@ describe('proxy ledger account sync', () => {
     }
   })
 
+  it('marks local Codex auth account and activates another available account', () => {
+    const ledger = new ProxyLedger(':memory:')
+    try {
+      ledger.syncAccountPool([
+        {
+          accountId: 'account-a',
+          fingerprint: 'fingerprint-a',
+          label: 'Account A',
+          sourceFormat: 'codex'
+        },
+        {
+          accountId: 'account-b',
+          fingerprint: 'fingerprint-b',
+          label: 'Account B',
+          sourceFormat: 'codex'
+        }
+      ])
+      expect(ledger.setActiveAccount('account-a')).toBe(1)
+      expect(ledger.setLocalAuthAccount('account-a')).toBe(1)
+
+      expect(ledger.activeAccountId()).toBe('account-b')
+      expect(ledger.accounts().map((account) => account.accountId)).toEqual([
+        'account-b',
+        'account-a'
+      ])
+    } finally {
+      ledger.close()
+    }
+  })
+
   it('compacts storage after clearing request history', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'codexfree-ledger-'))
 

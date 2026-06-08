@@ -2,7 +2,8 @@
 
 ## 阶段
 
-账号登录代理核心阶段。
+账号登录代理核心阶段。当前仓库已补齐 GitHub 开源 alpha 发布所需的基础边界：
+MIT 许可证、安全报告规则、README 发布说明，以及未签名/未公证 macOS 产物的明确告知。
 
 目录在初始化时为空。Electron/Vite 项目现在已经使用确认后的技术栈完成初始化，
 包含 package manifest、lint、typecheck、testing、i18n、数据库 schema seed、本地
@@ -220,26 +221,38 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   账号池步骤要求导入后查询所有可用账号用量，完成检查展示可用模型数。配置助手中异常状态项会
   显示“去处理”并跳到对应引导步骤；“打开引导”每次从工作方式开始，不恢复上次步骤。`auth.json`
   只支持二次确认后的重命名重新登录辅助；缺少 auth 文件时重命名按钮置灰，API-key 模式会提示
-  重命名后重新走 ChatGPT 账号登录。不会自动覆盖、复制或从账号池写入本地 Codex 登录文件。
-  工作方式说明明确区分本地 Codex 登录、CodexFree 代理转发、账号池授权和未来 API-key
-  compatibility。UI 状态使用 `onboarding.completedAt` 和 `setupAssistant.lastCheckedAt`
-  本地键，不能作为健康状态依据。
+  重命名后重新走 ChatGPT 账号登录。引导顺序已调整为先导入账号池，再检查 Codex 登录；
+  如果用户没有自有登录账号，可以显式选择一个已导入账号写入本地 `auth.json`。写入前会备份
+  现有文件，并通过 SQLite 标记该账号为本地登录账号，同时优先选择其他可用账号作为当前代理账号，
+  避免先消耗本地登录账号额度。工作方式说明明确区分本地 Codex 登录、CodexFree 代理转发、
+  账号池授权和未来 API-key compatibility。UI 状态使用 `onboarding.completedAt` 和
+  `setupAssistant.lastCheckedAt` 本地键，不能作为健康状态依据。
 - Codex config 写入现在只管理顶层 `chatgpt_base_url`、`openai_base_url` 和
-  `model_provider`。切换到 CodexFree 代理模式时会记录当前顶层三项快照、删除顶层
-  `model_provider`，但不会写入 `model_provider = "openai"`，也不会修改
-  `[model_providers.<name>]` 定义。Proxy 页面支持记录当前 API 配置、恢复 API 配置，以及按当前
-  `config.toml` 同步 Codex 历史会话 provider。会话同步会先备份 app data 下的修复目录，只改
+  `model_provider`。切换到 CodexFree 代理模式时会把当前 `config.toml` 备份为
+  `YYYYMMDDTHHMMSS-codexfree-config.toml`，删除顶层 `model_provider`，但不会写入
+  `model_provider = "openai"`，也不会修改 `[model_providers.<name>]` 定义。Proxy 页面支持从
+  CodexFree 创建的配置备份中选择一个恢复，以及按当前 `config.toml` 同步 Codex 历史会话
+  provider。会话同步会先备份 app data 下的修复目录，只改
   `state_*.sqlite` 的 `threads.model_provider` 和 session JSONL 的 `session_meta`
-  `payload.model_provider`。daemon 的配置监控只记录 drift，不自动修改 `config.toml`。
+  `payload.model_provider`。daemon 的配置监控只记录 drift，不自动修改 `config.toml`。README
+  已提醒 `cc switch` 或其他 Codex 配置切换工具不要与 CodexFree 同时写入或频繁切换同一个
+  `config.toml`，避免互相覆盖。
 - README 已更新为默认中文入口，并新增英文 `README_EN.md`。两份 README 覆盖 CodexFree
   的定位、工作原理、账号池使用流程、`auth.json` 和 `config.toml` 配置边界、安全注意事项、
   本地开发命令、项目结构和当前限制。
+- 开源 alpha 发布边界已补齐：`package.json` 声明 MIT license，仓库根目录新增
+  `LICENSE` 和 `SECURITY.md`，中英文 README 均说明 CodexFree 不是 OpenAI/ChatGPT/Codex
+  官方产品、只应使用自有或获授权账号、不要上传本地 `test` 参考材料或 raw captures。
+  macOS release 明确不签名、不公证，这是当前成本约束下的发布策略，不作为阻塞项。
+- macOS 打包配置移除了 Camera、Microphone、Documents 和 Downloads 等未使用权限声明；
+  `identity: null` 和 `notarize: false` 保持不变。
 
 ## 已知缺失输入
 
 - 除 flat Codex-token-compatible records 外，还需要更多真实世界 sub2api variants。
 - 安全加密或平台保护的 auth storage。
-- macOS packaging/signing requirements。
+- 如果未来改为正式商业分发，需要重新评估 Developer ID 签名、notarization、更新通道和密钥托管；
+  当前 GitHub alpha 发布不做签名/公证。
 - 早期验证无法绑定 port `55555`；常规本地开发现在使用 `127.0.0.1:33333`，而 Docker
   验证可以临时把 host override 到 `0.0.0.0`。
 - 现有 `codex` Docker container 已安装 `codex-cli 0.130.0`，并且可以通过
@@ -262,6 +275,11 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   - `rtk bun run build`
   - Computer Use 检查 dev Electron 最小窗口：顶部“助手”入口、配置助手 Sheet、首次引导
     Dialog 的工作方式、代理、Codex config 和 Codex 登录步骤均可见，没有明显遮挡或溢出。
+- GitHub 开源 alpha 发布边界验证：
+  - `rtk bun run lint`
+  - `rtk bun run typecheck`
+  - `rtk bun run test`
+  - `rtk bun run build`
 - V3 shell 的手动 Electron 验证：
   - dashboard 在默认 desktop window 中渲染三列 mockup layout；
   - `账户` 和 `代理` tabs 可以正确切换；

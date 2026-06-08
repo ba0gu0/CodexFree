@@ -19,6 +19,7 @@
 | T12 | 已完成 | 按最新 proxy traffic field contract 优化全 app 数据展示 | T10、T11 |
 | T13 | 已完成 | 实现首次引导与配置助手首版 | T11、onboarding spec |
 | T14 | 已完成 | 编写中英文 README | 当前项目状态文档 |
+| T15 | 已完成 | 补齐 GitHub 开源 alpha 发布边界 | T14、packaging docs |
 
 ## 并行工作线
 
@@ -227,17 +228,20 @@ T13 当前实现证据：
 - 已完成：`config.toml` 检测区分 current、missing、missing values、port mismatch、wrong
   table、顶层 model_provider cleanup 和 mismatch；写入仍复用安全 writer，正确时不重复备份。
   writer 只管理顶层 `chatgpt_base_url`、`openai_base_url` 和 `model_provider`，不写入
-  `model_provider = "openai"`，不修改 `[model_providers.<name>]` 定义。Proxy 页面新增
-  API 配置快照、API 配置恢复和会话 provider 同步；会话同步按当前配置修复
+  `model_provider = "openai"`，不修改 `[model_providers.<name>]` 定义。写入前会把当前
+  `config.toml` 备份为 `YYYYMMDDTHHMMSS-codexfree-config.toml`，并备份现有 `auth.json`。
+  Proxy 页面新增配置备份恢复和会话 provider 同步；会话同步按当前配置修复
   `state_*.sqlite` 与 session JSONL，并先写入 app data 备份。配置监控只记录 drift，不自动改文件。
 - 已完成：`auth.json` 检测区分 missing、Codex login-like、placeholder、API-key mode 和
   unrecognized，不显示 token；重新登录辅助只做二次确认后的 rename，不写替代文件，且缺少
-  auth 文件时按钮置灰。
+  auth 文件时按钮置灰。引导现在先导入账号池，再检查 Codex 登录；用户可以显式选择一个已导入
+  可用账号写入 `~/.codex/auth.json`，写入前备份现有文件，并通过 SQLite 优先选择其他可用账号
+  作为当前代理账号。
 - 已完成：renderer 顶部新增“助手”入口，配置助手 Sheet 与首次引导 Dialog 复用同一状态模型；
   Sheet 展示检查时间，并提供 raw capture 和工作目录诊断入口。异常状态项会显示“去处理”，
   点击后打开引导并跳到对应步骤；“打开引导”每次从工作方式开始。
-- 已完成：首次引导补齐目标 config 预览，重写工作方式说明，账号池步骤把查量动作改为“查询
-  所有用户用量信息”，并要求所有可用账号完成用量查询后才能下一步。
+- 已完成：首次引导补齐目标 config 预览，重写工作方式说明，账号池步骤前置，把查量动作改为
+  “查询所有用户用量信息”，并要求所有可用账号完成用量查询后才能进入 Codex 登录检查。
 - 已完成：账户空状态和请求无 turn summary 提示改为面向用户的下一步说明，不引导修改本地
   `auth.json`，并说明可能的 SSE/WSS 解析原因。
 - Passed：`rtk bun run lint`、`rtk bun run typecheck`、`rtk bun run test`、`rtk bun run build`。
@@ -250,6 +254,26 @@ T14 当前实现证据：
   安全边界、本地开发、项目结构和当前限制。
 - 已完成：新增 `README_EN.md`，与中文 README 保持同等结构，并从中文 README 提供英文入口。
 - Passed：`rtk bun run lint`。
+
+T15 当前实现证据：
+
+- 已完成：根目录新增 MIT `LICENSE`，并在 `package.json` 声明 `"license": "MIT"`。
+- 已完成：根目录新增 `SECURITY.md`，明确漏洞报告不得附带真实 auth 文件、token、cookie、
+  raw capture 或本地 SQLite 数据库。
+- 已完成：中英文 README 说明开源 alpha 状态、MIT 许可证、安全报告入口、非官方产品边界、
+  只使用自有或获授权账号，以及本地 `test` 参考材料、抓包、数据库和构建产物不能手动上传。
+- 已完成：中英文 README 的 Codex `config.toml` 说明已经收敛到只移除顶层 `model_provider`；
+  不删除 `[model_providers.<name>]`，也不写入 `model_provider = "openai"`。
+- 已完成：中英文 README 补充 `cc switch` 和其他 Codex 配置切换工具的并发写入提醒；
+  不建议与 CodexFree 同时修改或频繁切换同一个 `config.toml`。
+- 已完成：macOS release 明确不签名、不公证；这是当前成本约束下的 alpha 发布策略，不是
+  发布阻塞项。
+- 已完成：`electron-builder.yml` 移除未使用的 Camera、Microphone、Documents 和 Downloads
+  权限说明，保留 `identity: null` 和 `notarize: false`。
+- Passed：`rtk bun run lint`。
+- Passed：`rtk bun run typecheck`。
+- Passed：`rtk bun run test`。
+- Passed：`rtk bun run build`。
 
 验证：
 

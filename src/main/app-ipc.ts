@@ -8,7 +8,12 @@ import { checkAuthDirectoryUsage } from './auth/usage-check'
 import { clearRawCaptures, readRawCaptureDetail } from './proxy/raw-capture'
 import type { ProxyConfig } from './proxy/types'
 import type { DaemonControlSaveInput, MainRuntime } from './runtime'
-import { readSetupAssistantState, renameCodexAuthForRelogin } from './setup-assistant'
+import {
+  readSetupAssistantState,
+  renameCodexAuthForRelogin,
+  restoreCodexAuthBackup,
+  writeImportedAccountToCodexAuth
+} from './setup-assistant'
 
 const CONSOLE_ACTIVITY_DEFAULT_LIMIT = 160
 const CONSOLE_ACTIVITY_MAX_LIMIT = 1_000
@@ -164,11 +169,31 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
   })
   ipcMain.handle('proxy:write-placeholder-auth', () => writePlaceholderAuthFile())
   ipcMain.handle('proxy:write-codex-config', () => runtime.writeCodexProxyConfig())
-  ipcMain.handle('proxy:snapshot-codex-config', () => runtime.saveCurrentCodexConfigSnapshot())
-  ipcMain.handle('proxy:restore-codex-api-config', () => runtime.restoreCodexApiConfig())
+  ipcMain.handle('proxy:list-codex-config-backups', () => runtime.listCodexConfigBackups())
+  ipcMain.handle('proxy:restore-codex-config-backup', (_, backupFileName: unknown) => {
+    if (typeof backupFileName !== 'string' || backupFileName.trim() === '') {
+      throw new Error('backupFileName is required to restore Codex config')
+    }
+    return runtime.restoreCodexConfigBackup(backupFileName)
+  })
   ipcMain.handle('proxy:repair-codex-session-provider', () => runtime.repairCodexSessionProvider())
   ipcMain.handle('setup:state', () => readSetupAssistantState(runtime))
   ipcMain.handle('setup:rename-codex-auth', () => renameCodexAuthForRelogin())
+  ipcMain.handle('setup:restore-codex-auth-backup', (_, backupFileName: unknown) => {
+    if (typeof backupFileName !== 'string' || backupFileName.trim() === '') {
+      throw new Error('backupFileName is required to restore Codex auth')
+    }
+    return restoreCodexAuthBackup(backupFileName)
+  })
+  ipcMain.handle('setup:write-imported-auth', (_, accountId: unknown) => {
+    if (typeof accountId !== 'string' || accountId.trim() === '') {
+      throw new Error('accountId is required to write an imported account to Codex auth')
+    }
+    const result = writeImportedAccountToCodexAuth(accountId, runtime.importedAuthPoolPath)
+    runtime.syncAccounts(readImportedAuthAccounts(runtime.importedAuthPoolPath))
+    runtime.setLocalAuthAccount(result.accountId)
+    return result
+  })
   ipcMain.handle('proxy:reset-exhausted-accounts', async () => {
     const { accounts, resetAccounts } = runtime.resetExhaustedAccounts()
     return { resetAccounts, accounts, status: await runtime.proxyStatus() }

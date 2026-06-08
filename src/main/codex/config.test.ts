@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  type CodexTopLevelConfigSnapshot,
-  restoreCodexConfigSnapshot,
+  listCodexConfigBackupFileNames,
+  restoreCodexConfigBackup,
   writeCodexConfigFile
 } from './config'
 
@@ -32,16 +32,15 @@ describe('Codex config writer', () => {
           'approval_policy = "never"'
         ].join('\n')
       )
+      writeFileSync(join(home, '.codex', 'auth.json'), '{"tokens":{"access_token":"old"}}\n')
 
       const result = writeCodexConfigFile(proxyInput, home)
 
       expect(result.changed).toBe(true)
       expect(result.backupPath).not.toBeNull()
-      expect(result.snapshot).toMatchObject({
-        chatgptBaseUrl: 'http://old/backend-api',
-        modelProvider: 'codex',
-        openaiBaseUrl: 'http://old/backend-api/codex'
-      })
+      expect(result.backupPath?.endsWith('-codexfree-config.toml')).toBe(true)
+      expect(result.authBackupPath?.endsWith('-codexfree-auth.json')).toBe(true)
+      expect(readFileSync(result.authBackupPath ?? '', 'utf8')).toContain('old')
       expect(readFileSync(configPath, 'utf8')).toBe(
         [
           'chatgpt_base_url = "http://127.0.0.1:33333/backend-api"',
@@ -76,17 +75,17 @@ describe('Codex config writer', () => {
       const result = writeCodexConfigFile(proxyInput, home)
 
       expect(result).toMatchObject({
+        authBackupPath: null,
         backupPath: null,
         changed: false,
-        path: configPath,
-        snapshot: null
+        path: configPath
       })
       expect(readFileSync(configPath, 'utf8')).toBe(content)
-      expect(readdirSync(codexDir).filter((name) => name.includes('codexfree-backup'))).toEqual([])
+      expect(readdirSync(codexDir).filter((name) => name.includes('codexfree-config'))).toEqual([])
     })
   })
 
-  it('restores only the tracked top-level config values from a snapshot', () => {
+  it('restores a selected CodexFree config backup as a whole file', () => {
     withHome((home) => {
       const configPath = writeCodexConfig(
         home,
@@ -98,17 +97,25 @@ describe('Codex config writer', () => {
           'base_url = "https://api.baoguo.site/v1"'
         ].join('\n')
       )
-      const snapshot: CodexTopLevelConfigSnapshot = {
-        capturedAt: 1,
-        chatgptBaseUrl: null,
-        modelProvider: 'codex',
-        openaiBaseUrl: null,
-        path: configPath
-      }
+      writeFileSync(
+        join(home, '.codex', '20260608T010203-codexfree-config.toml'),
+        [
+          'model_provider = "codex"',
+          '',
+          '[model_providers.codex]',
+          'base_url = "https://api.baoguo.site/v1"',
+          ''
+        ].join('\n')
+      )
 
-      const result = restoreCodexConfigSnapshot(snapshot, home)
+      expect(listCodexConfigBackupFileNames(home)).toEqual([
+        '20260608T010203-codexfree-config.toml'
+      ])
+
+      const result = restoreCodexConfigBackup('20260608T010203-codexfree-config.toml', home)
 
       expect(result.changed).toBe(true)
+      expect(result.restoredFileName).toBe('20260608T010203-codexfree-config.toml')
       expect(readFileSync(configPath, 'utf8')).toBe(
         [
           'model_provider = "codex"',

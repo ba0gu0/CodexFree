@@ -56,8 +56,11 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
     adminToken: '',
     launchAgentEnabled: snapshot.daemonControl.launchAgent.enabled
   })
+  const [configBackups, setConfigBackups] = useState<string[]>([])
   const [confirmLaunchAgentOpen, setConfirmLaunchAgentOpen] = useState(false)
+  const [confirmConfigRestoreOpen, setConfirmConfigRestoreOpen] = useState(false)
   const [confirmSessionProviderOpen, setConfirmSessionProviderOpen] = useState(false)
+  const [selectedConfigBackup, setSelectedConfigBackup] = useState('')
 
   useEffect(() => {
     setDraft(snapshot.config)
@@ -78,6 +81,12 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
       return
     }
     await actions.saveProxyPageConfig(draft, daemonDraft)
+  }
+  const openConfigRestore = async (): Promise<void> => {
+    const backups = await actions.listCodexConfigBackups()
+    setConfigBackups(backups)
+    setSelectedConfigBackup(backups[0] ?? '')
+    setConfirmConfigRestoreOpen(true)
   }
 
   return (
@@ -326,6 +335,9 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
                 onChange={(codexConfigMonitorEnabled) =>
                   setDraft({ ...draft, codexConfigMonitorEnabled })
                 }
+                onRestoreConfigBackup={() => {
+                  void openConfigRestore()
+                }}
                 onRepairSessionProvider={() => setConfirmSessionProviderOpen(true)}
                 t={t}
               />
@@ -356,6 +368,60 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
               }
             >
               {t('action.enable')}
+            </AlertDialogClose>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
+      <AlertDialog open={confirmConfigRestoreOpen} onOpenChange={setConfirmConfigRestoreOpen}>
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('proxy.configRestoreTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('proxy.configRestoreDesc')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          {configBackups.length > 0 ? (
+            <Select
+              items={configBackups.map((fileName) => ({ label: fileName, value: fileName }))}
+              onValueChange={(fileName) => setSelectedConfigBackup(fileName ?? '')}
+              value={selectedConfigBackup}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectGroup>
+                  {configBackups.map((fileName) => (
+                    <SelectItem key={fileName} value={fileName}>
+                      {fileName}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectPopup>
+            </Select>
+          ) : (
+            <div className="rounded-lg border bg-muted/25 p-3 text-muted-foreground text-sm">
+              {t('proxy.configRestoreEmpty')}
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              {t('action.cancel')}
+            </AlertDialogClose>
+            <AlertDialogClose
+              render={
+                <Button
+                  disabled={!selectedConfigBackup}
+                  loading={busyAction === 'configRestore'}
+                  onClick={() => {
+                    if (!selectedConfigBackup) {
+                      return
+                    }
+                    void actions.restoreCodexConfigBackup(selectedConfigBackup)
+                  }}
+                  variant="destructive-outline"
+                />
+              }
+            >
+              {t('proxy.configRestore')}
             </AlertDialogClose>
           </AlertDialogFooter>
         </AlertDialogPopup>
@@ -394,6 +460,7 @@ function ConfigRepairPanel({
   actions,
   busyAction,
   checked,
+  onRestoreConfigBackup,
   onRepairSessionProvider,
   onChange,
   t
@@ -401,6 +468,7 @@ function ConfigRepairPanel({
   actions: PageProps['actions']
   busyAction: PageProps['busyAction']
   checked: boolean
+  onRestoreConfigBackup: () => void
   onRepairSessionProvider: () => void
   onChange: (checked: boolean) => void
   t: PageProps['t']
@@ -431,18 +499,10 @@ function ConfigRepairPanel({
             {t('proxy.configToml')}
           </Button>
         </Field>
-        <div className="grid grid-cols-3 gap-2">
-          <Button
-            loading={busyAction === 'configSnapshot'}
-            onClick={actions.snapshotCodexConfig}
-            variant="outline"
-          >
-            <SaveIcon data-icon="inline-start" />
-            {t('proxy.configSnapshot')}
-          </Button>
+        <div className="grid grid-cols-2 gap-2">
           <Button
             loading={busyAction === 'configRestore'}
-            onClick={actions.restoreCodexApiConfig}
+            onClick={onRestoreConfigBackup}
             variant="outline"
           >
             <RotateCcwIcon data-icon="inline-start" />

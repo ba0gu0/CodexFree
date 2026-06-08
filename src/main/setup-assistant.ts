@@ -1,6 +1,15 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
+import { readImportedAuthAccounts } from './auth/import'
+import {
+  backupCodexFile,
+  listCodexBackupFileNames,
+  nextCodexBackupFileName,
+  renameCodexFileToBackup,
+  restoreCodexFileBackup,
+  sourceCodexFilePath
+} from './codex/backup-files'
 import type { ManagedAccountRow } from './proxy/ledger-types'
 import type { ProxyStatus, RecentRequest } from './proxy/types'
 import type { MainRuntime } from './runtime'
@@ -73,10 +82,26 @@ export interface CodexConfigInspection {
 
 export interface CodexAuthInspection {
   backupFileName: string
+  backupFileNames: string[]
   exists: boolean
   health: CodexAuthHealth
   lastModifiedAt: number | null
   path: string
+}
+
+export interface CodexAuthWriteResult {
+  accountId: string
+  auth: CodexAuthInspection
+  backupFileName: string
+  label: string
+  replaced: boolean
+}
+
+export interface CodexAuthRestoreResult {
+  auth: CodexAuthInspection
+  backupFileName: string | null
+  replaced: boolean
+  restoredFileName: string
 }
 
 interface Assignment {
@@ -160,10 +185,19 @@ export function inspectCodexConfig(
 }
 
 export function inspectCodexAuth(homeDirectory = homedir()): CodexAuthInspection {
-  const path = join(homeDirectory, '.codex', 'auth.json')
-  const backupFileName = backupAuthFileName(new Date())
+  const codexDir = join(homeDirectory, '.codex')
+  const path = sourceCodexFilePath(codexDir, 'auth')
+  const backupFileName = nextCodexBackupFileName(codexDir, 'auth')
+  const backupFileNames = listCodexBackupFileNames(codexDir, 'auth')
   if (!existsSync(path)) {
-    return { backupFileName, exists: false, health: 'missing', lastModifiedAt: null, path }
+    return {
+      backupFileName,
+      backupFileNames,
+      exists: false,
+      health: 'missing',
+      lastModifiedAt: null,
+      path
+    }
   }
 
   const lastModifiedAt = Math.floor(statSync(path).mtimeMs)
@@ -171,6 +205,7 @@ export function inspectCodexAuth(homeDirectory = homedir()): CodexAuthInspection
     const value = JSON.parse(readFileSync(path, 'utf8')) as unknown
     return {
       backupFileName,
+      backupFileNames,
       exists: true,
       health: classifyCodexAuth(value),
       lastModifiedAt,
@@ -179,6 +214,7 @@ export function inspectCodexAuth(homeDirectory = homedir()): CodexAuthInspection
   } catch {
     return {
       backupFileName,
+      backupFileNames,
       exists: true,
       health: 'unrecognized',
       lastModifiedAt,
@@ -189,14 +225,60 @@ export function inspectCodexAuth(homeDirectory = homedir()): CodexAuthInspection
 
 export function renameCodexAuthForRelogin(homeDirectory = homedir()): CodexAuthInspection {
   const codexDir = join(homeDirectory, '.codex')
-  const authPath = join(codexDir, 'auth.json')
-  if (!existsSync(authPath)) {
-    throw new Error(`Cannot rename Codex auth file because "${authPath}" does not exist`)
-  }
-  mkdirSync(codexDir, { recursive: true, mode: 0o700 })
-  const backupFileName = backupAuthFileName(new Date())
-  renameSync(authPath, join(codexDir, backupFileName))
+  const backupFileName = basename(renameCodexFileToBackup(codexDir, 'auth'))
   return { ...inspectCodexAuth(homeDirectory), backupFileName }
+}
+
+export function restoreCodexAuthBackup(
+  backupFileName: string,
+  homeDirectory = homedir()
+): CodexAuthRestoreResult {
+  const codexDir = join(homeDirectory, '.codex')
+  const restored = restoreCodexFileBackup(codexDir, 'auth', backupFileName)
+
+  return {
+    auth: inspectCodexAuth(homeDirectory),
+    backupFileName: restored.backupFileName,
+    replaced: restored.replaced,
+    restoredFileName: restored.restoredFileName
+  }
+}
+
+export function writeImportedAccountToCodexAuth(
+  accountId: string,
+  importedAuthDirectory: string,
+  homeDirectory = homedir()
+): CodexAuthWriteResult {
+  const account = readImportedAuthAccounts(importedAuthDirectory).find(
+    (item) => item.accountId === accountId
+  )
+  if (!account) {
+    throw new Error(`Cannot write Codex auth because imported account "${accountId}" was not found`)
+  }
+
+  const codexDir = join(homeDirectory, '.codex')
+  const authPath = sourceCodexFilePath(codexDir, 'auth')
+  const sourcePath = join(importedAuthDirectory, account.fileName)
+  if (!existsSync(sourcePath)) {
+    throw new Error(`Cannot write Codex auth because imported account file is missing`)
+  }
+
+  mkdirSync(codexDir, { recursive: true, mode: 0o700 })
+  const replaced = existsSync(authPath)
+  const backupPath = replaced ? backupCodexFile(codexDir, 'auth') : null
+  const backupFileName = backupPath
+    ? basename(backupPath)
+    : nextCodexBackupFileName(codexDir, 'auth')
+  copyFileSync(sourcePath, authPath)
+  chmodSync(authPath, 0o600)
+
+  return {
+    accountId: account.accountId,
+    auth: { ...inspectCodexAuth(homeDirectory), backupFileName },
+    backupFileName,
+    label: account.email ?? account.label,
+    replaced
+  }
 }
 
 function resolveConfigHealth(input: {
@@ -425,11 +507,6 @@ function sameCodexPaths(
   } catch {
     return false
   }
-}
-
-function backupAuthFileName(date: Date): string {
-  const value = date.toISOString().replaceAll('-', '').replaceAll(':', '').slice(0, 15)
-  return `auth.backup-${value}.json`
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

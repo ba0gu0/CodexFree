@@ -410,25 +410,15 @@ function App(): React.JSX.Element {
     showRequests: (searchQuery) =>
       switchView('requests', { requestSearchQuery: searchQuery ?? null }),
     showUsage: () => switchView('usage'),
-    snapshotCodexConfig: () =>
-      runAction(
-        'configSnapshot',
-        () => window.api.snapshotCodexConfig(),
-        (result) =>
-          t('notice.codexConfigSnapshotSaved', {
-            provider: result.snapshot.modelProvider ?? '-'
-          })
-      ),
-    restoreCodexApiConfig: () =>
+    listCodexConfigBackups: () => window.api.listCodexConfigBackups(),
+    restoreCodexConfigBackup: (backupFileName) =>
       runAction(
         'configRestore',
-        () => window.api.restoreCodexApiConfig(),
+        () => window.api.restoreCodexConfigBackup(backupFileName),
         (result) =>
-          result.changed
-            ? t('notice.codexApiConfigRestored', {
-                provider: result.snapshot.modelProvider ?? '-'
-              })
-            : t('notice.codexApiConfigAlreadyCurrent')
+          t('notice.codexConfigBackupRestored', {
+            file: result.restoredFileName
+          })
       ),
     repairCodexSessionProvider: () =>
       runAction(
@@ -477,8 +467,29 @@ function App(): React.JSX.Element {
         () => window.api.renameCodexAuthForRelogin(),
         () => t('notice.codexAuthRenamed')
       ),
+    restoreCodexAuth: (backupFileName) =>
+      runAction(
+        'setupRestoreAuth',
+        () => window.api.restoreCodexAuthBackup(backupFileName),
+        (result) =>
+          result.replaced && result.backupFileName
+            ? t('notice.codexAuthRestoredWithBackup', {
+                backup: result.backupFileName,
+                restored: result.restoredFileName
+              })
+            : t('notice.codexAuthRestored', { restored: result.restoredFileName })
+      ),
     restartProxy: actions.restartProxy,
     startProxy: actions.startProxy,
+    writeImportedCodexAuth: (accountId) =>
+      runAction(
+        'setupWriteImportedAuth',
+        () => window.api.writeImportedAccountToCodexAuth(accountId),
+        (result) =>
+          result.replaced
+            ? t('notice.codexAuthWrittenWithBackup', { file: result.backupFileName })
+            : t('notice.codexAuthWritten')
+      ),
     writeCodexConfig: actions.writeCodexConfig
   }
 
@@ -542,6 +553,7 @@ function App(): React.JSX.Element {
       })}
       <SetupAssistant
         actions={setupActions}
+        accounts={snapshot.accounts}
         busyAction={busyAction}
         locale={locale}
         onOpenChange={setSetupOpen}

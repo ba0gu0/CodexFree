@@ -38,14 +38,18 @@ const zh = {
   'notice.accountsDeleted': '选中账号已删除。',
   'notice.currentAccountSelected': '已设为当前账号。',
   'notice.accountsUpdated': '账号状态已更新。',
-  'notice.codexConfigWritten': 'Codex 配置已写入。',
+  'notice.codexConfigWritten': 'Codex 配置已写入，现有 config.toml 和 auth.json 已按需备份。',
   'notice.codexConfigAlreadyCurrent': 'Codex 配置已是最新，无需重复写入。',
-  'notice.codexConfigSnapshotSaved': '已记录当前 Codex API 配置：{provider}。',
-  'notice.codexApiConfigRestored': '已恢复 Codex API 配置：{provider}。',
-  'notice.codexApiConfigAlreadyCurrent': 'Codex API 配置已是快照内容。',
+  'notice.codexConfigBackupRestored': '已从 {file} 恢复 Codex config.toml。',
   'notice.codexSessionProviderRepaired':
     '会话 provider 已同步为 {provider}，SQLite {sqlite} 个库，JSONL {jsonl} 条。',
   'notice.codexAuthRenamed': 'auth.json 已重命名，请重新打开 Codex 按官方流程登录。',
+  'notice.codexAuthWritten': '已把导入账号写入 auth.json，并优先选择其他可用账号作为当前代理账号。',
+  'notice.codexAuthWrittenWithBackup':
+    '已把导入账号写入 auth.json，原文件已备份为 {file}，并优先选择其他可用账号作为当前代理账号。',
+  'notice.codexAuthRestored': '已从 {restored} 恢复 auth.json。',
+  'notice.codexAuthRestoredWithBackup':
+    '已从 {restored} 恢复 auth.json，恢复前的当前文件已备份为 {backup}。',
   'action.start': '启动',
   'action.stop': '停止',
   'action.restart': '重启',
@@ -117,7 +121,7 @@ const zh = {
   'setup.workModePool':
     '使用工具前，请务必先登录一个自己的 ChatGPT/Codex 账户，free 账户也可以。这样配置后仍然可以正常使用 Codex App 远程控制功能；手机版 ChatGPT App 登录相同账户后，点击 Codex 连接即可。CodexFree 不影响远程控制的连接和管理。',
   'setup.workModeApiKey':
-    '如果没有自己的账户，可以从已获取的账号池中复制一个账户写入 ~/.codex/auth.json。注意：使用账号池中的账号时，不要打开 Codex 远程控制功能，除非该账号是你自己的，避免会话被账号所有者控制。',
+    '如果没有自己的账户，可以从已导入账号池中选择一个账户写入 ~/.codex/auth.json。注意：使用账号池中的账号时，不要打开 Codex 远程控制功能，除非该账号是你自己的，避免会话被账号所有者控制。',
   'setup.workModeAuthJson':
     '配置 auth.json 的目的，是让 Codex App 能正常启动并进入账号模式；没有可用的 auth.json 时，Codex App 无法正常启动。',
   'setup.workModeConfig':
@@ -126,16 +130,29 @@ const zh = {
   'setup.boundaryDesc':
     '本地 Codex 登录账号只用于进入 ChatGPT 账号模式；CodexFree 代理转发时使用导入的账号池。',
   'setup.noOwnAccount':
-    '没有自有账号时，第一版只说明推荐路径、风险路径和未来 API-key 路径，不自动写入购买的 auth 文件。',
+    '没有自有账号时，可以先导入账号池，再显式选择一个账号写入 auth.json。CodexFree 不会自动选择账号。',
   'setup.recommendedPath':
     '推荐路径：用自己的 ChatGPT/Codex 账号完成官方登录，再导入购买的 auth 作为账号池。',
   'setup.riskPath':
-    '风险路径：手动把购买的 auth 放到 auth.json，App 不执行，且可能影响 Codex Mobile 和账号归属。',
+    '风险路径：把账号池 auth 写入 auth.json 可能影响 Codex Mobile、远程控制和账号归属；只有你确认风险后才执行。',
   'setup.futurePath': '后续路径：API-key compatibility 需先抓包确认协议，当前不作为可用能力展示。',
   'setup.renameAuth': '重命名 auth.json 并重新登录',
   'setup.renameAuthTitle': '确认重命名 auth.json',
   'setup.renameAuthDesc':
     '当前 auth.json 会被重命名为 {file}。CodexFree 不会写入替代文件，你需要重新打开 Codex 完成官方登录。',
+  'setup.restoreAuth': '恢复 auth.json 备份',
+  'setup.restoreAuthTitle': '确认恢复 auth.json',
+  'setup.restoreAuthDesc':
+    '将使用 CodexFree 创建的备份 {file} 覆盖当前 ~/.codex/auth.json。当前文件会先备份，CodexFree 不会读取或展示 token 内容。',
+  'setup.restoreAuthEmpty': '没有找到 CodexFree 创建的 auth.json 备份。',
+  'setup.importedAuthTitle': '从已导入账号写入 auth.json',
+  'setup.importedAuthDesc':
+    '可以选择一个已导入且可用的账号写入 ~/.codex/auth.json。写入后会把其他可用账号设为当前代理账号，并把该账号在账号列表中排到后面，避免先消耗本地登录额度。',
+  'setup.importedAuthEmpty': '还没有可用的导入账号。请先导入账号池并完成用量查询。',
+  'setup.writeImportedAuth': '写入所选账号到 auth.json',
+  'setup.writeImportedAuthTitle': '确认写入 auth.json',
+  'setup.writeImportedAuthDesc':
+    '将把 {account} 写入 ~/.codex/auth.json。现有 auth.json 会先备份为 {file}；写入后会优先选择其他可用账号作为当前代理账号。',
   'setup.runMode.app_child': 'App 子进程',
   'setup.runMode.system_service': '系统服务',
   'setup.runMode.stopped': '已停止',
@@ -164,7 +181,7 @@ const zh = {
   'setup.wizard.config.title': '写入 Codex 配置',
   'setup.wizard.config.desc': '把 account-login base URL 写到 config.toml 顶层。',
   'setup.wizard.auth.title': '检查 Codex 登录',
-  'setup.wizard.auth.desc': '只检查 auth.json 是否存在且像官方登录文件，不覆盖它。',
+  'setup.wizard.auth.desc': '检查 auth.json，也可以从已导入账号中选择一个写入。',
   'setup.wizard.accounts.title': '导入账号池',
   'setup.wizard.accounts.desc': '账号池是代理转发使用的账号来源。',
   'setup.wizard.finish.title': '完成检查',
@@ -376,9 +393,13 @@ const zh = {
   'proxy.launchAgentConfirmDesc':
     '确认后保存配置时会写入系统启动项文件，并让后台 daemon 可在登录后自动启动。',
   'proxy.configToml': '写入配置',
-  'proxy.configTomlDesc': '立即把当前代理入口写入 Codex config.toml，适合首次配置或手动修复。',
-  'proxy.configSnapshot': '记录 API 配置',
-  'proxy.configRestore': '恢复 API 配置',
+  'proxy.configTomlDesc':
+    '立即把当前代理入口写入 Codex config.toml，写入前按需备份 config.toml 和 auth.json。',
+  'proxy.configRestore': '恢复配置备份',
+  'proxy.configRestoreTitle': '恢复 Codex config.toml？',
+  'proxy.configRestoreDesc':
+    '请选择一个 CodexFree 创建的 config.toml 备份。恢复前当前 config.toml 会先备份。',
+  'proxy.configRestoreEmpty': '没有找到 CodexFree 创建的 config.toml 备份。',
   'proxy.sessionProviderRepair': '同步会话',
   'proxy.sessionProviderConfirmTitle': '同步 Codex 会话 provider？',
   'proxy.sessionProviderConfirmDesc':
@@ -668,15 +689,21 @@ const en: Record<keyof typeof zh, string> = {
   'notice.accountsDeleted': 'Selected accounts deleted.',
   'notice.currentAccountSelected': 'Current account selected.',
   'notice.accountsUpdated': 'Account state updated.',
-  'notice.codexConfigWritten': 'Codex configuration written.',
+  'notice.codexConfigWritten':
+    'Codex configuration written. Existing config.toml and auth.json were backed up when present.',
   'notice.codexConfigAlreadyCurrent': 'Codex configuration is already current.',
-  'notice.codexConfigSnapshotSaved': 'Saved current Codex API config: {provider}.',
-  'notice.codexApiConfigRestored': 'Restored Codex API config: {provider}.',
-  'notice.codexApiConfigAlreadyCurrent': 'Codex API config already matches the snapshot.',
+  'notice.codexConfigBackupRestored': 'Restored Codex config.toml from {file}.',
   'notice.codexSessionProviderRepaired':
     'Session provider synced to {provider}: {sqlite} SQLite DBs, {jsonl} JSONL records.',
   'notice.codexAuthRenamed':
     'auth.json renamed. Reopen Codex and sign in through the official flow.',
+  'notice.codexAuthWritten':
+    'Imported account written to auth.json, and another available account is preferred as the current proxy account.',
+  'notice.codexAuthWrittenWithBackup':
+    'Imported account written to auth.json. Previous file was backed up as {file}; another available account is preferred as the current proxy account.',
+  'notice.codexAuthRestored': 'Restored auth.json from {restored}.',
+  'notice.codexAuthRestoredWithBackup':
+    'Restored auth.json from {restored}. The previous current file was backed up as {backup}.',
   'action.start': 'Start',
   'action.stop': 'Stop',
   'action.restart': 'Restart',
@@ -748,7 +775,7 @@ const en: Record<keyof typeof zh, string> = {
   'setup.workModePool':
     'Before using the tool, sign in with one of your own ChatGPT/Codex accounts. A free account is enough. After configuration, Codex App remote control still works normally: sign in to the mobile ChatGPT App with the same account and connect from Codex. CodexFree does not affect remote control connection or management.',
   'setup.workModeApiKey':
-    'If you do not have your own account, you can copy one account from the account pool into ~/.codex/auth.json. Do not enable Codex remote control when using a pooled account unless the account is yours, otherwise the account owner may control the session.',
+    'If you do not have your own account, you can select one imported account and write it into ~/.codex/auth.json. Do not enable Codex remote control when using a pooled account unless the account is yours, otherwise the account owner may control the session.',
   'setup.workModeAuthJson':
     'auth.json is configured so Codex App can start and enter account mode. Without a usable auth.json, Codex App cannot start normally.',
   'setup.workModeConfig':
@@ -757,17 +784,31 @@ const en: Record<keyof typeof zh, string> = {
   'setup.boundaryDesc':
     'The local Codex login only lets the Codex client enter ChatGPT account mode; CodexFree routes through the imported account pool.',
   'setup.noOwnAccount':
-    'Without your own account, this first version only explains the recommended path, risk path, and future API-key path. It will not write purchased auth files.',
+    'Without your own account, import the account pool first, then explicitly select one account to write into auth.json. CodexFree does not choose automatically.',
   'setup.recommendedPath':
     'Recommended: sign in with your own ChatGPT/Codex account, then import purchased auth files into the account pool.',
   'setup.riskPath':
-    'Risk path: manually place purchased auth into auth.json. The app does not do this, and Codex Mobile or account ownership may be affected.',
+    'Risk path: writing pooled auth into auth.json may affect Codex Mobile, remote control, and account ownership. It only runs after you confirm the risk.',
   'setup.futurePath':
     'Future path: API-key compatibility needs packet confirmation first and is not presented as available now.',
   'setup.renameAuth': 'Rename auth.json and sign in again',
   'setup.renameAuthTitle': 'Confirm auth.json rename',
   'setup.renameAuthDesc':
     'The current auth.json will be renamed to {file}. CodexFree will not write a replacement file; reopen Codex and complete the official login flow.',
+  'setup.restoreAuth': 'Restore auth.json backup',
+  'setup.restoreAuthTitle': 'Confirm auth.json restore',
+  'setup.restoreAuthDesc':
+    'This will restore ~/.codex/auth.json from the CodexFree-created backup {file}. The current file is backed up first, and CodexFree does not read or display token contents.',
+  'setup.restoreAuthEmpty': 'No CodexFree-created auth.json backup was found.',
+  'setup.importedAuthTitle': 'Write auth.json from an imported account',
+  'setup.importedAuthDesc':
+    'Select an imported available account and write it to ~/.codex/auth.json. After writing, another available account is selected as the current proxy account and this account is ordered later in the account list, so local-login quota is not consumed first.',
+  'setup.importedAuthEmpty':
+    'No available imported account yet. Import the account pool and check usage first.',
+  'setup.writeImportedAuth': 'Write selected account to auth.json',
+  'setup.writeImportedAuthTitle': 'Confirm auth.json write',
+  'setup.writeImportedAuthDesc':
+    '{account} will be written to ~/.codex/auth.json. The current auth.json is backed up as {file}; another available account is preferred as the current proxy account after writing.',
   'setup.runMode.app_child': 'App child process',
   'setup.runMode.system_service': 'System service',
   'setup.runMode.stopped': 'Stopped',
@@ -802,7 +843,7 @@ const en: Record<keyof typeof zh, string> = {
   'setup.wizard.config.desc': 'Write account-login base URLs to the top level of config.toml.',
   'setup.wizard.auth.title': 'Check Codex login',
   'setup.wizard.auth.desc':
-    'Only checks whether auth.json exists and resembles official login. It is not overwritten.',
+    'Check auth.json, or select one imported account and write it into place.',
   'setup.wizard.accounts.title': 'Import account pool',
   'setup.wizard.accounts.desc':
     'The account pool is the source CodexFree uses for proxy forwarding.',
@@ -1020,9 +1061,12 @@ const en: Record<keyof typeof zh, string> = {
     'After confirmation, saving will write the system startup entry and allow the daemon to start after login.',
   'proxy.configToml': 'Write config',
   'proxy.configTomlDesc':
-    'Write the current proxy endpoints to Codex config.toml now. Use this for first setup or manual repair.',
-  'proxy.configSnapshot': 'Save API config',
-  'proxy.configRestore': 'Restore API config',
+    'Write the current proxy endpoints to Codex config.toml now. Existing config.toml and auth.json are backed up first when present.',
+  'proxy.configRestore': 'Restore config backup',
+  'proxy.configRestoreTitle': 'Restore Codex config.toml?',
+  'proxy.configRestoreDesc':
+    'Choose a CodexFree-created config.toml backup. The current config.toml is backed up before restore.',
+  'proxy.configRestoreEmpty': 'No CodexFree-created config.toml backup was found.',
   'proxy.sessionProviderRepair': 'Sync sessions',
   'proxy.sessionProviderConfirmTitle': 'Sync Codex session provider?',
   'proxy.sessionProviderConfirmDesc':

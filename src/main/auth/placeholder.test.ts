@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -35,6 +35,23 @@ describe('placeholder auth writer', () => {
           email: 'placeholder@codexfree.local'
         }
       })
+    } finally {
+      rmSync(home, { force: true, recursive: true })
+    }
+  })
+
+  it('backs up existing auth with the CodexFree auth backup name', () => {
+    const home = mkdtempSync(join(tmpdir(), 'codexfree-auth-'))
+    try {
+      const codexDir = join(home, '.codex')
+      mkdirSync(codexDir)
+      writeFileSync(join(codexDir, 'auth.json'), '{"old":true}\n', { flag: 'wx' })
+
+      const result = writePlaceholderAuthFile(home)
+
+      expect(result.backedUp).toBe(true)
+      expect(result.backupPath?.endsWith('-codexfree-auth.json')).toBe(true)
+      expect(readFileSync(result.backupPath ?? '', 'utf8')).toContain('"old":true')
     } finally {
       rmSync(home, { force: true, recursive: true })
     }

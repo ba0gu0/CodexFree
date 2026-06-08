@@ -17,7 +17,8 @@
 - 保留现有运行能力：desktop app、daemon、SQLite、本地 HTTP/WSS proxy、direct/http/https/
   socks4/socks5 outbound proxy。
 - 不把 `dist` 作为构建前置清理对象，因为 x64 和 arm64 产物都需要保留在 `dist`。
-- 本地 macOS 构建不签名。
+- 本地和 GitHub alpha macOS 构建不签名、不公证。这是当前发布成本约束下的明确策略，
+  不是发布阻塞项。
 
 ## 官方与本地依据
 
@@ -60,6 +61,7 @@ asarUnpack:
   - node_modules/**/*.node
 mac:
   identity: null
+  notarize: false
 ```
 
 关键点：
@@ -70,6 +72,7 @@ mac:
 - `resources/**` 保留在 asar 中，不再重复 unpack。
 - `.node` native module 继续 unpack，保证 `better-sqlite3` 可正常加载。
 - `build:mac` 使用 `bun electron-builder --mac -c.mac.identity=null`，本地不签名。
+- macOS Info.plist 不声明 Camera、Microphone、Documents 或 Downloads 等未使用权限。
 
 ## 依赖分层
 
@@ -141,6 +144,8 @@ native module 解析路径未被破坏。
   Chromium 运行时文件。收益不稳定，容易引入硬件、渲染或系统兼容问题。
 - 不建议用 UPX 或类似二进制压缩工具处理 Electron Framework。macOS 签名、Gatekeeper、
   notarization 和安全软件都可能受影响，dmg 压缩后收益也有限。
+- 不要把 Developer ID 签名或 Apple notarization 作为当前 alpha 发布前置条件。后续如果
+  改为正式商业分发，再单独引入证书、密钥托管和公证流程。
 - `compression: maximum` 可以保留，但不要期待它带来数量级变化。数量级收益来自白名单、
   locale 裁剪和生产依赖分层。
 

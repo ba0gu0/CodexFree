@@ -81,6 +81,7 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
       quota_reset_at INTEGER,
       refreshable INTEGER NOT NULL DEFAULT 1,
       active INTEGER NOT NULL DEFAULT 0,
+      local_auth INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS proxy_routing_events (
@@ -212,7 +213,8 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
     ],
     ['last_usage_error', 'ALTER TABLE proxy_accounts ADD COLUMN last_usage_error TEXT'],
     ['refreshable', 'ALTER TABLE proxy_accounts ADD COLUMN refreshable INTEGER NOT NULL DEFAULT 1'],
-    ['active', 'ALTER TABLE proxy_accounts ADD COLUMN active INTEGER NOT NULL DEFAULT 0']
+    ['active', 'ALTER TABLE proxy_accounts ADD COLUMN active INTEGER NOT NULL DEFAULT 0'],
+    ['local_auth', 'ALTER TABLE proxy_accounts ADD COLUMN local_auth INTEGER NOT NULL DEFAULT 0']
   ])
   ensureColumns(sqlite, 'proxy_requests', [
     ['request_headers_json', 'ALTER TABLE proxy_requests ADD COLUMN request_headers_json TEXT'],

@@ -3,18 +3,12 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import {
-  type CodexConfigRestoreResult,
+  type CodexConfigBackupRestoreResult,
   type CodexConfigWriteResult,
-  type CodexTopLevelConfigSnapshot,
-  readCurrentCodexTopLevelConfig,
-  restoreCodexConfigSnapshot,
+  listCodexConfigBackupFileNames,
+  restoreCodexConfigBackup,
   writeCodexConfigFile
 } from './codex/config'
-import {
-  type CodexConfigSnapshotSaveResult,
-  readCodexConfigSnapshot,
-  saveCodexConfigSnapshot
-} from './codex/config-store'
 import {
   type CodexSessionProviderRepairResult,
   repairCodexSessionProvider
@@ -77,17 +71,20 @@ export interface MainRuntime {
   turnSummaries: (limit: number) => ActivityPage<TurnSummaryRow>
   managedAccounts: () => ManagedAccountRow[]
   readRuntimeConfig: () => ProxyConfig
-  readCodexConfigSnapshot: () => CodexTopLevelConfigSnapshot | null
   requestSummary: () => RequestSummary
-  restoreCodexApiConfig: () => CodexConfigRestoreResult
+  listCodexConfigBackups: () => string[]
+  restoreCodexConfigBackup: (backupFileName: string) => CodexConfigBackupRestoreResult
   repairCodexSessionProvider: () => Promise<CodexSessionProviderRepairResult>
-  saveCurrentCodexConfigSnapshot: () => CodexConfigSnapshotSaveResult
   clearRecords: () => { deletedRequests: number }
   deleteAccounts: (accountIds: string[]) => {
     accounts: ManagedAccountRow[]
     deletedAccounts: number
   }
   resetExhaustedAccounts: () => { accounts: ManagedAccountRow[]; resetAccounts: number }
+  setLocalAuthAccount: (accountId: string) => {
+    accounts: ManagedAccountRow[]
+    updatedAccounts: number
+  }
   setAccountDisabled: (
     accountId: string,
     disabled: boolean
@@ -282,28 +279,16 @@ export function createMainRuntime(): MainRuntime {
   const turnSummaries = (limit: number): ActivityPage<TurnSummaryRow> =>
     withLedger((ledger) => pageRows(ledger.recentTurnSummaries(limit + 1), limit))
   const managedAccounts = (): ManagedAccountRow[] => withLedger((ledger) => ledger.accounts())
-  const readSavedCodexConfigSnapshot = (): CodexTopLevelConfigSnapshot | null =>
-    readCodexConfigSnapshot(paths.databasePath)
-  const saveCurrentCodexConfigSnapshot = (): CodexConfigSnapshotSaveResult =>
-    saveCodexConfigSnapshot(paths.databasePath, readCurrentCodexTopLevelConfig())
-  const restoreCodexApiConfig = (): CodexConfigRestoreResult => {
-    const snapshot = readCodexConfigSnapshot(paths.databasePath)
-    if (!snapshot) {
-      throw new Error('没有可恢复的 Codex API 配置快照，请先记录当前配置。')
-    }
-    return restoreCodexConfigSnapshot(snapshot)
-  }
+  const listCodexConfigBackups = (): string[] => listCodexConfigBackupFileNames()
+  const restoreSavedCodexConfigBackup = (backupFileName: string): CodexConfigBackupRestoreResult =>
+    restoreCodexConfigBackup(backupFileName)
   const writeCodexProxyConfig = (): CodexConfigWriteResult => {
     const config = readRuntimeConfig()
     const endpoint = proxyEndpoint(config)
-    const result = writeCodexConfigFile({
+    return writeCodexConfigFile({
       chatgptBaseUrl: endpoint,
       openaiBaseUrl: `${endpoint}/codex`
     })
-    if (result.snapshot && codexConfigSnapshotHasValues(result.snapshot)) {
-      saveCodexConfigSnapshot(paths.databasePath, result.snapshot)
-    }
-    return result
   }
   const repairSavedCodexSessionProvider = (): Promise<CodexSessionProviderRepairResult> =>
     repairCodexSessionProvider({
@@ -341,6 +326,13 @@ export function createMainRuntime(): MainRuntime {
     withLedger((ledger) => {
       const resetAccounts = ledger.resetExhaustedAccounts()
       return { accounts: ledger.accounts(), resetAccounts }
+    })
+  const setLocalAuthAccount = (
+    accountId: string
+  ): { accounts: ManagedAccountRow[]; updatedAccounts: number } =>
+    withLedger((ledger) => {
+      const updatedAccounts = ledger.setLocalAuthAccount(accountId)
+      return { accounts: ledger.accounts(), updatedAccounts }
     })
   const setAccountDisabled = (
     accountId: string,
@@ -406,7 +398,7 @@ export function createMainRuntime(): MainRuntime {
     logEvents,
     managedAccounts,
     protocolMessages,
-    readCodexConfigSnapshot: readSavedCodexConfigSnapshot,
+    listCodexConfigBackups,
     readDaemonControlSettings: readDaemonControl,
     proxyStatus,
     rawCaptureDir,
@@ -414,13 +406,13 @@ export function createMainRuntime(): MainRuntime {
     readRuntimeConfig,
     requestSummary,
     resetExhaustedAccounts,
-    restoreCodexApiConfig,
+    restoreCodexConfigBackup: restoreSavedCodexConfigBackup,
     repairCodexSessionProvider: repairSavedCodexSessionProvider,
-    saveCurrentCodexConfigSnapshot,
     saveDaemonControlSettings,
     restartProxy,
     saveProxyConfig,
     saveProxyPageConfig,
+    setLocalAuthAccount,
     setAccountDisabled,
     startDaemonProxy,
     stopProxy,
@@ -573,14 +565,6 @@ function stoppedProxyStatus(config: ProxyConfig, rawCaptureDir: string): ProxySt
 
 function proxyEndpoint(config: ProxyConfig): string {
   return `http://${config.listenHost}:${config.listenPort}/backend-api`
-}
-
-function codexConfigSnapshotHasValues(snapshot: CodexTopLevelConfigSnapshot): boolean {
-  return (
-    snapshot.chatgptBaseUrl !== null ||
-    snapshot.modelProvider !== null ||
-    snapshot.openaiBaseUrl !== null
-  )
 }
 
 function proxyStatusMatchesConfig(status: ProxyStatus, config: ProxyConfig): boolean {

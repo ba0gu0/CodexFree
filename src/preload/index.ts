@@ -7,8 +7,9 @@ import type {
   AuthImportResultDto,
   CleanExpiredAccountsDto,
   ClearProxyRecordsResultDto,
-  CodexConfigRestoreResultDto,
-  CodexConfigSnapshotSaveResultDto,
+  CodexAuthRestoreResultDto,
+  CodexAuthWriteResultDto,
+  CodexConfigBackupRestoreResultDto,
   CodexConfigWriteResultDto,
   CodexSessionProviderRepairResultDto,
   DaemonControlSaveInputDto,
@@ -112,15 +113,19 @@ const api = {
     ipcRenderer.invoke('proxy:write-placeholder-auth'),
   writeCodexConfig: (): Promise<CodexConfigWriteResultDto> =>
     ipcRenderer.invoke('proxy:write-codex-config'),
-  snapshotCodexConfig: (): Promise<CodexConfigSnapshotSaveResultDto> =>
-    ipcRenderer.invoke('proxy:snapshot-codex-config'),
-  restoreCodexApiConfig: (): Promise<CodexConfigRestoreResultDto> =>
-    ipcRenderer.invoke('proxy:restore-codex-api-config'),
+  listCodexConfigBackups: (): Promise<string[]> =>
+    ipcRenderer.invoke('proxy:list-codex-config-backups'),
+  restoreCodexConfigBackup: (backupFileName: string): Promise<CodexConfigBackupRestoreResultDto> =>
+    ipcRenderer.invoke('proxy:restore-codex-config-backup', backupFileName),
   repairCodexSessionProvider: (): Promise<CodexSessionProviderRepairResultDto> =>
     ipcRenderer.invoke('proxy:repair-codex-session-provider'),
   getSetupAssistantState: (): Promise<SetupAssistantStateDto> => ipcRenderer.invoke('setup:state'),
   renameCodexAuthForRelogin: (): Promise<SetupAssistantStateDto['auth']> =>
     ipcRenderer.invoke('setup:rename-codex-auth'),
+  restoreCodexAuthBackup: (backupFileName: string): Promise<CodexAuthRestoreResultDto> =>
+    ipcRenderer.invoke('setup:restore-codex-auth-backup', backupFileName),
+  writeImportedAccountToCodexAuth: (accountId: string): Promise<CodexAuthWriteResultDto> =>
+    ipcRenderer.invoke('setup:write-imported-auth', accountId),
   resetExhaustedAccounts: (): Promise<ResetExhaustedAccountsDto> =>
     ipcRenderer.invoke('proxy:reset-exhausted-accounts'),
   setAccountDisabled: (accountId: string, disabled: boolean): Promise<SetAccountDisabledDto> =>

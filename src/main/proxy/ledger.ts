@@ -318,7 +318,7 @@ export class ProxyLedger {
           active,
           updated_at AS updatedAt
         FROM proxy_accounts
-        ORDER BY active DESC, label, account_id
+        ORDER BY active DESC, local_auth ASC, label, account_id
       `)
       .all() as ManagedAccountRow[]
   }
@@ -362,6 +362,43 @@ export class ProxyLedger {
           WHERE account_id = @accountId AND status = 'available'
         `)
         .run({ accountId, updatedAt: now }).changes
+    })()
+  }
+
+  setLocalAuthAccount(accountId: string): number {
+    const now = Date.now()
+    return this.sqlite.transaction(() => {
+      this.sqlite.prepare('UPDATE proxy_accounts SET local_auth = 0 WHERE local_auth = 1').run()
+      const changed = this.sqlite
+        .prepare(`
+          UPDATE proxy_accounts
+          SET local_auth = 1,
+              active = 0,
+              updated_at = @updatedAt
+          WHERE account_id = @accountId
+        `)
+        .run({ accountId, updatedAt: now }).changes
+      const hasActive = this.sqlite
+        .prepare("SELECT 1 FROM proxy_accounts WHERE active = 1 AND status = 'available' LIMIT 1")
+        .get()
+      if (!hasActive) {
+        this.sqlite
+          .prepare(`
+            UPDATE proxy_accounts
+            SET active = 1,
+                updated_at = @updatedAt
+            WHERE account_id = (
+              SELECT account_id
+              FROM proxy_accounts
+              WHERE status = 'available'
+                AND account_id != @accountId
+              ORDER BY label, account_id
+              LIMIT 1
+            )
+          `)
+          .run({ accountId, updatedAt: now })
+      }
+      return changed
     })()
   }
 

@@ -340,6 +340,21 @@ export interface AuthExportResultDto {
   exported: number
 }
 
+export interface CodexAuthWriteResultDto {
+  accountId: string
+  auth: SetupAssistantStateDto['auth']
+  backupFileName: string
+  label: string
+  replaced: boolean
+}
+
+export interface CodexAuthRestoreResultDto {
+  auth: SetupAssistantStateDto['auth']
+  backupFileName: string | null
+  replaced: boolean
+  restoredFileName: string
+}
+
 export interface ResetExhaustedAccountsDto {
   resetAccounts: number
   accounts: ManagedAccountDto[]
@@ -370,29 +385,17 @@ export interface PlaceholderAuthResultDto {
 }
 
 export interface CodexConfigWriteResultDto {
-  path: string
-  backupPath: string | null
-  changed: boolean
-  snapshot: CodexConfigSnapshotDto | null
-}
-
-export interface CodexConfigSnapshotDto {
-  capturedAt: number
-  chatgptBaseUrl: string | null
-  modelProvider: string | null
-  openaiBaseUrl: string | null
-  path: string
-}
-
-export interface CodexConfigSnapshotSaveResultDto {
-  snapshot: CodexConfigSnapshotDto
-}
-
-export interface CodexConfigRestoreResultDto {
+  authBackupPath: string | null
   backupPath: string | null
   changed: boolean
   path: string
-  snapshot: CodexConfigSnapshotDto
+}
+
+export interface CodexConfigBackupRestoreResultDto {
+  backupPath: string | null
+  changed: boolean
+  path: string
+  restoredFileName: string
 }
 
 export interface CodexSessionProviderRepairResultDto {
@@ -438,6 +441,7 @@ export interface SetupAssistantStateDto {
   }
   auth: {
     backupFileName: string
+    backupFileNames: string[]
     exists: boolean
     health: CodexAuthHealthDto
     lastModifiedAt: number | null

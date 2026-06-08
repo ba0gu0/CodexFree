@@ -2,10 +2,21 @@
 
 [中文](./README.md)
 
+This repository is suitable for an alpha source release. macOS release builds are unsigned and not
+notarized by default because of release-cost constraints. If you install a release artifact
+directly, macOS may require a manual security override. For sensitive environments, build from
+source and review dependencies first.
+
 CodexFree is an Electron desktop tool for managing many Codex JSON auth files and running a
 local Codex account-mode proxy. It can import free, plus, and pro account auth files into an
 account pool, rotate account quota automatically while you use Codex App or Codex CLI, and avoid
 frequent Codex App restarts or VPS deployment.
+
+CodexFree is mainly for users who already have CPA, sub2api, or Codex official-login account auth
+configuration files. It is not an API-key switcher and does not target generic OpenAI API relay
+providers. For API keys, relay base URLs, or normal API mode, use `cc switch` or another config
+switching tool instead. CodexFree uses the ChatGPT/Codex account-login proxy path. With that path,
+Codex fast mode can be used; normal API-key mode cannot use that capability.
 
 ## What it solves
 
@@ -23,6 +34,15 @@ chatgpt_base_url = "http://127.0.0.1:33333/backend-api"
 openai_base_url = "http://127.0.0.1:33333/backend-api/codex"
 ```
 
+In proxy mode, the top-level `config.toml` should not contain `model_provider`. If you previously
+used API-mode config such as `model_provider = "codex"` plus `[model_providers.codex]`,
+CodexFree only removes the top-level `model_provider`; it does not modify
+`[model_providers.<name>]` tables. This lets proxy mode return to the default Codex account path
+while still allowing API mode to be restored from a CodexFree file backup.
+If you also use `cc switch` or another tool that edits Codex config, do not let it write config at
+the same time as CodexFree, and avoid rapidly switching the same `config.toml` back and forth
+between tools. That can create conflicting config writes.
+
 After requests enter the local proxy, CodexFree keeps request bodies unchanged. It only replaces
 upstream authentication-related headers before forwarding, so the actual quota comes from the
 managed account pool.
@@ -33,9 +53,11 @@ ChatGPT/Codex accounts. A free account is enough. With that setup, Codex App rem
 works: sign in to the mobile ChatGPT App with the same account, then connect from Codex. CodexFree
 does not affect remote control connection or management.
 
-If you do not have your own account, you can manually copy one account from the account pool into
-`~/.codex/auth.json`. Do not enable Codex remote control while using a pooled account unless that
-account is yours, otherwise the account owner may see or control the session.
+If you do not have your own account, import the account pool first, then explicitly select one
+imported account in the guide and write it into `~/.codex/auth.json`. Do not enable Codex remote
+control while using a pooled account unless that account is yours, otherwise the account owner may
+see or control the session. CodexFree backs up the existing `auth.json` before writing and orders
+that account later in proxy rotation so other available accounts are used first.
 
 ## Features
 
@@ -54,16 +76,22 @@ account is yours, otherwise the account owner may see or control the session.
 ## Quick start
 
 1. Start CodexFree.
-2. Sign in through the official Codex flow with your own ChatGPT/Codex account to create
-   `~/.codex/auth.json`.
-3. Open the CodexFree setup assistant and write or check `~/.codex/config.toml`.
-4. Import account-pool auth files or folders.
-5. Check all users usage information to confirm accounts are usable.
+2. Import account-pool auth files or folders first.
+3. Check all users usage information to confirm accounts are usable.
+4. Check `~/.codex/auth.json`; if you do not have your own login account, select one imported
+   account in the guide and write it into place.
+5. Open the CodexFree setup assistant and write or check `~/.codex/config.toml`.
 6. Use Codex normally in Codex App or Codex CLI.
 
-The two `config.toml` lines must be top-level TOML values, not inside `[profiles.xxx]`. If
-`provider` or `model_provider` configuration exists, remove it so Codex does not use the wrong
-provider path.
+The two `config.toml` lines must be top-level TOML values, not inside `[profiles.xxx]`. Proxy mode
+only needs the top-level `model_provider` removed. Do not delete `[model_providers.<name>]`, and
+do not add `model_provider = "openai"`. Before writing config, CodexFree backs up the current
+`config.toml` as `YYYYMMDDTHHMMSS-codexfree-config.toml`. To return to API mode, choose the backup
+to restore on the Proxy page, then sync historical session provider metadata from the current
+config.
+You can still use `cc switch` or other config-switching tools, but do not let them edit the same
+`config.toml` while CodexFree is also writing or monitoring it. Disable one side's automatic config
+write or monitoring before switching to avoid overwrites.
 
 For Docker or LAN clients, replace only the host and keep the paths unchanged:
 
@@ -74,7 +102,14 @@ openai_base_url = "http://host.docker.internal:33333/backend-api/codex"
 
 ## Security boundaries
 
+- Only import and use account auth files that you own or are authorized to use.
+- CodexFree is not an official OpenAI, ChatGPT, or Codex product and is not affiliated with them.
 - CodexFree does not automatically overwrite, copy, or replace your `~/.codex/auth.json`.
+- CodexFree writes `auth.json` only after you explicitly select an imported account in the guide
+  and confirm the action. The existing file is backed up first.
+- CodexFree-created backups use dedicated names: `YYYYMMDDTHHMMSS-codexfree-config.toml` and
+  `YYYYMMDDTHHMMSS-codexfree-auth.json`. Restore only selects from those backups and does not read
+  arbitrary files.
 - The relogin helper only renames the existing `auth.json` after confirmation and writes no
   replacement file.
 - Imported account auth files are managed locally by CodexFree and should never be committed to Git.
@@ -83,6 +118,17 @@ openai_base_url = "http://host.docker.internal:33333/backend-api/codex"
   written outside the repository under app data.
 - API-key mode is not a default feature. The normal account-mode proxy rejects API-key-shaped
   requests.
+- Do not attach real auth files, tokens, cookies, raw captures, or local SQLite databases to
+  security reports. See [SECURITY.md](./SECURITY.md).
+
+## Open Source And Releases
+
+- License: MIT. See [LICENSE](./LICENSE).
+- Security reporting rules: see [SECURITY.md](./SECURITY.md).
+- macOS releases are unsigned and not notarized by default. This is the current release policy,
+  not a blocker; users should decide whether the install risk is acceptable.
+- Local `test` reference material, captures, databases, and build outputs are ignored by Git. Do
+  not manually upload a local folder archive as a substitute for the GitHub source package.
 
 ## Local development
 
@@ -123,11 +169,12 @@ bun run build:linux
 - `src/preload`: Electron preload API.
 - `src/renderer`: React 19 desktop UI.
 - `docs`: current state, architecture, specs, ADRs, security checklist, and task queue.
-- `test`: local packet captures, auth samples, and compatibility evidence.
+- `test`: local packet captures, auth samples, and compatibility evidence, ignored from Git by
+  default.
 
 ## Current limitations
 
 - API-key compatibility is future work and requires packet capture plus protocol confirmation first.
 - Production-grade auth encryption or platform credential storage still needs to be completed.
 - More real-world sub2api variants need ongoing verification.
-- macOS packaging/signing details still depend on the final release process.
+- macOS packages are currently unsigned and not notarized as an alpha cost-control limitation.
