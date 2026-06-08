@@ -3,15 +3,19 @@ productName: CodexFree
 copyright: Copyright © 2026 BaoGuo
 directories:
   buildResources: build
+compression: maximum
+electronLanguages:
+  - en
+  - zh_CN
 files:
-  - "!**/.vscode/*"
-  - "!src/*"
-  - "!electron.vite.config.{js,ts,mjs,cjs}"
-  - "!{.eslintcache,biome.json,dev-app-update.yml,CHANGELOG.md,README.md}"
-  - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
-  - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}"
-asarUnpack:
+  - out/**
   - resources/**
+  - package.json
+  - "!dist/**"
+  - "!test/**"
+  - "!**/*.har"
+  - "!out/**/*.map"
+asarUnpack:
   - node_modules/**/*.node
 extraResources:
   - from: dev-app-update.yml
@@ -31,6 +35,7 @@ nsis:
   createDesktopShortcut: always
 mac:
   icon: icon.icns
+  identity: null
   category: public.app-category.developer-tools
   target:
     - target: dmg

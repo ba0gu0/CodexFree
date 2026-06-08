@@ -3,7 +3,9 @@ import http, { type IncomingMessage, type RequestOptions, type ServerResponse } 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Duplex } from 'node:stream'
-import { ProxyAgent } from 'proxy-agent'
+import { HttpProxyAgent } from 'http-proxy-agent'
+import { HttpsProxyAgent } from 'https-proxy-agent'
+import { SocksProxyAgent } from 'socks-proxy-agent'
 import { AccountPool, type RoutedAccount } from './account-pool'
 import { formatAccountUsageText } from './account-usage-text'
 import { parseJsonRecord, summarizeBuffer } from './json-utils'
@@ -35,7 +37,7 @@ export class TransparentProxyService {
   private readonly quotaGuard: AccountQuotaGuard
   private readonly upgradedSockets = new Set<Duplex>()
   private readonly protocolLogger: ProtocolMessageLogger
-  private outboundProxyAgent?: ProxyAgent
+  private outboundProxyAgent?: RequestOptions['agent']
   private outboundProxyAgentKey?: string
   readonly rawCaptureDir: string
   constructor(
@@ -50,7 +52,7 @@ export class TransparentProxyService {
   ) {
     this.config = initialConfig
     this.quotaGuard = new AccountQuotaGuard({
-      agent: () => this.proxyAgent(),
+      agent: () => this.proxyAgent(new URL(this.usageCheckUrl()).protocol),
       ledger,
       log,
       usageUrl: () => this.usageCheckUrl()
@@ -341,11 +343,11 @@ export class TransparentProxyService {
       path: `${targetUrl.pathname}${targetUrl.search}`,
       method: request.method,
       headers,
-      agent: this.proxyAgent()
+      agent: this.proxyAgent(targetUrl.protocol)
     }
   }
 
-  private proxyAgent(): ProxyAgent | undefined {
+  private proxyAgent(targetProtocol: string): RequestOptions['agent'] {
     if (this.config.outboundProxy.mode === 'direct') {
       return undefined
     }
@@ -354,12 +356,25 @@ export class TransparentProxyService {
       this.config.outboundProxy.mode,
       this.config.outboundProxy.url
     )
-    const key = `${this.config.outboundProxy.mode}:${proxyUrl}`
+    const key = `${targetProtocol}:${this.config.outboundProxy.mode}:${proxyUrl}`
     if (!this.outboundProxyAgent || this.outboundProxyAgentKey !== key) {
-      this.outboundProxyAgent = new ProxyAgent({ getProxyForUrl: () => proxyUrl })
+      this.outboundProxyAgent = this.createProxyAgent(targetProtocol, proxyUrl)
       this.outboundProxyAgentKey = key
     }
     return this.outboundProxyAgent
+  }
+
+  private createProxyAgent(targetProtocol: string, proxyUrl: string): RequestOptions['agent'] {
+    if (
+      this.config.outboundProxy.mode === 'socks4' ||
+      this.config.outboundProxy.mode === 'socks5'
+    ) {
+      return new SocksProxyAgent(proxyUrl)
+    }
+    if (targetProtocol === 'http:') {
+      return new HttpProxyAgent(proxyUrl)
+    }
+    return new HttpsProxyAgent(proxyUrl)
   }
 
   async routeAccount(
