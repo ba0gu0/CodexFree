@@ -85,6 +85,7 @@ declare global {
       repairCodexSessionProvider: () => Promise<CodexSessionProviderRepairResultDto>
       getSetupAssistantState: () => Promise<SetupAssistantStateDto>
       renameCodexAuthForRelogin: () => Promise<SetupAssistantStateDto['auth']>
+      listCodexAuthBackups: () => Promise<string[]>
       restoreCodexAuthBackup: (backupFileName: string) => Promise<CodexAuthRestoreResultDto>
       writeImportedAccountToCodexAuth: (accountId: string) => Promise<CodexAuthWriteResultDto>
       resetExhaustedAccounts: () => Promise<ResetExhaustedAccountsDto>

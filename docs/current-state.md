@@ -86,6 +86,8 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - 导入账号管理现在支持从 Electron 管理界面进行批量导入、批量 usage 检查、导出、
   401 清理、单账号禁用/启用，以及 exhaustion reset。导入、usage 检查和运行时路由
   都使用同一个 app 托管 auth-pool 目录。
+- 账号页的“待复核”统计和状态筛选使用同一口径：只有 `last_usage_error` 非空的账号进入
+  待复核；单纯尚未查量的账号不会显示为待复核，避免统计卡片和筛选结果不一致。
 - 导入后会按 account id 覆盖旧授权文件，并只对本次新增/覆盖的账号自动查量；daemon
   同步仍读取托管目录中的全部有效账号，避免只导入一部分时误删旧账号状态。
 - 导入账号现在以 `access_token` 为唯一硬必填字段。缺少 account id 的记录会先用该
@@ -218,10 +220,12 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   配置助手 Sheet 可重复打开；每个状态项展示本次检查时间，面板提供代理、Codex config、
   Codex 登录、账号池和诊断目录动作。首次引导 Dialog 复用同一检测模型，按工作方式、代理、
   Codex config、Codex 登录、账号池和完成检查推进；Codex config 步骤展示目标配置预览，
-  账号池步骤要求导入后查询所有可用账号用量，完成检查展示可用模型数。配置助手中异常状态项会
+  账号池步骤推荐查询所有可用账号用量但不阻断继续流程，完成检查展示可用模型数。配置助手中异常状态项会
   显示“去处理”并跳到对应引导步骤；“打开引导”每次从工作方式开始，不恢复上次步骤。`auth.json`
   只支持二次确认后的重命名重新登录辅助；缺少 auth 文件时重命名按钮置灰，API-key 模式会提示
-  重命名后重新走 ChatGPT 账号登录。引导顺序已调整为先导入账号池，再检查 Codex 登录；
+  重命名后重新走 ChatGPT 账号登录。Codex 登录步骤先展示“自有账号登录”和“使用已导入账号”
+  两条路径；没有可用导入账号时只禁用导入账号路径，不阻断向导继续。引导顺序已调整为先导入
+  账号池，再检查 Codex 登录；
   如果用户没有自有登录账号，可以显式选择一个已导入账号写入本地 `auth.json`。写入前会备份
   现有文件，并通过 SQLite 标记该账号为本地登录账号，同时优先选择其他可用账号作为当前代理账号，
   避免先消耗本地登录账号额度。工作方式说明明确区分本地 Codex 登录、CodexFree 代理转发、
@@ -231,11 +235,14 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   `model_provider`。切换到 CodexFree 代理模式时会把当前 `config.toml` 备份为
   `YYYYMMDDTHHMMSS-codexfree-config.toml`，删除顶层 `model_provider`，但不会写入
   `model_provider = "openai"`，也不会修改 `[model_providers.<name>]` 定义。Proxy 页面支持从
-  CodexFree 创建的配置备份中选择一个恢复，以及按当前 `config.toml` 同步 Codex 历史会话
+  CodexFree 创建的 `auth.json` / `config.toml` 备份中选择一个恢复，以及按当前 `config.toml`
+  同步 Codex 历史会话
   provider。会话同步会先备份 app data 下的修复目录，只改
   `state_*.sqlite` 的 `threads.model_provider` 和 session JSONL 的 `session_meta`
-  `payload.model_provider`。daemon 的配置监控只记录 drift，不自动修改 `config.toml`。README
-  已提醒 `cc switch` 或其他 Codex 配置切换工具不要与 CodexFree 同时写入或频繁切换同一个
+  `payload.model_provider`。会话同步的目录遍历、JSONL 读写和 JSONL 备份使用异步文件系统
+  操作，并在 SQLite/JSONL 批处理间让出事件循环，避免在 Electron main process 中长时间
+  卡住界面。README 已提醒 `cc switch` 或其他 Codex 配置切换工具不要与
+  CodexFree 同时写入或频繁切换同一个
   `config.toml`，避免互相覆盖。
 - README 已更新为默认中文入口，并新增英文 `README_EN.md`。两份 README 覆盖 CodexFree
   的定位、工作原理、账号池使用流程、`auth.json` 和 `config.toml` 配置边界、安全注意事项、

@@ -190,6 +190,8 @@ T12 当前实现证据：
   同时把 request/error/traffic statistics 与 token totals 分开。
 - 已完成：Overview 现在包含 recent request purpose distribution，Accounts 暴露 reset/check/error
   details，同时把 quota history 过滤为 typed quota events。
+- 已完成：Accounts 的“待复核”summary card 和 `invalid` 状态筛选统一使用
+  `last_usage_error` 口径；尚未查量但无错误的账号不会被误计入待复核。
 - 已完成：User-feedback polish pass 添加 full-database request 和 usage summary cards、所有页面
   manual refresh buttons、refresh-on-navigation、top-center concise notices、触发按钮上的
   account usage progress、per-row usage refresh controls、sticky sortable list headers，以及
@@ -230,8 +232,10 @@ T13 当前实现证据：
   writer 只管理顶层 `chatgpt_base_url`、`openai_base_url` 和 `model_provider`，不写入
   `model_provider = "openai"`，不修改 `[model_providers.<name>]` 定义。写入前会把当前
   `config.toml` 备份为 `YYYYMMDDTHHMMSS-codexfree-config.toml`，并备份现有 `auth.json`。
-  Proxy 页面新增配置备份恢复和会话 provider 同步；会话同步按当前配置修复
-  `state_*.sqlite` 与 session JSONL，并先写入 app data 备份。配置监控只记录 drift，不自动改文件。
+  Proxy 页面新增 auth/config 备份恢复和会话 provider 同步；会话同步按当前配置修复
+  `state_*.sqlite` 与 session JSONL，并先写入 app data 备份。会话同步的目录遍历、JSONL
+  读写和 JSONL 备份已改为异步文件系统操作，并在 SQLite/JSONL 批处理之间让出事件循环，
+  避免 Electron 界面被长时间阻塞。
 - 已完成：`auth.json` 检测区分 missing、Codex login-like、placeholder、API-key mode 和
   unrecognized，不显示 token；重新登录辅助只做二次确认后的 rename，不写替代文件，且缺少
   auth 文件时按钮置灰。引导现在先导入账号池，再检查 Codex 登录；用户可以显式选择一个已导入
@@ -241,7 +245,7 @@ T13 当前实现证据：
   Sheet 展示检查时间，并提供 raw capture 和工作目录诊断入口。异常状态项会显示“去处理”，
   点击后打开引导并跳到对应步骤；“打开引导”每次从工作方式开始。
 - 已完成：首次引导补齐目标 config 预览，重写工作方式说明，账号池步骤前置，把查量动作改为
-  “查询所有用户用量信息”，并要求所有可用账号完成用量查询后才能进入 Codex 登录检查。
+  “查询所有用户用量信息”。查量用于刷新状态和剔除异常账号，不再阻断继续进入 Codex 登录检查。
 - 已完成：账户空状态和请求无 turn summary 提示改为面向用户的下一步说明，不引导修改本地
   `auth.json`，并说明可能的 SSE/WSS 解析原因。
 - Passed：`rtk bun run lint`、`rtk bun run typecheck`、`rtk bun run test`、`rtk bun run build`。

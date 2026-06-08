@@ -410,6 +410,19 @@ function App(): React.JSX.Element {
     showRequests: (searchQuery) =>
       switchView('requests', { requestSearchQuery: searchQuery ?? null }),
     showUsage: () => switchView('usage'),
+    listCodexAuthBackups: () => window.api.listCodexAuthBackups(),
+    restoreCodexAuthBackup: (backupFileName) =>
+      runAction(
+        'authRestore',
+        () => window.api.restoreCodexAuthBackup(backupFileName),
+        (result) =>
+          result.replaced && result.backupFileName
+            ? t('notice.codexAuthRestoredWithBackup', {
+                backup: result.backupFileName,
+                restored: result.restoredFileName
+              })
+            : t('notice.codexAuthRestored', { restored: result.restoredFileName })
+      ),
     listCodexConfigBackups: () => window.api.listCodexConfigBackups(),
     restoreCodexConfigBackup: (backupFileName) =>
       runAction(
@@ -466,18 +479,6 @@ function App(): React.JSX.Element {
         'setupRenameAuth',
         () => window.api.renameCodexAuthForRelogin(),
         () => t('notice.codexAuthRenamed')
-      ),
-    restoreCodexAuth: (backupFileName) =>
-      runAction(
-        'setupRestoreAuth',
-        () => window.api.restoreCodexAuthBackup(backupFileName),
-        (result) =>
-          result.replaced && result.backupFileName
-            ? t('notice.codexAuthRestoredWithBackup', {
-                backup: result.backupFileName,
-                restored: result.restoredFileName
-              })
-            : t('notice.codexAuthRestored', { restored: result.restoredFileName })
       ),
     restartProxy: actions.restartProxy,
     startProxy: actions.startProxy,
@@ -561,6 +562,7 @@ function App(): React.JSX.Element {
         open={setupOpen}
         state={setupState}
         t={t}
+        usageProgress={usageProgress}
         wizardOpen={wizardOpen}
       />
     </AppShell>

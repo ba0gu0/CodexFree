@@ -9,6 +9,7 @@ import { clearRawCaptures, readRawCaptureDetail } from './proxy/raw-capture'
 import type { ProxyConfig } from './proxy/types'
 import type { DaemonControlSaveInput, MainRuntime } from './runtime'
 import {
+  inspectCodexAuth,
   readSetupAssistantState,
   renameCodexAuthForRelogin,
   restoreCodexAuthBackup,
@@ -58,7 +59,7 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
   ipcMain.handle('app:open-raw-capture-directory', async () =>
     openPathOrThrow(await runtime.rawCaptureDir())
   )
-  ipcMain.handle('app:open-work-directory', () => openPathOrThrow(process.cwd()))
+  ipcMain.handle('app:open-work-directory', () => openPathOrThrow(runtime.dataDirectoryPath))
   ipcMain.handle('proxy:recent-requests', async (_, limit: unknown) => {
     const page = runtime.recentRequests(normalizeActivityLimit(limit))
     return { hasMore: page.hasMore, items: page.items }
@@ -179,6 +180,7 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
   ipcMain.handle('proxy:repair-codex-session-provider', () => runtime.repairCodexSessionProvider())
   ipcMain.handle('setup:state', () => readSetupAssistantState(runtime))
   ipcMain.handle('setup:rename-codex-auth', () => renameCodexAuthForRelogin())
+  ipcMain.handle('setup:list-codex-auth-backups', () => inspectCodexAuth().backupFileNames)
   ipcMain.handle('setup:restore-codex-auth-backup', (_, backupFileName: unknown) => {
     if (typeof backupFileName !== 'string' || backupFileName.trim() === '') {
       throw new Error('backupFileName is required to restore Codex auth')

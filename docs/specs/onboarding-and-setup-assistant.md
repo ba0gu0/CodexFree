@@ -15,11 +15,11 @@
 - App 不静默覆盖、复制或替换用户的 `~/.codex/auth.json`；只有用户显式选择已导入账号并二次确认时才写入。
 - 本地 Codex 登录账号只用于让 Codex 客户端进入 ChatGPT 账号模式。
 - CodexFree 代理实际使用 App 账号池，不消耗本地 Codex 登录账号额度。
-- 没有自有 Codex/ChatGPT 登录账号的用户，需要先导入账号池，再手动选择一个已导入账号写入
+- 没有自有 Codex 登录账号的用户，需要先导入账号池，再手动选择一个已导入账号写入
   `~/.codex/auth.json`；App 不自动选择账号。
 - API-key 模式可以作为“无自有登录账号”的后续替代路径，但必须先完成抓包和协议确认。
 - `config.toml` 可以由 App 写入或修复，但内容正确时不重复备份、不重复重写。
-- 开机启动、Raw capture、配置监控等开关只改变配置，实际切换靠“保存并重启后生效”。
+- 开机启动、Raw capture 等开关只改变配置，实际切换靠“保存并重启后生效”。
 - 引导必须基于文件、数据库、daemon status、账号池的实时检测结果。
 
 ## 推荐信息架构
@@ -64,7 +64,7 @@ config 未指向当前代理、`auth.json` 未配置等异常只展示在助手�
 
 可执行动作：
 - 导入授权文件或目录。
-- 查询所有账号用量。
+- 查询所有账号用量，用于刷新状态和剔除异常账号；没有完成查量时仍允许用户继续下一步。
 - 打开账户页。
 
 文案规则：
@@ -90,7 +90,6 @@ openai_base_url = "http://127.0.0.1:<port>/backend-api/codex"
 - 如果需要修改，先备份原 `config.toml` 为 `YYYYMMDDTHHMMSS-codexfree-config.toml`，并同时
   备份现有 `auth.json` 为 `YYYYMMDDTHHMMSS-codexfree-auth.json`，再写入。
 - 不能把两行写进 `[profiles.xxx]` 或其他 table。
-- 配置监控只记录 drift，不自动修改 `config.toml`。
 
 界面展示：当前检测结果、目标配置预览、写入配置按钮、恢复配置备份按钮、同步会话
 provider 按钮、打开 `~/.codex` 目录按钮。
@@ -120,14 +119,17 @@ provider 按钮、打开 `~/.codex` 目录按钮。
 推荐流程：
 1. 检测 `~/.codex/auth.json` 是否存在。
 2. 不存在时，引导用户通过官方 Codex 完成登录。
-3. 如果用户没有自有账号，提供“从已导入账号写入 auth.json”的入口；必须用户手动选择账号并二次确认。
-4. 写入前备份现有文件为 `YYYYMMDDTHHMMSS-codexfree-auth.json`，写入后 chmod `0600`。
-5. 写入的账号在 SQLite 中标记为 `local_auth`，取消其当前 active 状态，并优先激活其他可用账号。
-6. 用户想重新登录时，提供“重命名当前 auth.json 并重新登录”的入口。
-7. 重命名动作必须二次确认，并显示新文件名，例如 `20260520T163000-codexfree-auth.json`。
-8. 提供“恢复 auth.json 备份”入口，只列出 CodexFree 创建的 `*-codexfree-auth.json`；
-   如果存在多个备份，必须让用户选择恢复哪一个，恢复前先备份当前文件。
-9. 登录完成或恢复完成后回到 CodexFree 点击“重新检查”。
+3. Codex 登录步骤先展示两个路径：
+   - 推荐路径：用户有自己的 Codex 账号，执行“重命名当前 auth.json 并重新登录”。
+   - 替代路径：用户没有自有账号，从已导入账号中选择一个写入 `auth.json`。
+4. 如果没有可用导入账号，替代路径不可选，但不阻断用户继续下一步。
+5. 如果用户没有自有账号，提供“从已导入账号写入 auth.json”的入口；必须用户手动选择账号并二次确认。
+6. 写入前备份现有文件为 `YYYYMMDDTHHMMSS-codexfree-auth.json`，写入后 chmod `0600`。
+7. 写入的账号在 SQLite 中标记为 `local_auth`，取消其当前 active 状态，并优先激活其他可用账号。
+8. 用户想重新登录时，提供“重命名当前 auth.json 并重新登录”的入口。
+9. 重命名动作必须二次确认，并显示新文件名，例如 `20260520T163000-codexfree-auth.json`。
+10. `auth.json` 备份恢复入口放在 Proxy 恢复区，不放在配置助手的 Codex 登录步骤。
+11. 登录完成或手动恢复完成后回到 CodexFree 点击“重新检查”。
 
 禁止行为：
 - 静默覆盖 `~/.codex/auth.json`。
@@ -141,7 +143,7 @@ provider 按钮、打开 `~/.codex` 目录按钮。
 
 需要在助手中明确给出三种路径：
 
-1. 推荐路径：用户用自己的 ChatGPT/Codex 账号完成官方登录，再导入购买的 auth 文件作为
+1. 推荐路径：用户用自己的 Codex 账号完成官方登录，再导入购买的 auth 文件作为
    CodexFree 账号池。优点是 Codex Mobile、远程控制和本地 Codex 归属仍是自己的账号。
 2. 风险路径：用户从已导入账号里手动选择一个账号写入 `~/.codex/auth.json`。App 不自动选择；
    写入前必须强确认、风险说明和可恢复备份。
@@ -201,7 +203,7 @@ provider 按钮、打开 `~/.codex` 目录按钮。
 
 配置助手是可重复打开的状态面板，不只用于首次安装。建议分区：
 - 代理服务：运行状态、端口、系统服务/子进程、启动/停止/重启。
-- Codex 配置：config.toml 状态、写入状态、配置监控状态。
+- Codex 配置：config.toml 状态、写入状态、备份恢复状态。
 - Codex 登录：auth.json 是否存在，是否建议重新登录。
 - 账号池：账号数量、可用账号、用量检查。
 - 诊断：最近错误、打开日志、打开数据目录。

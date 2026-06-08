@@ -11,26 +11,30 @@ import {
   UsersIcon
 } from 'lucide-react'
 import type { ReactElement } from 'react'
-import type { SetupAssistantState } from '../../data/proxy-console'
+import type { SetupAssistantState, UsageProgress } from '../../data/proxy-console'
 import type { SetupAssistantActions, WizardStep } from './setup-assistant'
 
 interface SetupActionProps {
   actions: SetupAssistantActions
   busyAction: string | null
   onConfirmRename: () => void
-  onConfirmRestore: () => void
   state: SetupAssistantState
   t: (key: CopyKey, values?: Record<string, string | number>) => string
+  usageProgress: UsageProgress | null
 }
 
 export function AssistantActions({
   actions,
   busyAction,
   onConfirmRename,
-  onConfirmRestore,
   state,
-  t
+  t,
+  usageProgress
 }: SetupActionProps): ReactElement {
+  const usageLabel =
+    busyAction === 'usage'
+      ? (usageProgressText(usageProgress) ?? t('setup.checkAllUsage'))
+      : t('setup.checkAllUsage')
   return (
     <div className="grid grid-cols-2 gap-2">
       <Button
@@ -61,9 +65,9 @@ export function AssistantActions({
         <UploadIcon data-icon="inline-start" />
         {t('action.importShort')}
       </Button>
-      <Button loading={busyAction === 'usage'} onClick={actions.checkUsage} variant="outline">
+      <Button disabled={busyAction === 'usage'} onClick={actions.checkUsage} variant="outline">
         <UsersIcon data-icon="inline-start" />
-        {t('setup.checkAllUsage')}
+        {usageLabel}
       </Button>
       <Button onClick={actions.openRawCaptureDirectory} variant="outline">
         <DatabaseIcon data-icon="inline-start" />
@@ -82,16 +86,6 @@ export function AssistantActions({
         <KeyRoundIcon data-icon="inline-start" />
         {t('setup.renameAuth')}
       </Button>
-      <Button
-        className="col-span-2"
-        disabled={state.auth.backupFileNames.length === 0}
-        loading={busyAction === 'setupRestoreAuth'}
-        onClick={onConfirmRestore}
-        variant="outline"
-      >
-        <RotateCcwIcon data-icon="inline-start" />
-        {t('setup.restoreAuth')}
-      </Button>
     </div>
   )
 }
@@ -99,12 +93,11 @@ export function AssistantActions({
 export function WizardStepActions({
   actions,
   busyAction,
-  onConfirmRename,
-  onConfirmRestore,
   state,
   step,
-  t
-}: SetupActionProps & { step: WizardStep }): ReactElement {
+  t,
+  usageProgress
+}: Omit<SetupActionProps, 'onConfirmRename'> & { step: WizardStep }): ReactElement | null {
   if (step === 'proxy') {
     return (
       <div className="grid grid-cols-2 gap-2">
@@ -142,42 +135,29 @@ export function WizardStepActions({
     )
   }
   if (step === 'auth') {
-    return (
-      <div className="grid gap-2">
-        <Button onClick={actions.openCodexDirectory} variant="outline">
-          <FolderOpenIcon data-icon="inline-start" />
-          {t('setup.openCodexDir')}
-        </Button>
-        <Button
-          disabled={!state.auth.exists}
-          onClick={onConfirmRename}
-          variant="destructive-outline"
-        >
-          <KeyRoundIcon data-icon="inline-start" />
-          {t('setup.renameAuth')}
-        </Button>
-        <Button
-          disabled={state.auth.backupFileNames.length === 0}
-          loading={busyAction === 'setupRestoreAuth'}
-          onClick={onConfirmRestore}
-          variant="outline"
-        >
-          <RotateCcwIcon data-icon="inline-start" />
-          {t('setup.restoreAuth')}
-        </Button>
-      </div>
-    )
+    return null
   }
+  const usageLabel =
+    busyAction === 'usage'
+      ? (usageProgressText(usageProgress) ?? t('setup.checkAllUsage'))
+      : t('setup.checkAllUsage')
   return (
     <div className="grid grid-cols-2 gap-2">
       <Button loading={busyAction === 'import'} onClick={actions.importAuthFiles} variant="outline">
         <UploadIcon data-icon="inline-start" />
         {t('action.importShort')}
       </Button>
-      <Button loading={busyAction === 'usage'} onClick={actions.checkUsage} variant="outline">
+      <Button disabled={busyAction === 'usage'} onClick={actions.checkUsage} variant="outline">
         <UsersIcon data-icon="inline-start" />
-        {t('setup.checkAllUsage')}
+        {usageLabel}
       </Button>
     </div>
   )
+}
+
+function usageProgressText(progress: UsageProgress | null): string | null {
+  if (!progress) {
+    return null
+  }
+  return progress.total > 0 ? `${progress.completed}/${progress.total}` : '0/0'
 }

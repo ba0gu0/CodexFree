@@ -15,7 +15,6 @@ export interface ProxyConfigDto {
   maxRequestBodyBytes: number
   rawCaptureEnabled: boolean
   rawCaptureMaxBytes: number
-  codexConfigMonitorEnabled: boolean
 }
 
 export interface ProxyStatusDto {

@@ -110,8 +110,9 @@ const zh = {
   'setup.checkAllUsage': '查询所有用户用量信息',
   'setup.openCodexDir': '打开 .codex',
   'setup.targetConfig': '目标配置预览',
-  'setup.accountsUsageRequired':
-    '导入账号池后，需要先查询所有用户用量信息，确认账号可用后才能下一步。',
+  'setup.accountsUsageRequired': '账号池还没有可用账号。请先导入账号，或查询用量后刷新状态。',
+  'setup.accountsUsageRecommended':
+    '已检测到可用账号，可以继续；建议查询用量以剔除额度耗尽或异常账号。',
   'setup.accountsUsageChecked': '已查询过账号池用量，可以继续完成检查。',
   'setup.workModeTitle': 'CodexFree 如何工作',
   'setup.workModeClient':
@@ -119,7 +120,7 @@ const zh = {
   'setup.workModeProxy':
     '工作原理是修改 Codex base URL，让 chatgpt_base_url 和 openai_base_url 指向本机服务；请求经过本机代理后，CodexFree 会替换上游认证信息，实际消耗账号池中的账户额度。',
   'setup.workModePool':
-    '使用工具前，请务必先登录一个自己的 ChatGPT/Codex 账户，free 账户也可以。这样配置后仍然可以正常使用 Codex App 远程控制功能；手机版 ChatGPT App 登录相同账户后，点击 Codex 连接即可。CodexFree 不影响远程控制的连接和管理。',
+    '使用工具前，请务必先登录一个自己的 Codex 账户，free 账户也可以。这样配置后仍然可以正常使用 Codex App 远程控制功能；手机版 ChatGPT App 登录相同账户后，点击 Codex 连接即可。CodexFree 不影响远程控制的连接和管理。',
   'setup.workModeApiKey':
     '如果没有自己的账户，可以从已导入账号池中选择一个账户写入 ~/.codex/auth.json。注意：使用账号池中的账号时，不要打开 Codex 远程控制功能，除非该账号是你自己的，避免会话被账号所有者控制。',
   'setup.workModeAuthJson':
@@ -132,10 +133,16 @@ const zh = {
   'setup.noOwnAccount':
     '没有自有账号时，可以先导入账号池，再显式选择一个账号写入 auth.json。CodexFree 不会自动选择账号。',
   'setup.recommendedPath':
-    '推荐路径：用自己的 ChatGPT/Codex 账号完成官方登录，再导入购买的 auth 作为账号池。',
+    '推荐路径：用自己的 Codex 账号完成官方登录，再导入购买的 auth 作为账号池。',
   'setup.riskPath':
     '风险路径：把账号池 auth 写入 auth.json 可能影响 Codex Mobile、远程控制和账号归属；只有你确认风险后才执行。',
   'setup.futurePath': '后续路径：API-key compatibility 需先抓包确认协议，当前不作为可用能力展示。',
+  'setup.authOwnTitle': '我有自己的 Codex 账号',
+  'setup.authOwnActionDesc':
+    '会先把当前 auth.json 重命名为备份文件，然后你重新打开 Codex 完成官方登录。',
+  'setup.authOwnRecommended': '推荐',
+  'setup.authImportedTitle': '我没有账号，使用已导入账号',
+  'setup.authImportedDisabled': '先导入账号',
   'setup.renameAuth': '重命名 auth.json 并重新登录',
   'setup.renameAuthTitle': '确认重命名 auth.json',
   'setup.renameAuthDesc':
@@ -181,7 +188,7 @@ const zh = {
   'setup.wizard.config.title': '写入 Codex 配置',
   'setup.wizard.config.desc': '把 account-login base URL 写到 config.toml 顶层。',
   'setup.wizard.auth.title': '检查 Codex 登录',
-  'setup.wizard.auth.desc': '检查 auth.json，也可以从已导入账号中选择一个写入。',
+  'setup.wizard.auth.desc': '选择使用自己的账号登录，或从已导入账号中选择一个写入。',
   'setup.wizard.accounts.title': '导入账号池',
   'setup.wizard.accounts.desc': '账号池是代理转发使用的账号来源。',
   'setup.wizard.finish.title': '完成检查',
@@ -362,12 +369,10 @@ const zh = {
   'proxy.outboundMode': '出站模式',
   'proxy.outboundUrl': '出站代理 URL',
   'proxy.authPool': '账户池接管',
-  'proxy.maxBody': '请求体上限',
   'proxy.rawCapture': 'Raw capture',
   'proxy.rawCaptureMetricDesc': '抓包样本保存在本机，仅在需要排查时开启。',
   'proxy.rawCaptureDesc':
     '保存请求与响应原始样本，保存配置并重启后对后续新请求生效；0 表示不限制单包大小。',
-  'proxy.rawCaptureBytes': 'Capture 字节上限',
   'proxy.daemonControl': 'Daemon 管理',
   'proxy.daemonControlDesc': '配置 App 连接后台服务的管理入口与开机启动。',
   'proxy.adminHost': '管理地址',
@@ -404,9 +409,6 @@ const zh = {
   'proxy.sessionProviderConfirmTitle': '同步 Codex 会话 provider？',
   'proxy.sessionProviderConfirmDesc':
     '请先退出 Codex。该操作会备份并修改 ~/.codex/state_*.sqlite 和 sessions JSONL，只更新会话元数据里的 model_provider。',
-  'proxy.configMonitor': '配置监控',
-  'proxy.configMonitorDesc':
-    'Daemon 每小时检查 Codex config.toml，发现入口不正确时只记录状态，不自动修改文件。',
   'proxy.poolTotal': '总账户 {total}',
   'requests.title': '请求检查器',
   'requests.desc': '查看本地 Codex 请求、上游结果、额度标记和 raw capture。',
@@ -765,7 +767,9 @@ const en: Record<keyof typeof zh, string> = {
   'setup.openCodexDir': 'Open .codex',
   'setup.targetConfig': 'Target config preview',
   'setup.accountsUsageRequired':
-    'After importing the account pool, check all users usage before continuing.',
+    'No available account was found. Import accounts, or check usage and refresh.',
+  'setup.accountsUsageRecommended':
+    'Available accounts were found. You can continue; checking usage is recommended to remove exhausted or invalid accounts.',
   'setup.accountsUsageChecked': 'Account pool usage has been checked. You can continue.',
   'setup.workModeTitle': 'How CodexFree works',
   'setup.workModeClient':
@@ -773,7 +777,7 @@ const en: Record<keyof typeof zh, string> = {
   'setup.workModeProxy':
     'It works by changing the Codex base URLs so chatgpt_base_url and openai_base_url point to the local service. Requests pass through the local proxy, then CodexFree replaces upstream authentication and spends quota from the account pool.',
   'setup.workModePool':
-    'Before using the tool, sign in with one of your own ChatGPT/Codex accounts. A free account is enough. After configuration, Codex App remote control still works normally: sign in to the mobile ChatGPT App with the same account and connect from Codex. CodexFree does not affect remote control connection or management.',
+    'Before using the tool, sign in with one of your own Codex accounts. A free account is enough. After configuration, Codex App remote control still works normally: sign in to the mobile ChatGPT App with the same account and connect from Codex. CodexFree does not affect remote control connection or management.',
   'setup.workModeApiKey':
     'If you do not have your own account, you can select one imported account and write it into ~/.codex/auth.json. Do not enable Codex remote control when using a pooled account unless the account is yours, otherwise the account owner may control the session.',
   'setup.workModeAuthJson':
@@ -786,11 +790,17 @@ const en: Record<keyof typeof zh, string> = {
   'setup.noOwnAccount':
     'Without your own account, import the account pool first, then explicitly select one account to write into auth.json. CodexFree does not choose automatically.',
   'setup.recommendedPath':
-    'Recommended: sign in with your own ChatGPT/Codex account, then import purchased auth files into the account pool.',
+    'Recommended: sign in with your own Codex account, then import purchased auth files into the account pool.',
   'setup.riskPath':
     'Risk path: writing pooled auth into auth.json may affect Codex Mobile, remote control, and account ownership. It only runs after you confirm the risk.',
   'setup.futurePath':
     'Future path: API-key compatibility needs packet confirmation first and is not presented as available now.',
+  'setup.authOwnTitle': 'I have my own Codex account',
+  'setup.authOwnActionDesc':
+    'The current auth.json is renamed to a backup first, then you reopen Codex and complete the official login flow.',
+  'setup.authOwnRecommended': 'Recommended',
+  'setup.authImportedTitle': 'I do not have an account; use an imported account',
+  'setup.authImportedDisabled': 'Import first',
   'setup.renameAuth': 'Rename auth.json and sign in again',
   'setup.renameAuthTitle': 'Confirm auth.json rename',
   'setup.renameAuthDesc':
@@ -843,7 +853,7 @@ const en: Record<keyof typeof zh, string> = {
   'setup.wizard.config.desc': 'Write account-login base URLs to the top level of config.toml.',
   'setup.wizard.auth.title': 'Check Codex login',
   'setup.wizard.auth.desc':
-    'Check auth.json, or select one imported account and write it into place.',
+    'Choose your own account login, or select one imported account and write it into place.',
   'setup.wizard.accounts.title': 'Import account pool',
   'setup.wizard.accounts.desc':
     'The account pool is the source CodexFree uses for proxy forwarding.',
@@ -1028,12 +1038,10 @@ const en: Record<keyof typeof zh, string> = {
   'proxy.outboundMode': 'Outbound mode',
   'proxy.outboundUrl': 'Outbound proxy URL',
   'proxy.authPool': 'Account pool takeover',
-  'proxy.maxBody': 'Max request body',
   'proxy.rawCapture': 'Raw capture',
   'proxy.rawCaptureMetricDesc': 'Capture samples stay local; enable only for debugging.',
   'proxy.rawCaptureDesc':
     'Stores raw request and response samples. After saving and restarting, it applies to new requests; 0 means no per-packet cap.',
-  'proxy.rawCaptureBytes': 'Capture byte limit',
   'proxy.daemonControl': 'Daemon management',
   'proxy.daemonControlDesc': 'Configure the admin endpoint and login startup for the daemon.',
   'proxy.adminHost': 'Admin host',
@@ -1071,9 +1079,6 @@ const en: Record<keyof typeof zh, string> = {
   'proxy.sessionProviderConfirmTitle': 'Sync Codex session provider?',
   'proxy.sessionProviderConfirmDesc':
     'Quit Codex first. This backs up and edits ~/.codex/state_*.sqlite plus session JSONL, only updating model_provider metadata.',
-  'proxy.configMonitor': 'Config monitor',
-  'proxy.configMonitorDesc':
-    'Daemon checks Codex config.toml hourly and records drift only. It does not modify the file automatically.',
   'proxy.poolTotal': '{total} accounts total',
   'requests.title': 'Request inspector',
   'requests.desc':

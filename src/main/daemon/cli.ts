@@ -1,9 +1,6 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { mkdirSync } from 'node:fs'
 import { exit, stderr, stdout } from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { codexConfigContentLooksCurrent } from '../codex/config'
 import { readManagedProxyConfig, writeProxyConfig } from '../proxy/config'
 import { createProxyLogger } from '../proxy/event-log'
 import { ProxyLedger } from '../proxy/ledger'
@@ -72,7 +69,6 @@ export async function runDaemonCli(args: string[]): Promise<void> {
     writeConfig
   })
   const adminStatus = await admin.start()
-  const configMonitor = startCodexConfigMonitor(readConfig, ledger)
   const quotaResetRefresher = new QuotaResetRefresher({
     authPoolDir: paths.authPoolDir,
     ledger,
@@ -92,7 +88,6 @@ export async function runDaemonCli(args: string[]): Promise<void> {
     stdout.write(`\nReceived ${signal}; stopping CodexFree daemon...\n`)
     quotaResetRefresher.stop()
     tokenRefreshMaintainer.stop()
-    configMonitor.stop()
     await admin.stop()
     await service.stop()
     exit(0)
@@ -101,64 +96,6 @@ export async function runDaemonCli(args: string[]): Promise<void> {
   process.once('SIGTERM', () => void stop('SIGTERM'))
 
   await new Promise(() => undefined)
-}
-
-function startCodexConfigMonitor(
-  readConfig: () => ProxyConfig,
-  ledger: ProxyLedger
-): { stop: () => void } {
-  let lastDriftKey: string | null = null
-  const run = (): void => {
-    const config = readConfig()
-    if (!config.codexConfigMonitorEnabled) {
-      lastDriftKey = null
-      return
-    }
-    const input = codexConfigInput(config)
-    if (codexConfigLooksCurrent(input)) {
-      lastDriftKey = null
-      return
-    }
-    const driftKey = `${input.chatgptBaseUrl}\n${input.openaiBaseUrl}`
-    if (driftKey === lastDriftKey) {
-      return
-    }
-    lastDriftKey = driftKey
-    ledger.recordLogEvent(
-      {
-        detail: input,
-        eventType: 'system',
-        level: 'warn',
-        message: 'Codex config drift detected'
-      },
-      new Date()
-    )
-  }
-  run()
-  const timer = setInterval(run, 60 * 60 * 1000)
-  return {
-    stop: () => clearInterval(timer)
-  }
-}
-
-function codexConfigInput(config: ProxyConfig): {
-  chatgptBaseUrl: string
-  openaiBaseUrl: string
-} {
-  const baseUrl = `http://${config.listenHost}:${config.listenPort}/backend-api`
-  return {
-    chatgptBaseUrl: baseUrl,
-    openaiBaseUrl: `${baseUrl}/codex`
-  }
-}
-
-function codexConfigLooksCurrent(input: ReturnType<typeof codexConfigInput>): boolean {
-  const configPath = join(homedir(), '.codex', 'config.toml')
-  if (!existsSync(configPath)) {
-    return false
-  }
-  const content = readFileSync(configPath, 'utf8')
-  return codexConfigContentLooksCurrent(content, input)
 }
 
 export function resolveDaemonCliPaths(

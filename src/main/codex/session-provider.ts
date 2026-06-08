@@ -1,15 +1,10 @@
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync
-} from 'node:fs'
+import { access, copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, relative } from 'node:path'
 import Database from 'better-sqlite3'
 import { resolveCodexSessionProviderTargetFromCodexHome } from './config'
+
+const JSONL_YIELD_INTERVAL = 500
 
 export interface CodexSessionProviderRepairResult {
   backupDir: string
@@ -51,10 +46,10 @@ export async function repairCodexSessionProvider(
     input.backupRootDir,
     `${timestampForPath()}-${safePathPart(target.provider)}`
   )
-  mkdirSync(backupDir, { recursive: true, mode: 0o700 })
+  await mkdir(backupDir, { recursive: true, mode: 0o700 })
 
   const sqliteResult = await repairStateDatabases(codexHomeDir, backupDir, target.provider)
-  const jsonlResult = repairSessionJsonl(codexHomeDir, backupDir, target.provider)
+  const jsonlResult = await repairSessionJsonl(codexHomeDir, backupDir, target.provider)
 
   return {
     backupDir,
@@ -76,16 +71,17 @@ async function repairStateDatabases(
   backupDir: string,
   targetProvider: string
 ): Promise<SqliteRepairResult> {
-  if (!existsSync(codexHomeDir)) {
+  if (!(await pathExists(codexHomeDir))) {
     return { changed: 0, checked: 0 }
   }
 
   let checked = 0
   let changed = 0
-  for (const entry of readdirSync(codexHomeDir, { withFileTypes: true })) {
+  for (const entry of await readdir(codexHomeDir, { withFileTypes: true })) {
     if (!entry.isFile() || !/^state_.*\.sqlite$/.test(entry.name)) {
       continue
     }
+    await yieldToEventLoop()
     checked += 1
     const dbPath = join(codexHomeDir, entry.name)
     if (await repairStateDatabase(dbPath, backupDir, targetProvider)) {
@@ -100,6 +96,7 @@ async function repairStateDatabase(
   backupDir: string,
   targetProvider: string
 ): Promise<boolean> {
+  await yieldToEventLoop()
   const sqlite = new Database(dbPath, { timeout: 10_000 })
   try {
     if (!hasThreadsProviderColumn(sqlite)) {
@@ -135,6 +132,7 @@ async function repairStateDatabase(
     return true
   } finally {
     sqlite.close()
+    await yieldToEventLoop()
   }
 }
 
@@ -149,13 +147,13 @@ function hasThreadsProviderColumn(sqlite: Database.Database): boolean {
   return columns.some((column) => column.name === 'model_provider')
 }
 
-function repairSessionJsonl(
+async function repairSessionJsonl(
   codexHomeDir: string,
   backupDir: string,
   targetProvider: string
-): JsonlRepairResult {
+): Promise<JsonlRepairResult> {
   const sessionsDir = join(codexHomeDir, 'sessions')
-  if (!existsSync(sessionsDir)) {
+  if (!(await pathExists(sessionsDir))) {
     return { filesChanged: 0, filesChecked: 0, parseErrors: 0, sessionMetaChanged: 0 }
   }
 
@@ -163,9 +161,10 @@ function repairSessionJsonl(
   let filesChecked = 0
   let parseErrors = 0
   let sessionMetaChanged = 0
-  for (const file of walkJsonlFiles(sessionsDir)) {
+  for await (const file of walkJsonlFiles(sessionsDir)) {
+    await yieldToEventLoop()
     filesChecked += 1
-    const result = repairJsonlFile(file, sessionsDir, backupDir, targetProvider)
+    const result = await repairJsonlFile(file, sessionsDir, backupDir, targetProvider)
     if (result.changed) {
       filesChanged += 1
     }
@@ -175,13 +174,13 @@ function repairSessionJsonl(
   return { filesChanged, filesChecked, parseErrors, sessionMetaChanged }
 }
 
-function repairJsonlFile(
+async function repairJsonlFile(
   filePath: string,
   sessionsDir: string,
   backupDir: string,
   targetProvider: string
-): { changed: boolean; parseErrors: number; sessionMetaChanged: number } {
-  const original = readFileSync(filePath, 'utf8')
+): Promise<{ changed: boolean; parseErrors: number; sessionMetaChanged: number }> {
+  const original = await readFile(filePath, 'utf8')
   const hadFinalNewline = original.endsWith('\n')
   const lines = original.split('\n')
   let changed = false
@@ -189,6 +188,9 @@ function repairJsonlFile(
   let sessionMetaChanged = 0
 
   for (let index = 0; index < lines.length; index += 1) {
+    if (index > 0 && index % JSONL_YIELD_INTERVAL === 0) {
+      await yieldToEventLoop()
+    }
     const line = lines[index]
     if (!line?.includes('"model_provider"')) {
       continue
@@ -218,31 +220,35 @@ function repairJsonlFile(
     return { changed: false, parseErrors, sessionMetaChanged }
   }
 
-  backupJsonlFile(filePath, sessionsDir, backupDir)
+  await backupJsonlFile(filePath, sessionsDir, backupDir)
   let next = lines.join('\n')
   if (!hadFinalNewline && next.endsWith('\n')) {
     next = next.slice(0, -1)
   }
-  writeFileSync(filePath, next, 'utf8')
+  await writeFile(filePath, next, 'utf8')
   return { changed: true, parseErrors, sessionMetaChanged }
 }
 
-function walkJsonlFiles(directory: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+async function* walkJsonlFiles(directory: string): AsyncGenerator<string> {
+  await yieldToEventLoop()
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
     const fullPath = join(directory, entry.name)
     if (entry.isDirectory()) {
-      walkJsonlFiles(fullPath, out)
+      yield* walkJsonlFiles(fullPath)
     } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
-      out.push(fullPath)
+      yield fullPath
     }
   }
-  return out
 }
 
-function backupJsonlFile(filePath: string, sessionsDir: string, backupDir: string): void {
+async function backupJsonlFile(
+  filePath: string,
+  sessionsDir: string,
+  backupDir: string
+): Promise<void> {
   const destination = join(backupDir, 'sessions-jsonl', relative(sessionsDir, filePath))
-  mkdirSync(dirname(destination), { recursive: true, mode: 0o700 })
-  copyFileSync(filePath, destination)
+  await mkdir(dirname(destination), { recursive: true, mode: 0o700 })
+  await copyFile(filePath, destination)
 }
 
 function parseJsonLine(line: string): { ok: true; value: unknown } | { ok: false } {
@@ -255,6 +261,26 @@ function parseJsonLine(line: string): { ok: true; value: unknown } | { ok: false
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path)
+    return true
+  } catch (error) {
+    if (isNodeError(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) {
+      return false
+    }
+    throw error
+  }
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve))
 }
 
 function timestampForPath(): string {

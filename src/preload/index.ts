@@ -122,6 +122,8 @@ const api = {
   getSetupAssistantState: (): Promise<SetupAssistantStateDto> => ipcRenderer.invoke('setup:state'),
   renameCodexAuthForRelogin: (): Promise<SetupAssistantStateDto['auth']> =>
     ipcRenderer.invoke('setup:rename-codex-auth'),
+  listCodexAuthBackups: (): Promise<string[]> =>
+    ipcRenderer.invoke('setup:list-codex-auth-backups'),
   restoreCodexAuthBackup: (backupFileName: string): Promise<CodexAuthRestoreResultDto> =>
     ipcRenderer.invoke('setup:restore-codex-auth-backup', backupFileName),
   writeImportedAccountToCodexAuth: (accountId: string): Promise<CodexAuthWriteResultDto> =>

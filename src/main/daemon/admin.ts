@@ -341,7 +341,6 @@ function pageFromRows<T>(rows: T[], limit: number): ActivityPage<T> {
 
 function configAuditDetail(config: ProxyConfig): {
   authPoolEnabled: boolean
-  codexConfigMonitorEnabled: boolean
   listenHost: string
   listenPort: number
   maxRequestBodyBytes: number
@@ -350,7 +349,6 @@ function configAuditDetail(config: ProxyConfig): {
 } {
   return {
     authPoolEnabled: config.authPool.enabled,
-    codexConfigMonitorEnabled: config.codexConfigMonitorEnabled,
     listenHost: config.listenHost,
     listenPort: config.listenPort,
     maxRequestBodyBytes: config.maxRequestBodyBytes,

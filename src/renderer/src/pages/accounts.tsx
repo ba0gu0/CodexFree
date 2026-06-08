@@ -22,6 +22,7 @@ import {
   type AccountPlanFilter,
   type AccountStatusFilter,
   accountFormatLabel,
+  accountNeedsReview,
   accountPlanKind,
   accountRemainingQuotaPercent,
   filterAccounts,
@@ -223,7 +224,7 @@ function usageProgressText(progress: PageProps['usageProgress']): string | null 
 }
 
 function needsReviewCount(accounts: ManagedAccount[]): number {
-  return accounts.filter((account) => account.lastUsageError || !account.lastUsageCheckedAt).length
+  return accounts.filter(accountNeedsReview).length
 }
 
 function AccountTable({

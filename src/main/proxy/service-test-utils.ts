@@ -13,7 +13,6 @@ export function createConfig(upstream: http.Server): ProxyConfig {
   return {
     listenHost: '127.0.0.1',
     listenPort: 0,
-    codexConfigMonitorEnabled: false,
     upstreamBaseUrl: `http://127.0.0.1:${address.port}`,
     outboundProxy: {
       mode: 'direct',

@@ -26,7 +26,7 @@ export function filterAccounts(
 ): ManagedAccount[] {
   const normalized = query.trim().toLowerCase()
   return accounts.filter((account) => {
-    const accountStatus = account.lastUsageError ? 'invalid' : account.status
+    const accountStatus = accountNeedsReview(account) ? 'invalid' : account.status
     const accountFormat = accountSourceFormat(account)
     const accountPlan = accountPlanKind(account)
     const matchesQuery =
@@ -39,6 +39,10 @@ export function filterAccounts(
     const matchesPlan = planFilter === 'all' || accountPlan === planFilter
     return matchesQuery && matchesStatus && matchesFormat && matchesPlan
   })
+}
+
+export function accountNeedsReview(account: ManagedAccount): boolean {
+  return Boolean(account.lastUsageError)
 }
 
 export function accountPlanKind(account: ManagedAccount): AccountPlanFilter {

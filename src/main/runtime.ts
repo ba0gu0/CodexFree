@@ -61,6 +61,7 @@ export type DaemonControlSaveInput = DaemonControlUpdateInput
 export interface MainRuntime {
   daemonClient: DaemonAdminClient
   ensureDaemon: () => Promise<void>
+  dataDirectoryPath: string
   importedAuthPoolPath: string
   readDaemonControlSettings: () => DaemonControlView
   proxyStatus: () => Promise<ProxyStatus>
@@ -392,6 +393,7 @@ export function createMainRuntime(): MainRuntime {
       return daemonClient
     },
     ensureDaemon,
+    dataDirectoryPath: paths.dataDir,
     importedAuthPoolPath,
     clearRecords,
     deleteAccounts,

@@ -24,7 +24,9 @@ export interface PageActions {
   refresh: () => Promise<void>
   repairCodexSessionProvider: () => Promise<void>
   resetExhausted: () => Promise<void>
+  listCodexAuthBackups: () => Promise<string[]>
   listCodexConfigBackups: () => Promise<string[]>
+  restoreCodexAuthBackup: (backupFileName: string) => Promise<void>
   restoreCodexConfigBackup: (backupFileName: string) => Promise<void>
   restartProxy: () => Promise<void>
   saveConfig: (config: ProxyConfig) => Promise<void>

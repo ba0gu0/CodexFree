@@ -28,7 +28,6 @@ import {
   SelectValue
 } from '@renderer/components/ui/select'
 import { Switch } from '@renderer/components/ui/switch'
-import { formatBytes } from '@renderer/data/format'
 import { type OutboundMode, outboundModes, type ProxyConfig } from '@renderer/data/proxy-console'
 import {
   FilePenLineIcon,
@@ -48,7 +47,7 @@ interface DaemonDraft {
   launchAgentEnabled: boolean
 }
 
-export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProps): ReactElement {
+export function ProxyPage({ actions, busyAction, snapshot, t }: PageProps): ReactElement {
   const [draft, setDraft] = useState<ProxyConfig>(snapshot.config)
   const [daemonDraft, setDaemonDraft] = useState<DaemonDraft>({
     adminHost: snapshot.daemonControl.adminHost,
@@ -56,10 +55,13 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
     adminToken: '',
     launchAgentEnabled: snapshot.daemonControl.launchAgent.enabled
   })
+  const [authBackups, setAuthBackups] = useState<string[]>([])
   const [configBackups, setConfigBackups] = useState<string[]>([])
+  const [confirmAuthRestoreOpen, setConfirmAuthRestoreOpen] = useState(false)
   const [confirmLaunchAgentOpen, setConfirmLaunchAgentOpen] = useState(false)
   const [confirmConfigRestoreOpen, setConfirmConfigRestoreOpen] = useState(false)
   const [confirmSessionProviderOpen, setConfirmSessionProviderOpen] = useState(false)
+  const [selectedAuthBackup, setSelectedAuthBackup] = useState('')
   const [selectedConfigBackup, setSelectedConfigBackup] = useState('')
 
   useEffect(() => {
@@ -87,6 +89,12 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
     setConfigBackups(backups)
     setSelectedConfigBackup(backups[0] ?? '')
     setConfirmConfigRestoreOpen(true)
+  }
+  const openAuthRestore = async (): Promise<void> => {
+    const backups = await actions.listCodexAuthBackups()
+    setAuthBackups(backups)
+    setSelectedAuthBackup(backups[0] ?? '')
+    setConfirmAuthRestoreOpen(true)
   }
 
   return (
@@ -158,8 +166,8 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
         />
       </section>
 
-      <section className="grid min-h-0 items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Card className="overflow-hidden rounded-xl shadow-none">
+      <section className="grid min-h-0 items-stretch gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <Card className="flex h-full flex-col overflow-hidden rounded-xl shadow-none">
           <CardHeader className="p-3 pb-1.5">
             <CardTitle className="text-lg">{t('proxy.title')}</CardTitle>
             <CardDescription className="line-clamp-1">{t('proxy.desc')}</CardDescription>
@@ -237,104 +245,82 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
                 value={draft.outboundProxy.url}
               />
             </Field>
-            <Field>
-              <FieldLabel>{t('proxy.maxBody')}</FieldLabel>
-              <Input
-                min={0}
-                nativeInput
-                onChange={(event) =>
-                  patchNumber(setDraft, draft, 'maxRequestBodyBytes', event.target.value)
-                }
-                type="number"
-                value={draft.maxRequestBodyBytes}
-              />
-              <FieldDescription>{formatBytes(draft.maxRequestBodyBytes, locale)}</FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel>{t('proxy.rawCaptureBytes')}</FieldLabel>
-              <Input
-                min={0}
-                nativeInput
-                onChange={(event) =>
-                  patchNumber(setDraft, draft, 'rawCaptureMaxBytes', event.target.value)
-                }
-                type="number"
-                value={draft.rawCaptureMaxBytes}
-              />
-              <FieldDescription>{formatBytes(draft.rawCaptureMaxBytes, locale)}</FieldDescription>
-            </Field>
           </CardPanel>
         </Card>
 
-        <aside className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
-          <Card className="flex flex-col rounded-xl shadow-none">
+        <aside className="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
+          <Card className="flex h-full flex-col rounded-xl shadow-none">
             <CardHeader className="p-3 pb-1.5">
               <CardTitle className="text-lg">{t('proxy.daemonControl')}</CardTitle>
               <CardDescription className="line-clamp-1">
                 {t('proxy.daemonControlDesc')}
               </CardDescription>
             </CardHeader>
-            <CardPanel className="grid content-start gap-2 p-3 pt-0 md:grid-cols-2 [&_[data-slot=field]]:gap-1.5">
-              <Field>
-                <FieldLabel>{t('proxy.adminHost')}</FieldLabel>
-                <Input
-                  onChange={(event) =>
-                    setDaemonDraft({ ...daemonDraft, adminHost: event.target.value })
+            <CardPanel className="flex flex-1 flex-col gap-3 p-3 pt-0 [&_[data-slot=field]]:gap-1">
+              <div className="grid gap-1.5 md:grid-cols-2">
+                <Field>
+                  <FieldLabel>{t('proxy.adminHost')}</FieldLabel>
+                  <Input
+                    onChange={(event) =>
+                      setDaemonDraft({ ...daemonDraft, adminHost: event.target.value })
+                    }
+                    size="sm"
+                    value={daemonDraft.adminHost}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>{t('proxy.adminPort')}</FieldLabel>
+                  <Input
+                    min={1}
+                    nativeInput
+                    onChange={(event) =>
+                      setDaemonDraft({
+                        ...daemonDraft,
+                        adminPort: Number.parseInt(event.target.value, 10)
+                      })
+                    }
+                    size="sm"
+                    type="number"
+                    value={daemonDraft.adminPort}
+                  />
+                </Field>
+                <Field className="md:col-span-2">
+                  <FieldLabel>{t('proxy.adminToken')}</FieldLabel>
+                  <Input
+                    onChange={(event) =>
+                      setDaemonDraft({ ...daemonDraft, adminToken: event.target.value })
+                    }
+                    placeholder={t('proxy.adminTokenDesc')}
+                    size="sm"
+                    type="password"
+                    value={daemonDraft.adminToken}
+                  />
+                </Field>
+                <SwitchField
+                  checked={daemonDraft.launchAgentEnabled}
+                  className="p-2 md:col-span-2"
+                  description={
+                    snapshot.daemonControl.launchAgent.supported
+                      ? launchAgentDescription(snapshot.daemonControl.launchAgent, t)
+                      : t('proxy.launchAgentUnsupported')
                   }
-                  value={daemonDraft.adminHost}
+                  disabled={!snapshot.daemonControl.launchAgent.supported}
+                  label={t('proxy.launchAgent')}
+                  onChange={(launchAgentEnabled) => {
+                    if (launchAgentEnabled && !daemonDraft.launchAgentEnabled) {
+                      setConfirmLaunchAgentOpen(true)
+                      return
+                    }
+                    setDaemonDraft({ ...daemonDraft, launchAgentEnabled })
+                  }}
                 />
-              </Field>
-              <Field>
-                <FieldLabel>{t('proxy.adminPort')}</FieldLabel>
-                <Input
-                  min={1}
-                  nativeInput
-                  onChange={(event) =>
-                    setDaemonDraft({
-                      ...daemonDraft,
-                      adminPort: Number.parseInt(event.target.value, 10)
-                    })
-                  }
-                  type="number"
-                  value={daemonDraft.adminPort}
-                />
-              </Field>
-              <Field className="md:col-span-2">
-                <FieldLabel>{t('proxy.adminToken')}</FieldLabel>
-                <Input
-                  onChange={(event) =>
-                    setDaemonDraft({ ...daemonDraft, adminToken: event.target.value })
-                  }
-                  placeholder={t('proxy.adminTokenDesc')}
-                  type="password"
-                  value={daemonDraft.adminToken}
-                />
-              </Field>
-              <SwitchField
-                checked={daemonDraft.launchAgentEnabled}
-                className="md:col-span-2"
-                description={
-                  snapshot.daemonControl.launchAgent.supported
-                    ? launchAgentDescription(snapshot.daemonControl.launchAgent, t)
-                    : t('proxy.launchAgentUnsupported')
-                }
-                disabled={!snapshot.daemonControl.launchAgent.supported}
-                label={t('proxy.launchAgent')}
-                onChange={(launchAgentEnabled) => {
-                  if (launchAgentEnabled && !daemonDraft.launchAgentEnabled) {
-                    setConfirmLaunchAgentOpen(true)
-                    return
-                  }
-                  setDaemonDraft({ ...daemonDraft, launchAgentEnabled })
-                }}
-              />
+              </div>
               <ConfigRepairPanel
                 actions={actions}
                 busyAction={busyAction}
-                checked={draft.codexConfigMonitorEnabled}
-                onChange={(codexConfigMonitorEnabled) =>
-                  setDraft({ ...draft, codexConfigMonitorEnabled })
-                }
+                onRestoreAuthBackup={() => {
+                  void openAuthRestore()
+                }}
                 onRestoreConfigBackup={() => {
                   void openConfigRestore()
                 }}
@@ -368,6 +354,64 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
               }
             >
               {t('action.enable')}
+            </AlertDialogClose>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
+      <AlertDialog open={confirmAuthRestoreOpen} onOpenChange={setConfirmAuthRestoreOpen}>
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('setup.restoreAuthTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('setup.restoreAuthDesc', {
+                file: selectedAuthBackup || 'codexfree-auth.json'
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {authBackups.length > 0 ? (
+            <Select
+              items={authBackups.map((fileName) => ({ label: fileName, value: fileName }))}
+              onValueChange={(fileName) => setSelectedAuthBackup(fileName ?? '')}
+              value={selectedAuthBackup}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectGroup>
+                  {authBackups.map((fileName) => (
+                    <SelectItem key={fileName} value={fileName}>
+                      {fileName}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectPopup>
+            </Select>
+          ) : (
+            <div className="rounded-lg border bg-muted/25 p-3 text-muted-foreground text-sm">
+              {t('setup.restoreAuthEmpty')}
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              {t('action.cancel')}
+            </AlertDialogClose>
+            <AlertDialogClose
+              render={
+                <Button
+                  disabled={!selectedAuthBackup}
+                  loading={busyAction === 'authRestore'}
+                  onClick={() => {
+                    if (!selectedAuthBackup) {
+                      return
+                    }
+                    void actions.restoreCodexAuthBackup(selectedAuthBackup)
+                  }}
+                  variant="destructive-outline"
+                />
+              }
+            >
+              {t('setup.restoreAuth')}
             </AlertDialogClose>
           </AlertDialogFooter>
         </AlertDialogPopup>
@@ -459,30 +503,22 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
 function ConfigRepairPanel({
   actions,
   busyAction,
-  checked,
+  onRestoreAuthBackup,
   onRestoreConfigBackup,
   onRepairSessionProvider,
-  onChange,
   t
 }: {
   actions: PageProps['actions']
   busyAction: PageProps['busyAction']
-  checked: boolean
+  onRestoreAuthBackup: () => void
   onRestoreConfigBackup: () => void
   onRepairSessionProvider: () => void
-  onChange: (checked: boolean) => void
   t: PageProps['t']
 }): ReactElement {
   return (
-    <div className="grid gap-2 md:col-span-2">
-      <SwitchField
-        checked={checked}
-        description={t('proxy.configMonitorDesc')}
-        label={t('proxy.configMonitor')}
-        onChange={onChange}
-      />
+    <div className="mt-auto grid gap-2">
       <div className="grid gap-2">
-        <Field className="flex-row items-center justify-between gap-3 rounded-lg border bg-background p-2.5">
+        <Field className="flex-row items-center justify-between gap-3 rounded-lg border bg-background/60 p-2">
           <div className="min-w-0">
             <FieldLabel>{t('proxy.configToml')}</FieldLabel>
             <FieldDescription className="mt-1 line-clamp-1">
@@ -499,8 +535,18 @@ function ConfigRepairPanel({
             {t('proxy.configToml')}
           </Button>
         </Field>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <Button
+            className="min-w-0 whitespace-normal px-2 text-xs leading-tight"
+            loading={busyAction === 'authRestore'}
+            onClick={onRestoreAuthBackup}
+            variant="outline"
+          >
+            <RotateCcwIcon data-icon="inline-start" />
+            {t('setup.restoreAuth')}
+          </Button>
+          <Button
+            className="min-w-0 whitespace-normal px-2 text-xs leading-tight"
             loading={busyAction === 'configRestore'}
             onClick={onRestoreConfigBackup}
             variant="outline"
@@ -509,6 +555,7 @@ function ConfigRepairPanel({
             {t('proxy.configRestore')}
           </Button>
           <Button
+            className="min-w-0 whitespace-normal px-2 text-xs leading-tight"
             loading={busyAction === 'sessionProviderRepair'}
             onClick={onRepairSessionProvider}
             variant="outline"
@@ -546,7 +593,6 @@ function proxyPageChanged(
     draft.maxRequestBodyBytes !== config.maxRequestBodyBytes ||
     draft.rawCaptureEnabled !== config.rawCaptureEnabled ||
     draft.rawCaptureMaxBytes !== config.rawCaptureMaxBytes ||
-    draft.codexConfigMonitorEnabled !== config.codexConfigMonitorEnabled ||
     daemonDraft.adminHost !== snapshot.daemonControl.adminHost ||
     daemonDraft.adminPort !== snapshot.daemonControl.adminPort ||
     daemonDraft.launchAgentEnabled !== snapshot.daemonControl.launchAgent.enabled ||

@@ -31,7 +31,6 @@ const proxyConfig: ProxyConfig = {
   authPool: { directory: '/tmp/auth-pool', enabled: true },
   listenHost: '127.0.0.1',
   listenPort: 33333,
-  codexConfigMonitorEnabled: false,
   outboundProxy: { mode: 'direct', url: '' },
   maxRequestBodyBytes: 0,
   rawCaptureEnabled: false,

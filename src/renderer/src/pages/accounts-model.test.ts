@@ -1,6 +1,7 @@
 import type { ManagedAccount } from '@renderer/data/proxy-console'
 import { describe, expect, it } from 'vitest'
 import {
+  accountNeedsReview,
   accountPlanKind,
   accountQuotaResetAt,
   accountRemainingQuotaPercent,
@@ -65,6 +66,26 @@ describe('accounts model quota windows', () => {
     expect(
       filterAccounts(accounts, '', 'all', 'all', 'team').map((account) => account.accountId)
     ).toEqual(['team-account'])
+  })
+
+  it('counts only usage errors as accounts needing review', () => {
+    const uncheckedAccount = managedAccount({
+      accountId: 'unchecked-account',
+      lastUsageCheckedAt: null,
+      lastUsageError: null
+    })
+    const errorAccount = managedAccount({
+      accountId: 'error-account',
+      lastUsageCheckedAt: 1780927748000,
+      lastUsageError: 'usage check failed'
+    })
+    const accounts = [uncheckedAccount, errorAccount]
+
+    expect(accountNeedsReview(uncheckedAccount)).toBe(false)
+    expect(accountNeedsReview(errorAccount)).toBe(true)
+    expect(
+      filterAccounts(accounts, '', 'invalid', 'all', 'all').map((account) => account.accountId)
+    ).toEqual(['error-account'])
   })
 })
 
