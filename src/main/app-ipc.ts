@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, dialog, ipcMain, shell } from 'electron'
 import { importAuthFilesToDirectory, readImportedAuthAccounts } from './auth/import'
-import { writeCodexConfigFile, writePlaceholderAuthFile } from './auth/placeholder'
+import { writePlaceholderAuthFile } from './auth/placeholder'
 import { checkAuthDirectoryUsage } from './auth/usage-check'
 import { clearRawCaptures, readRawCaptureDetail } from './proxy/raw-capture'
 import type { ProxyConfig } from './proxy/types'
@@ -163,14 +163,10 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     return { exported }
   })
   ipcMain.handle('proxy:write-placeholder-auth', () => writePlaceholderAuthFile())
-  ipcMain.handle('proxy:write-codex-config', async () => {
-    const config = runtime.readRuntimeConfig()
-    const endpoint = `http://${config.listenHost}:${config.listenPort}/backend-api`
-    return writeCodexConfigFile({
-      chatgptBaseUrl: endpoint,
-      openaiBaseUrl: `${endpoint}/codex`
-    })
-  })
+  ipcMain.handle('proxy:write-codex-config', () => runtime.writeCodexProxyConfig())
+  ipcMain.handle('proxy:snapshot-codex-config', () => runtime.saveCurrentCodexConfigSnapshot())
+  ipcMain.handle('proxy:restore-codex-api-config', () => runtime.restoreCodexApiConfig())
+  ipcMain.handle('proxy:repair-codex-session-provider', () => runtime.repairCodexSessionProvider())
   ipcMain.handle('setup:state', () => readSetupAssistantState(runtime))
   ipcMain.handle('setup:rename-codex-auth', () => renameCodexAuthForRelogin())
   ipcMain.handle('proxy:reset-exhausted-accounts', async () => {

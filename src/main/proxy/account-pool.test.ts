@@ -83,6 +83,7 @@ describe('account pool', () => {
         label: 'Account A',
         lastRefresh: staleAuth.last_refresh,
         refreshable: true,
+        upstreamAccountId: 'account-a',
         warnings: []
       }
     ])
@@ -126,5 +127,31 @@ describe('account pool', () => {
         reason: 'invalid_auth_file'
       })
     ])
+  })
+
+  it('keeps local account identity separate from upstream account header identity', () => {
+    const authDirectory = mkdtempSync(join(tmpdir(), 'codexfree-auth-pool-'))
+    writeFileSync(
+      join(authDirectory, 'team.json'),
+      JSON.stringify({
+        auth_mode: 'chatgpt',
+        OPENAI_API_KEY: null,
+        email: 'team-user@example.test',
+        plan_type: 'team',
+        tokens: {
+          id_token: 'id-token',
+          access_token: 'access-token',
+          refresh_token: 'refresh-token',
+          account_id: 'shared-team-account'
+        },
+        last_refresh: '2026-05-14T00:00:00.000Z'
+      })
+    )
+    const pool = AccountPool.fromConfig({ enabled: true, directory: authDirectory })
+
+    const selected = pool.select({ incomingAccountId: 'placeholder' })
+
+    expect(selected?.accountId).toMatch(/^shared-team-account:user:/)
+    expect(selected?.upstreamAccountId).toBe('shared-team-account')
   })
 })

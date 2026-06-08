@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { exit, stderr, stdout } from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { writeCodexConfigFile } from '../auth/placeholder'
+import { codexConfigContentLooksCurrent } from '../codex/config'
 import { readManagedProxyConfig, writeProxyConfig } from '../proxy/config'
 import { createProxyLogger } from '../proxy/event-log'
 import { ProxyLedger } from '../proxy/ledger'
@@ -72,7 +72,7 @@ export async function runDaemonCli(args: string[]): Promise<void> {
     writeConfig
   })
   const adminStatus = await admin.start()
-  const configMonitor = startCodexConfigMonitor(readConfig)
+  const configMonitor = startCodexConfigMonitor(readConfig, ledger)
   const quotaResetRefresher = new QuotaResetRefresher({
     authPoolDir: paths.authPoolDir,
     ledger,
@@ -103,17 +103,36 @@ export async function runDaemonCli(args: string[]): Promise<void> {
   await new Promise(() => undefined)
 }
 
-function startCodexConfigMonitor(readConfig: () => ProxyConfig): { stop: () => void } {
+function startCodexConfigMonitor(
+  readConfig: () => ProxyConfig,
+  ledger: ProxyLedger
+): { stop: () => void } {
+  let lastDriftKey: string | null = null
   const run = (): void => {
     const config = readConfig()
     if (!config.codexConfigMonitorEnabled) {
+      lastDriftKey = null
       return
     }
     const input = codexConfigInput(config)
     if (codexConfigLooksCurrent(input)) {
+      lastDriftKey = null
       return
     }
-    writeCodexConfigFile(input)
+    const driftKey = `${input.chatgptBaseUrl}\n${input.openaiBaseUrl}`
+    if (driftKey === lastDriftKey) {
+      return
+    }
+    lastDriftKey = driftKey
+    ledger.recordLogEvent(
+      {
+        detail: input,
+        eventType: 'system',
+        level: 'warn',
+        message: 'Codex config drift detected'
+      },
+      new Date()
+    )
   }
   run()
   const timer = setInterval(run, 60 * 60 * 1000)
@@ -139,15 +158,7 @@ function codexConfigLooksCurrent(input: ReturnType<typeof codexConfigInput>): bo
     return false
   }
   const content = readFileSync(configPath, 'utf8')
-  const expectedHeader = [
-    `chatgpt_base_url = "${escapeTomlString(input.chatgptBaseUrl)}"`,
-    `openai_base_url = "${escapeTomlString(input.openaiBaseUrl)}"`
-  ].join('\n')
-  return !/^\s*model_provider\s*=/m.test(content) && content.startsWith(`${expectedHeader}\n`)
-}
-
-function escapeTomlString(value: string): string {
-  return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
+  return codexConfigContentLooksCurrent(content, input)
 }
 
 export function resolveDaemonCliPaths(

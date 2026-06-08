@@ -56,6 +56,7 @@ export class AccountQuotaGuard {
       agent: this.options.agent(),
       authorization: account.authorization,
       label: account.label,
+      upstreamAccountId: account.upstreamAccountId,
       usageUrl: this.options.usageUrl()
     })
     this.updateUsage(result)

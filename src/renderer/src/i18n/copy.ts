@@ -40,6 +40,11 @@ const zh = {
   'notice.accountsUpdated': '账号状态已更新。',
   'notice.codexConfigWritten': 'Codex 配置已写入。',
   'notice.codexConfigAlreadyCurrent': 'Codex 配置已是最新，无需重复写入。',
+  'notice.codexConfigSnapshotSaved': '已记录当前 Codex API 配置：{provider}。',
+  'notice.codexApiConfigRestored': '已恢复 Codex API 配置：{provider}。',
+  'notice.codexApiConfigAlreadyCurrent': 'Codex API 配置已是快照内容。',
+  'notice.codexSessionProviderRepaired':
+    '会话 provider 已同步为 {provider}，SQLite {sqlite} 个库，JSONL {jsonl} 条。',
   'notice.codexAuthRenamed': 'auth.json 已重命名，请重新打开 Codex 按官方流程登录。',
   'action.start': '启动',
   'action.stop': '停止',
@@ -116,7 +121,7 @@ const zh = {
   'setup.workModeAuthJson':
     '配置 auth.json 的目的，是让 Codex App 能正常启动并进入账号模式；没有可用的 auth.json 时，Codex App 无法正常启动。',
   'setup.workModeConfig':
-    '之后配置 ~/.codex/config.toml，需要修改 chatgpt_base_url 和 openai_base_url，并移除 provider / model_provider 相关配置。',
+    '之后配置 ~/.codex/config.toml，需要修改 chatgpt_base_url 和 openai_base_url，并移除顶层 model_provider；不修改 [model_providers.*] 定义。',
   'setup.boundaryTitle': '登录边界',
   'setup.boundaryDesc':
     '本地 Codex 登录账号只用于进入 ChatGPT 账号模式；CodexFree 代理转发时使用导入的账号池。',
@@ -140,7 +145,8 @@ const zh = {
   'setup.configHealth.missing_values': '缺少 chatgpt_base_url 或 openai_base_url。',
   'setup.configHealth.port_mismatch': '路径正确，但端口或主机与当前代理不一致。',
   'setup.configHealth.wrong_table': 'base URL 写在 profile 或其他 table 中，需要移动到顶层。',
-  'setup.configHealth.model_provider_present': 'base URL 正确，但仍存在 model_provider，需要清理。',
+  'setup.configHealth.model_provider_present':
+    'base URL 正确，但顶层 model_provider 仍会让 Codex 使用自定义 provider，需要清理。',
   'setup.configHealth.mismatch': '配置内容与当前账号模式代理不一致。',
   'setup.authHealth.missing': '未找到 auth.json，请通过官方 Codex 登录。',
   'setup.authHealth.codex_login_like': 'auth.json 看起来是 Codex ChatGPT 登录文件。',
@@ -371,9 +377,15 @@ const zh = {
     '确认后保存配置时会写入系统启动项文件，并让后台 daemon 可在登录后自动启动。',
   'proxy.configToml': '写入配置',
   'proxy.configTomlDesc': '立即把当前代理入口写入 Codex config.toml，适合首次配置或手动修复。',
+  'proxy.configSnapshot': '记录 API 配置',
+  'proxy.configRestore': '恢复 API 配置',
+  'proxy.sessionProviderRepair': '同步会话',
+  'proxy.sessionProviderConfirmTitle': '同步 Codex 会话 provider？',
+  'proxy.sessionProviderConfirmDesc':
+    '请先退出 Codex。该操作会备份并修改 ~/.codex/state_*.sqlite 和 sessions JSONL，只更新会话元数据里的 model_provider。',
   'proxy.configMonitor': '配置监控',
   'proxy.configMonitorDesc':
-    'Daemon 每小时检查 Codex config.toml，发现入口不正确时先备份再补齐三行代理配置。',
+    'Daemon 每小时检查 Codex config.toml，发现入口不正确时只记录状态，不自动修改文件。',
   'proxy.poolTotal': '总账户 {total}',
   'requests.title': '请求检查器',
   'requests.desc': '查看本地 Codex 请求、上游结果、额度标记和 raw capture。',
@@ -658,6 +670,11 @@ const en: Record<keyof typeof zh, string> = {
   'notice.accountsUpdated': 'Account state updated.',
   'notice.codexConfigWritten': 'Codex configuration written.',
   'notice.codexConfigAlreadyCurrent': 'Codex configuration is already current.',
+  'notice.codexConfigSnapshotSaved': 'Saved current Codex API config: {provider}.',
+  'notice.codexApiConfigRestored': 'Restored Codex API config: {provider}.',
+  'notice.codexApiConfigAlreadyCurrent': 'Codex API config already matches the snapshot.',
+  'notice.codexSessionProviderRepaired':
+    'Session provider synced to {provider}: {sqlite} SQLite DBs, {jsonl} JSONL records.',
   'notice.codexAuthRenamed':
     'auth.json renamed. Reopen Codex and sign in through the official flow.',
   'action.start': 'Start',
@@ -735,7 +752,7 @@ const en: Record<keyof typeof zh, string> = {
   'setup.workModeAuthJson':
     'auth.json is configured so Codex App can start and enter account mode. Without a usable auth.json, Codex App cannot start normally.',
   'setup.workModeConfig':
-    'Then configure ~/.codex/config.toml by changing chatgpt_base_url and openai_base_url, and removing provider / model_provider configuration.',
+    'Then configure ~/.codex/config.toml by changing chatgpt_base_url and openai_base_url, and removing the top-level model_provider. [model_providers.*] definitions are not changed.',
   'setup.boundaryTitle': 'Login boundary',
   'setup.boundaryDesc':
     'The local Codex login only lets the Codex client enter ChatGPT account mode; CodexFree routes through the imported account pool.',
@@ -763,7 +780,7 @@ const en: Record<keyof typeof zh, string> = {
   'setup.configHealth.wrong_table':
     'Base URLs are under a profile or another table; they must be top-level.',
   'setup.configHealth.model_provider_present':
-    'Base URLs are correct, but model_provider still needs cleanup.',
+    'Base URLs are correct, but top-level model_provider still points Codex at a custom provider.',
   'setup.configHealth.mismatch': 'Config does not match the current account-mode proxy.',
   'setup.authHealth.missing': 'auth.json was not found. Sign in with official Codex.',
   'setup.authHealth.codex_login_like': 'auth.json looks like a Codex ChatGPT login file.',
@@ -1004,9 +1021,15 @@ const en: Record<keyof typeof zh, string> = {
   'proxy.configToml': 'Write config',
   'proxy.configTomlDesc':
     'Write the current proxy endpoints to Codex config.toml now. Use this for first setup or manual repair.',
+  'proxy.configSnapshot': 'Save API config',
+  'proxy.configRestore': 'Restore API config',
+  'proxy.sessionProviderRepair': 'Sync sessions',
+  'proxy.sessionProviderConfirmTitle': 'Sync Codex session provider?',
+  'proxy.sessionProviderConfirmDesc':
+    'Quit Codex first. This backs up and edits ~/.codex/state_*.sqlite plus session JSONL, only updating model_provider metadata.',
   'proxy.configMonitor': 'Config monitor',
   'proxy.configMonitorDesc':
-    'Daemon checks Codex config.toml hourly, backs it up, and restores the three proxy lines when needed.',
+    'Daemon checks Codex config.toml hourly and records drift only. It does not modify the file automatically.',
   'proxy.poolTotal': '{total} accounts total',
   'requests.title': 'Request inspector',
   'requests.desc':

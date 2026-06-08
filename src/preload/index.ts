@@ -7,7 +7,10 @@ import type {
   AuthImportResultDto,
   CleanExpiredAccountsDto,
   ClearProxyRecordsResultDto,
+  CodexConfigRestoreResultDto,
+  CodexConfigSnapshotSaveResultDto,
   CodexConfigWriteResultDto,
+  CodexSessionProviderRepairResultDto,
   DaemonControlSaveInputDto,
   DaemonControlSaveResultDto,
   DaemonControlSettingsDto,
@@ -109,6 +112,12 @@ const api = {
     ipcRenderer.invoke('proxy:write-placeholder-auth'),
   writeCodexConfig: (): Promise<CodexConfigWriteResultDto> =>
     ipcRenderer.invoke('proxy:write-codex-config'),
+  snapshotCodexConfig: (): Promise<CodexConfigSnapshotSaveResultDto> =>
+    ipcRenderer.invoke('proxy:snapshot-codex-config'),
+  restoreCodexApiConfig: (): Promise<CodexConfigRestoreResultDto> =>
+    ipcRenderer.invoke('proxy:restore-codex-api-config'),
+  repairCodexSessionProvider: (): Promise<CodexSessionProviderRepairResultDto> =>
+    ipcRenderer.invoke('proxy:repair-codex-session-provider'),
   getSetupAssistantState: (): Promise<SetupAssistantStateDto> => ipcRenderer.invoke('setup:state'),
   renameCodexAuthForRelogin: (): Promise<SetupAssistantStateDto['auth']> =>
     ipcRenderer.invoke('setup:rename-codex-auth'),

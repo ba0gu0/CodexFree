@@ -134,6 +134,82 @@ describe('account usage check', () => {
     }
   })
 
+  it('uses auth JWT plan type when usage response omits plan_type', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'codexfree-usage-plan-'))
+    writeAuthFile(directory, 'pro-account', {
+      idToken: fakeJwt({
+        email: 'pro@example.test',
+        'https://api.openai.com/auth': {
+          chatgpt_account_id: 'pro-account',
+          chatgpt_plan_type: 'pro'
+        }
+      })
+    })
+    let accountHeader: string | string[] | undefined
+    const server = http.createServer((request, response) => {
+      accountHeader = request.headers['chatgpt-account-id']
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(
+        JSON.stringify({
+          account_id: 'pro-account',
+          email: 'pro@example.test',
+          rate_limit: {
+            primary_window: {
+              used_percent: 8
+            }
+          }
+        })
+      )
+    })
+    await listen(server)
+
+    try {
+      const results = await checkAuthDirectoryUsage(directory, { usageUrl: usageUrl(server) })
+
+      expect(results).toHaveLength(1)
+      expect(results[0]).toMatchObject({
+        ok: true,
+        planType: 'pro',
+        primaryUsedPercent: '8'
+      })
+      expect(results[0].accountId).toMatch(/^pro-account:user:/)
+      expect(accountHeader).toBe('pro-account')
+    } finally {
+      await closeServer(server)
+    }
+  })
+
+  it('parses nested account plan types from usage responses', async () => {
+    const server = http.createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(
+        JSON.stringify({
+          account_id: 'team-account',
+          account: {
+            plan: 'team'
+          }
+        })
+      )
+    })
+    await listen(server)
+
+    try {
+      const result = await checkAccountUsageByAuthorization({
+        authorization: 'Bearer access-token',
+        label: 'nested plan',
+        usageUrl: usageUrl(server)
+      })
+
+      expect(result).toMatchObject({
+        accountId: 'team-account',
+        ok: true,
+        planType: 'team'
+      })
+    } finally {
+      await closeServer(server)
+    }
+  })
+
   it('returns a timeout result when usage does not respond before the limit', async () => {
     const server = http.createServer(() => {
       // Keep the socket open so the client-side timeout path is exercised.
@@ -160,14 +236,18 @@ describe('account usage check', () => {
   })
 })
 
-function writeAuthFile(directory: string, accountId: string): void {
+function writeAuthFile(
+  directory: string,
+  accountId: string,
+  options: { idToken?: string } = {}
+): void {
   writeFileSync(
     join(directory, `${accountId}.json`),
     `${JSON.stringify({
       auth_mode: 'chatgpt',
       OPENAI_API_KEY: null,
       tokens: {
-        id_token: 'id-token',
+        id_token: options.idToken ?? 'id-token',
         access_token: `access-${accountId}`,
         refresh_token: `refresh-${accountId}`,
         account_id: accountId
@@ -199,4 +279,10 @@ function usageUrl(server: http.Server): string {
     throw new Error('Expected usage test server to listen on a TCP address')
   }
   return `http://127.0.0.1:${address.port}/backend-api/wham/usage`
+}
+
+function fakeJwt(payload: Record<string, unknown>): string {
+  return ['header', Buffer.from(JSON.stringify(payload)).toString('base64url'), 'signature'].join(
+    '.'
+  )
 }

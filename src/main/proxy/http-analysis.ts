@@ -107,7 +107,7 @@ export function analyzeHttpTraffic(input: {
     responseModel: responseModel(responseBody, path),
     responsePlanType:
       firstHeaderValue(input.responseHeaders?.['x-codex-plan-type']) ??
-      stringField(responseBody, 'plan_type') ??
+      usagePlanType(responseBody) ??
       stringField(recordField(responseBody, 'error'), 'plan_type'),
     responsePrimaryUsedPercent,
     responseRateLimitResetAt,
@@ -150,6 +150,29 @@ function httpSummaryJson(input: HttpSummaryInput): string | undefined {
   return safeSummaryJson(summary)
 }
 
+function usagePlanType(body: Record<string, unknown> | undefined): string | undefined {
+  const account = recordField(body, 'account')
+  const user = recordField(body, 'user')
+  const subscription = recordField(body, 'subscription')
+  const rateLimit = recordField(body, 'rate_limit')
+  return (
+    stringField(body, 'plan_type') ??
+    stringField(body, 'chatgpt_plan_type') ??
+    stringField(body, 'account_type') ??
+    stringField(body, 'planType') ??
+    stringField(body, 'plan') ??
+    stringField(account, 'plan_type') ??
+    stringField(account, 'chatgpt_plan_type') ??
+    stringField(account, 'account_type') ??
+    stringField(account, 'plan') ??
+    stringField(user, 'plan_type') ??
+    stringField(user, 'account_type') ??
+    stringField(subscription, 'plan_type') ??
+    stringField(subscription, 'plan') ??
+    stringField(rateLimit, 'plan_type')
+  )
+}
+
 function routeSummary(input: HttpSummaryInput): Record<string, unknown> | undefined {
   const base = {
     path: input.path,
@@ -168,7 +191,7 @@ function routeSummary(input: HttpSummaryInput): Record<string, unknown> | undefi
     return {
       ...base,
       activeLimit: stringField(input.responseBody, 'active_limit'),
-      planType: stringField(input.responseBody, 'plan_type'),
+      planType: usagePlanType(input.responseBody),
       primaryRemainingPercent: remainingPercent(input.responsePrimaryUsedPercent),
       primaryUsedPercent: input.responsePrimaryUsedPercent,
       resetAt: input.responseRateLimitResetAt

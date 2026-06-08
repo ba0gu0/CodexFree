@@ -22,11 +22,14 @@ export interface PageActions {
   openRawCaptureDirectory: () => Promise<void>
   openWorkDirectory: () => Promise<void>
   refresh: () => Promise<void>
+  repairCodexSessionProvider: () => Promise<void>
   resetExhausted: () => Promise<void>
+  restoreCodexApiConfig: () => Promise<void>
   restartProxy: () => Promise<void>
   saveConfig: (config: ProxyConfig) => Promise<void>
   saveDaemonControlSettings: (input: DaemonControlSaveInput) => Promise<void>
   saveProxyPageConfig: (config: ProxyConfig, daemonInput: DaemonControlSaveInput) => Promise<void>
+  snapshotCodexConfig: () => Promise<void>
   setAccountDisabled: (accountId: string, disabled: boolean) => Promise<void>
   setAccountsDisabled: (accountIds: string[], disabled: boolean) => Promise<void>
   setCurrentAccount: (accountId: string) => Promise<void>

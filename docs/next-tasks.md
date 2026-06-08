@@ -220,7 +220,11 @@ T13 当前实现证据：
 - 已完成：主进程新增 setup assistant 检测模型，检查 daemon、目标代理入口、Codex
   `config.toml`、本地 `auth.json`、账号池数量和最近成功 models/usage 记录。
 - 已完成：`config.toml` 检测区分 current、missing、missing values、port mismatch、wrong
-  table、model_provider cleanup 和 mismatch；写入仍复用已有安全 writer，正确时不重复备份。
+  table、顶层 model_provider cleanup 和 mismatch；写入仍复用安全 writer，正确时不重复备份。
+  writer 只管理顶层 `chatgpt_base_url`、`openai_base_url` 和 `model_provider`，不写入
+  `model_provider = "openai"`，不修改 `[model_providers.<name>]` 定义。Proxy 页面新增
+  API 配置快照、API 配置恢复和会话 provider 同步；会话同步按当前配置修复
+  `state_*.sqlite` 与 session JSONL，并先写入 app data 备份。配置监控只记录 drift，不自动改文件。
 - 已完成：`auth.json` 检测区分 missing、Codex login-like、placeholder、API-key mode 和
   unrecognized，不显示 token；重新登录辅助只做二次确认后的 rename，不写替代文件，且缺少
   auth 文件时按钮置灰。
@@ -351,7 +355,19 @@ T2 已针对当前支持的 import surface 完成。Normalization module 接受 
 返回 canonical Codex account-login auth shape，并把 safe metadata 与包含 token 的 raw object
 分离。
 
-当前 T2 验证：`bun run lint`、`bun run typecheck`、`bun run test` 和 `bun run build`。
+最新 T2 导入修复支持递归目录、CPA/flat JSON 数组或包装集合、`token_data` 包装记录，以及从
+id token claims 解析 `chatgpt_account_id` 和 `chatgpt_plan_type`。Usage 查询和 request ledger
+也会从 `plan_type`、`chatgpt_plan_type`、`account_type`、nested account/subscription plan
+字段识别 team/pro。Team/pro 账号池现在区分本地账号 ID 和上游 `tokens.account_id`，因此多个
+email 共享同一个上游 account id 时不会互相覆盖；转发 header 和 usage check 仍使用真实上游
+account id。
+
+当前 T2 验证：`rtk bun run lint`、`rtk bun run typecheck`、`rtk bun run test`，以及聚焦
+`rtk bun run test src/main/auth/normalize.test.ts src/main/auth/import.test.ts
+src/main/auth/usage-check.test.ts src/main/proxy/account-pool.test.ts
+src/main/proxy/http-analysis.test.ts`。真实 `/Users/baoguo/Downloads/cpa` 后段文件 smoke：
+22 个输入导入 22、跳过 0、错误 0、存储 21；其中 11 个共享同一上游 account id 的 team 文件全部保留，
+1 个重复 edu 邮箱按本地 ID 去重。历史验证还包含 `bun run build`。
 
 延后的 T2 加固：
 

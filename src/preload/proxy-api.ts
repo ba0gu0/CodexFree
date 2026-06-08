@@ -373,6 +373,40 @@ export interface CodexConfigWriteResultDto {
   path: string
   backupPath: string | null
   changed: boolean
+  snapshot: CodexConfigSnapshotDto | null
+}
+
+export interface CodexConfigSnapshotDto {
+  capturedAt: number
+  chatgptBaseUrl: string | null
+  modelProvider: string | null
+  openaiBaseUrl: string | null
+  path: string
+}
+
+export interface CodexConfigSnapshotSaveResultDto {
+  snapshot: CodexConfigSnapshotDto
+}
+
+export interface CodexConfigRestoreResultDto {
+  backupPath: string | null
+  changed: boolean
+  path: string
+  snapshot: CodexConfigSnapshotDto
+}
+
+export interface CodexSessionProviderRepairResultDto {
+  backupDir: string
+  changed: boolean
+  configPath: string
+  explicitProvider: boolean
+  jsonlFilesChanged: number
+  jsonlFilesChecked: number
+  jsonlParseErrors: number
+  sessionMetaChanged: number
+  sqliteChanged: number
+  sqliteChecked: number
+  targetProvider: string
 }
 
 export type CodexConfigHealthDto =

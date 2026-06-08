@@ -410,6 +410,37 @@ function App(): React.JSX.Element {
     showRequests: (searchQuery) =>
       switchView('requests', { requestSearchQuery: searchQuery ?? null }),
     showUsage: () => switchView('usage'),
+    snapshotCodexConfig: () =>
+      runAction(
+        'configSnapshot',
+        () => window.api.snapshotCodexConfig(),
+        (result) =>
+          t('notice.codexConfigSnapshotSaved', {
+            provider: result.snapshot.modelProvider ?? '-'
+          })
+      ),
+    restoreCodexApiConfig: () =>
+      runAction(
+        'configRestore',
+        () => window.api.restoreCodexApiConfig(),
+        (result) =>
+          result.changed
+            ? t('notice.codexApiConfigRestored', {
+                provider: result.snapshot.modelProvider ?? '-'
+              })
+            : t('notice.codexApiConfigAlreadyCurrent')
+      ),
+    repairCodexSessionProvider: () =>
+      runAction(
+        'sessionProviderRepair',
+        () => window.api.repairCodexSessionProvider(),
+        (result) =>
+          t('notice.codexSessionProviderRepaired', {
+            jsonl: result.sessionMetaChanged,
+            provider: result.targetProvider,
+            sqlite: result.sqliteChanged
+          })
+      ),
     startProxy: () =>
       runAction(
         'start',

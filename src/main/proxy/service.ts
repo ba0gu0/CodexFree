@@ -416,7 +416,7 @@ export class TransparentProxyService {
     }
 
     request.headers.authorization = account.authorization
-    request.headers['chatgpt-account-id'] = account.accountId
+    request.headers['chatgpt-account-id'] = account.upstreamAccountId
     if (account.activeChanged) {
       this.ledger.setActiveAccount(account.accountId)
       if (eventType === 'selected') {

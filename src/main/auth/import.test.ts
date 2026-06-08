@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -103,6 +103,88 @@ describe('auth file import', () => {
       await closeServer(server)
     }
   })
+
+  it('imports recursive CPA export files with wrapped auth records', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'codexfree-import-'))
+    const sourceDirectory = join(root, 'source-cpa')
+    const nested = join(sourceDirectory, 'nested')
+    const target = join(root, 'target')
+    mkdirSync(nested, { recursive: true })
+    writeFileSync(
+      join(nested, 'cpa-export.json'),
+      JSON.stringify({
+        accounts: [
+          {
+            access_token: 'team-access-token',
+            id_token: fakeJwt({
+              email: 'team@example.test',
+              'https://api.openai.com/auth': {
+                chatgpt_account_id: 'team-account',
+                chatgpt_plan_type: 'team'
+              }
+            }),
+            type: 'codex'
+          },
+          {
+            token_data: {
+              access_token: 'pro-access-token',
+              id_token: fakeJwt({
+                email: 'pro@example.test',
+                'https://api.openai.com/auth': {
+                  chatgpt_account_id: 'pro-account',
+                  chatgpt_plan_type: 'pro'
+                }
+              })
+            },
+            type: 'codex'
+          }
+        ]
+      })
+    )
+
+    const result = await importAuthFilesToDirectory([sourceDirectory], target)
+
+    expect(result.imported).toBe(2)
+    expect(result.errors).toEqual([])
+    expect(result.accounts.map((account) => account.accountId).sort()).toEqual([
+      expect.stringMatching(/^pro-account:user:/),
+      expect.stringMatching(/^team-account:user:/)
+    ])
+    const storedTeam = JSON.parse(readFileSync(join(target, result.accounts[0].fileName), 'utf8'))
+    const storedPro = JSON.parse(readFileSync(join(target, result.accounts[1].fileName), 'utf8'))
+    expect([storedTeam.plan_type, storedPro.plan_type].sort()).toEqual(['pro', 'team'])
+    expect([storedTeam.tokens.account_id, storedPro.tokens.account_id].sort()).toEqual([
+      'pro-account',
+      'team-account'
+    ])
+  })
+
+  it('keeps separate team users that share one upstream account id', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'codexfree-import-'))
+    const firstSource = join(root, 'first-team.json')
+    const secondSource = join(root, 'second-team.json')
+    const target = join(root, 'target')
+    writeFlatTeamAuthFile(firstSource, 'shared-team-account', 'first@example.test')
+    writeFlatTeamAuthFile(secondSource, 'shared-team-account', 'second@example.test')
+
+    const result = await importAuthFilesToDirectory([firstSource, secondSource], target)
+
+    expect(result.imported).toBe(2)
+    expect(result.errors).toEqual([])
+    expect(
+      readImportedAuthAccounts(target)
+        .map((account) => account.email)
+        .sort()
+    ).toEqual(['first@example.test', 'second@example.test'])
+    expect(
+      readImportedAuthAccounts(target)
+        .map((account) => account.accountId)
+        .sort()
+    ).toEqual([
+      expect.stringMatching(/^shared-team-account:user:/),
+      expect.stringMatching(/^shared-team-account:user:/)
+    ])
+  })
 })
 
 function writeAuthFile(
@@ -130,6 +212,26 @@ function writeAuthFile(
   )
 }
 
+function writeFlatTeamAuthFile(path: string, upstreamAccountId: string, email: string): void {
+  writeFileSync(
+    path,
+    JSON.stringify({
+      access_token: `access-${email}`,
+      account_id: upstreamAccountId,
+      email,
+      id_token: fakeJwt({
+        email,
+        'https://api.openai.com/auth': {
+          chatgpt_account_id: upstreamAccountId,
+          chatgpt_plan_type: 'team'
+        }
+      }),
+      refresh_token: `refresh-${email}`,
+      type: 'codex'
+    })
+  )
+}
+
 function listen(server: http.Server): Promise<void> {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
 }
@@ -152,4 +254,10 @@ function usageUrl(server: http.Server): string {
     throw new Error('Expected usage test server to listen on a TCP address')
   }
   return `http://127.0.0.1:${address.port}/backend-api/wham/usage`
+}
+
+function fakeJwt(payload: Record<string, unknown>): string {
+  return ['header', Buffer.from(JSON.stringify(payload)).toString('base64url'), 'signature'].join(
+    '.'
+  )
 }

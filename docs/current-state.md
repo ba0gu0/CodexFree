@@ -216,6 +216,13 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   工作方式说明明确区分本地 Codex 登录、CodexFree 代理转发、账号池授权和未来 API-key
   compatibility。UI 状态使用 `onboarding.completedAt` 和 `setupAssistant.lastCheckedAt`
   本地键，不能作为健康状态依据。
+- Codex config 写入现在只管理顶层 `chatgpt_base_url`、`openai_base_url` 和
+  `model_provider`。切换到 CodexFree 代理模式时会记录当前顶层三项快照、删除顶层
+  `model_provider`，但不会写入 `model_provider = "openai"`，也不会修改
+  `[model_providers.<name>]` 定义。Proxy 页面支持记录当前 API 配置、恢复 API 配置，以及按当前
+  `config.toml` 同步 Codex 历史会话 provider。会话同步会先备份 app data 下的修复目录，只改
+  `state_*.sqlite` 的 `threads.model_provider` 和 session JSONL 的 `session_meta`
+  `payload.model_provider`。daemon 的配置监控只记录 drift，不自动修改 `config.toml`。
 - README 已更新为默认中文入口，并新增英文 `README_EN.md`。两份 README 覆盖 CodexFree
   的定位、工作原理、账号池使用流程、`auth.json` 和 `config.toml` 配置边界、安全注意事项、
   本地开发命令、项目结构和当前限制。
@@ -290,6 +297,14 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   `chatgpt-outbound-request.http` 和 `chatgpt-upstream-response.http`。
 - Auth normalization tests 覆盖 native Codex `auth.json`、flat token records、CPA filename
   inference，以及 malformed-file errors，且 error messages 不包含 secret values。
+- Auth import 现在递归读取导入目录，并支持单个 CPA/flat JSON 内的数组或包装集合。缺少
+  `account_id` 的 Codex/CPA 记录会先从 id token 的
+  `https://api.openai.com/auth.chatgpt_account_id` 解析；账户类型会优先使用同一 claims 中的
+  `chatgpt_plan_type`，再用 usage 响应中的 `plan_type`、`chatgpt_plan_type`、
+  `account_type` 或 nested account/subscription plan 字段补齐，因此 team/pro 账号可以被识别。
+  对 team/pro 这类多个用户可能共享同一上游 `chatgpt_account_id` 的文件，CodexFree 会使用
+  上游 account id 加用户身份派生本地账号池 ID，避免导入时互相覆盖；转发和 usage 查询仍使用原始
+  `tokens.account_id` 作为上游 `chatgpt-account-id`。
 - request ledger 现在把 `chatgpt-account-id` 存储为 account metadata，把 `thread_id` /
   `session_id` / `x-client-request-id` 存储为 conversation metadata。
 - 真实 usage-limit samples 已经通过 CodexFree 抓取。可见 HTTP 层仍返回 WebSocket `101`；

@@ -9,6 +9,7 @@ export interface RoutedAccount {
   authorization: string
   fingerprint: string
   label: string
+  upstreamAccountId: string
 }
 
 export interface AccountPoolStatus {
@@ -26,6 +27,7 @@ export interface AccountPoolSnapshot {
   label: string
   refreshable?: boolean
   sourceFormat: NormalizedAuthFile['format']
+  upstreamAccountId?: string
 }
 
 export interface AccountRouteRequest {
@@ -103,7 +105,8 @@ export class AccountPool {
       fingerprint: account.fingerprint,
       label: account.label,
       refreshable: account.refreshable,
-      sourceFormat: account.format
+      sourceFormat: account.format,
+      upstreamAccountId: account.upstreamAccountId
     }))
   }
 
@@ -358,6 +361,7 @@ function toRoutedAccount(account: NormalizedAuthFile, activeChanged: boolean): R
     activeChanged,
     authorization: `Bearer ${account.codexAuth.tokens.access_token}`,
     fingerprint: account.fingerprint,
-    label: account.label
+    label: account.label,
+    upstreamAccountId: account.upstreamAccountId
   }
 }

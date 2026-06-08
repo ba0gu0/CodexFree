@@ -12,7 +12,7 @@ export function extractUsageResponse(
   const primaryWindow = recordField(rateLimit, 'primary_window')
   const secondaryWindow = recordField(rateLimit, 'secondary_window')
   return {
-    planType: stringField(body, 'plan_type'),
+    planType: usagePlanType(body),
     primaryUsedPercent:
       stringField(body, 'primary_used_percent') ?? stringField(primaryWindow, 'used_percent'),
     secondaryUsedPercent:
@@ -20,6 +20,29 @@ export function extractUsageResponse(
     rateLimitResetsAt: usageResetMillis(body, primaryWindow),
     secondaryRateLimitResetsAt: usageResetMillis({}, secondaryWindow)
   }
+}
+
+function usagePlanType(body: Record<string, unknown> | undefined): string | undefined {
+  const account = recordField(body, 'account')
+  const user = recordField(body, 'user')
+  const subscription = recordField(body, 'subscription')
+  const rateLimit = recordField(body, 'rate_limit')
+  return (
+    stringField(body, 'plan_type') ??
+    stringField(body, 'chatgpt_plan_type') ??
+    stringField(body, 'account_type') ??
+    stringField(body, 'planType') ??
+    stringField(body, 'plan') ??
+    stringField(account, 'plan_type') ??
+    stringField(account, 'chatgpt_plan_type') ??
+    stringField(account, 'account_type') ??
+    stringField(account, 'plan') ??
+    stringField(user, 'plan_type') ??
+    stringField(user, 'account_type') ??
+    stringField(subscription, 'plan_type') ??
+    stringField(subscription, 'plan') ??
+    stringField(rateLimit, 'plan_type')
+  )
 }
 
 export function usageResetMillis(

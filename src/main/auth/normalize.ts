@@ -18,7 +18,9 @@ export interface NormalizedAuthFile {
   format: AuthFileFormat
   label: string
   accountId: string
+  upstreamAccountId: string
   email?: string
+  planType?: string
   disabled: boolean
   expiresAt?: string
   lastRefresh: string
@@ -44,15 +46,22 @@ interface NormalizeOptions {
 interface FlatAuthRecord {
   access_token?: unknown
   account_id?: unknown
+  account_type?: unknown
   client_id?: unknown
   disabled?: unknown
   email?: unknown
   expired?: unknown
   id_token?: unknown
   last_refresh?: unknown
+  plan?: unknown
+  plan_type?: unknown
+  planType?: unknown
   refreshable?: unknown
   refresh_token?: unknown
   session_token?: unknown
+  storage?: unknown
+  token_data?: unknown
+  tokens?: unknown
   type?: unknown
 }
 
@@ -61,14 +70,21 @@ export function normalizeAuthFile(
   options: NormalizeOptions = {}
 ): NormalizedAuthFile {
   const record = expectRecord(input)
-  const flatRecord = record as FlatAuthRecord
-  const format = detectFormat(record, options.fileName)
+  const flatRecord = flattenFlatAuthRecord(record)
+  const format = detectFormat(flatRecord, options.fileName)
   const codexAuth = isNativeCodexAuth(record)
     ? normalizeNativeCodexAuth(record, options)
     : normalizeFlatAuthRecord(flatRecord, options)
   const email = stringOrUndefined(flatRecord.email) ?? emailFromJwtPayload(codexAuth)
+  const planType =
+    stringOrUndefined(flatRecord.plan_type) ??
+    stringOrUndefined(flatRecord.planType) ??
+    stringOrUndefined(flatRecord.plan) ??
+    stringOrUndefined(flatRecord.account_type) ??
+    planTypeFromJwtPayload(codexAuth)
   const disabled = Boolean(flatRecord.disabled)
   const expiresAt = stringOrUndefined(flatRecord.expired)
+  const accountId = localAccountId(codexAuth, email, planType)
   const label = email ?? `${format}:${codexAuth.tokens.account_id}`
   const refreshable =
     typeof flatRecord.refreshable === 'boolean'
@@ -78,8 +94,10 @@ export function normalizeAuthFile(
   return {
     format,
     label,
-    accountId: codexAuth.tokens.account_id,
+    accountId,
+    upstreamAccountId: codexAuth.tokens.account_id,
     email,
+    planType,
     disabled,
     expiresAt,
     lastRefresh: codexAuth.last_refresh,
@@ -99,8 +117,60 @@ function expectRecord(input: unknown): Record<string, unknown> {
   return input as Record<string, unknown>
 }
 
-function detectFormat(record: Record<string, unknown>, fileName?: string): AuthFileFormat {
-  const declared = stringOrUndefined((record as FlatAuthRecord).type)?.toLowerCase()
+function flattenFlatAuthRecord(record: Record<string, unknown>): FlatAuthRecord {
+  const tokenData = recordValue(record.token_data)
+  const storage = recordValue(record.storage)
+  const tokens = recordValue(record.tokens)
+  const metadata = recordValue(record.metadata)
+  return {
+    access_token: firstValue(record.access_token, tokenData?.access_token, storage?.access_token),
+    account_id: firstValue(
+      record.account_id,
+      record.chatgpt_account_id,
+      tokenData?.account_id,
+      tokenData?.chatgpt_account_id,
+      storage?.account_id,
+      metadata?.account_id
+    ),
+    account_type: firstValue(record.account_type, tokenData?.account_type, metadata?.account_type),
+    client_id: firstValue(record.client_id, tokenData?.client_id),
+    disabled: firstValue(record.disabled, metadata?.disabled),
+    email: firstValue(record.email, tokenData?.email, storage?.email, metadata?.email),
+    expired: firstValue(record.expired, tokenData?.expired, storage?.expired),
+    id_token: firstValue(record.id_token, tokenData?.id_token, storage?.id_token, tokens?.id_token),
+    last_refresh: firstValue(record.last_refresh, tokenData?.last_refresh, storage?.last_refresh),
+    plan: firstValue(record.plan, tokenData?.plan, metadata?.plan),
+    plan_type: firstValue(
+      record.plan_type,
+      record.planType,
+      record.chatgpt_plan_type,
+      record.account_type,
+      tokenData?.plan_type,
+      tokenData?.chatgpt_plan_type,
+      storage?.plan_type,
+      metadata?.plan_type
+    ),
+    planType: firstValue(record.planType, tokenData?.planType, metadata?.planType),
+    refreshable: firstValue(record.refreshable, metadata?.refreshable),
+    refresh_token: firstValue(
+      record.refresh_token,
+      tokenData?.refresh_token,
+      storage?.refresh_token
+    ),
+    session_token: firstValue(record.session_token, tokenData?.session_token),
+    storage: record.storage,
+    token_data: record.token_data,
+    tokens: record.tokens,
+    type: firstValue(record.type, metadata?.type)
+  }
+}
+
+function firstValue(...values: unknown[]): unknown {
+  return values.find((value) => value !== undefined)
+}
+
+function detectFormat(record: FlatAuthRecord, fileName?: string): AuthFileFormat {
+  const declared = stringOrUndefined(record.type)?.toLowerCase()
   if (declared === 'cpa' || declared === 'sub2api' || declared === 'codex') {
     return declared
   }
@@ -137,7 +207,9 @@ function normalizeNativeCodexAuth(
       refresh_token: optionalString(tokens.refresh_token),
       account_id:
         stringOrUndefined(options.accountId) ??
-        requiredString(tokens.account_id, 'tokens.account_id')
+        stringOrUndefined(tokens.account_id) ??
+        accountIdFromTokenValues(tokens.id_token, tokens.access_token) ??
+        requiredString(undefined, 'tokens.account_id')
     },
     last_refresh: optionalString(record.last_refresh) || nowIso(options)
   }
@@ -155,7 +227,10 @@ function normalizeFlatAuthRecord(
       access_token: requiredString(record.access_token, 'access_token'),
       refresh_token: optionalString(record.refresh_token),
       account_id:
-        stringOrUndefined(options.accountId) ?? requiredString(record.account_id, 'account_id')
+        stringOrUndefined(options.accountId) ??
+        stringOrUndefined(record.account_id) ??
+        accountIdFromTokenValues(record.id_token, record.access_token) ??
+        requiredString(undefined, 'account_id')
     },
     last_refresh: optionalString(record.last_refresh) || nowIso(options)
   }
@@ -186,29 +261,110 @@ function emailFromJwtPayload(auth: CodexChatGptAuth): string | undefined {
 }
 
 function jwtEmail(token: string): string | undefined {
+  const record = jwtPayloadRecord(token)
+  if (!record) {
+    return undefined
+  }
+  const direct = stringOrUndefined(record.email)
+  const profile = record['https://api.openai.com/profile']
+  return direct ?? stringOrUndefined(recordValue(profile, 'email'))
+}
+
+function planTypeFromJwtPayload(auth: CodexChatGptAuth): string | undefined {
+  return (
+    jwtAuthString(auth.tokens.id_token, 'chatgpt_plan_type') ??
+    jwtAuthString(auth.tokens.access_token, 'chatgpt_plan_type')
+  )
+}
+
+function localAccountId(
+  auth: CodexChatGptAuth,
+  email: string | undefined,
+  planType: string | undefined
+): string {
+  const upstreamAccountId = auth.tokens.account_id
+  if (!usesPerUserLocalIdentity(planType)) {
+    return upstreamAccountId
+  }
+  const identity = accountIdentityFromJwtPayload(auth) ?? email
+  if (!identity) {
+    return upstreamAccountId
+  }
+  const identityHash = createHash('sha256')
+    .update(upstreamAccountId)
+    .update('\0')
+    .update(identity)
+    .digest('hex')
+    .slice(0, 12)
+  return `${upstreamAccountId}:user:${identityHash}`
+}
+
+function usesPerUserLocalIdentity(planType: string | undefined): boolean {
+  const normalized = planType?.trim().toLowerCase()
+  return normalized === 'team' || normalized === 'pro'
+}
+
+function accountIdentityFromJwtPayload(auth: CodexChatGptAuth): string | undefined {
+  return (
+    jwtAuthString(auth.tokens.id_token, 'chatgpt_user_id') ??
+    jwtAuthString(auth.tokens.id_token, 'user_id') ??
+    jwtString(auth.tokens.id_token, 'sub') ??
+    jwtAuthString(auth.tokens.access_token, 'chatgpt_user_id') ??
+    jwtAuthString(auth.tokens.access_token, 'user_id') ??
+    jwtString(auth.tokens.access_token, 'sub')
+  )
+}
+
+function accountIdFromTokenValues(...tokens: unknown[]): string | undefined {
+  for (const token of tokens) {
+    if (typeof token !== 'string' || token.trim() === '') {
+      continue
+    }
+    const accountId = jwtAuthString(token, 'chatgpt_account_id')
+    if (accountId) {
+      return accountId
+    }
+  }
+  return undefined
+}
+
+function jwtAuthString(token: string, key: string): string | undefined {
+  const record = jwtPayloadRecord(token)
+  if (!record) {
+    return undefined
+  }
+  const auth = record['https://api.openai.com/auth']
+  return stringOrUndefined(recordValue(auth, key))
+}
+
+function jwtString(token: string, key: string): string | undefined {
+  return stringOrUndefined(jwtPayloadRecord(token)?.[key])
+}
+
+function jwtPayloadRecord(token: string): Record<string, unknown> | undefined {
   const [, payload] = token.split('.')
   if (!payload) {
     return undefined
   }
   try {
     const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as unknown
-    const record = typeof parsed === 'object' && parsed !== null ? parsed : undefined
-    if (!record || Array.isArray(record)) {
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       return undefined
     }
-    const direct = stringOrUndefined((record as Record<string, unknown>).email)
-    const profile = (record as Record<string, unknown>)['https://api.openai.com/profile']
-    return direct ?? stringOrUndefined(recordValue(profile, 'email'))
+    return parsed as Record<string, unknown>
   } catch {
     return undefined
   }
 }
 
-function recordValue(value: unknown, key: string): unknown {
+function recordValue(value: unknown): Record<string, unknown> | undefined
+function recordValue(value: unknown, key: string): unknown
+function recordValue(value: unknown, key?: string): unknown {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return undefined
   }
-  return (value as Record<string, unknown>)[key]
+  const record = value as Record<string, unknown>
+  return key === undefined ? record : record[key]
 }
 
 function authFingerprint(auth: CodexChatGptAuth): string {

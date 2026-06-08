@@ -118,6 +118,28 @@ describe('HTTP traffic analysis', () => {
     })
   })
 
+  it('extracts nested account plan fields from usage responses', () => {
+    const analysis = analyzeHttpTraffic({
+      method: 'GET',
+      path: '/backend-api/wham/usage',
+      requestBody: Buffer.alloc(0),
+      requestHeaders: {},
+      responseBody: Buffer.from(
+        JSON.stringify({
+          account: {
+            plan: 'team'
+          }
+        })
+      ),
+      responseHeaders: { 'content-type': 'application/json' }
+    })
+
+    expect(analysis.responsePlanType).toBe('team')
+    expect(JSON.parse(analysis.summaryJson ?? '{}')).toMatchObject({
+      planType: 'team'
+    })
+  })
+
   it('extracts token usage from Codex response SSE body', () => {
     const requestBody = zstdCompressSync(
       Buffer.from(

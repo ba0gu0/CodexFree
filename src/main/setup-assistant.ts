@@ -139,7 +139,9 @@ export function inspectCodexConfig(
     (item) =>
       item.table !== null && (item.key === 'chatgpt_base_url' || item.key === 'openai_base_url')
   )
-  const hasModelProvider = assignments.some((item) => item.key === 'model_provider')
+  const hasModelProvider = assignments.some(
+    (item) => item.table === null && item.key === 'model_provider'
+  )
   const health = resolveConfigHealth({
     hasModelProvider,
     hasWrongTable,

@@ -79,14 +79,28 @@ openai_base_url = "http://127.0.0.1:<port>/backend-api/codex"
 
 实现要求：
 - 两行必须写在 TOML 顶层。
-- 如果存在 `model_provider = ...`，删除它，不新增、不保留。
+- 如果存在顶层 `model_provider = ...`，切换到代理模式时删除它，不新增
+  `model_provider = "openai"`。
+- 不修改 `[model_providers.<name>]` 定义；恢复 API 模式时只把已记录的顶层
+  `model_provider`、`chatgpt_base_url`、`openai_base_url` 还原。
 - 如果目标内容已经正确，不备份、不重写，只提示“Codex 配置已是最新”。
 - 如果需要修改，先备份原文件，再写入。
 - 不能把两行写进 `[profiles.xxx]` 或其他 table。
+- 配置监控只记录 drift，不自动修改 `config.toml`。
 
-界面展示：当前检测结果、目标配置预览、写入配置按钮、打开 `~/.codex` 目录按钮。
+界面展示：当前检测结果、目标配置预览、写入配置按钮、记录 API 配置按钮、恢复 API
+配置按钮、同步会话 provider 按钮、打开 `~/.codex` 目录按钮。
 
 检测结果至少区分：正确、缺失、端口不一致、写入到错误 table。
+
+会话 provider 同步：
+
+- 按当前 `config.toml` 判断目标 provider；没有顶层 `model_provider` 时按 Codex 默认
+  `openai`。
+- 只修改 `~/.codex/state_*.sqlite` 的 `threads.model_provider` 和
+  `~/.codex/sessions/**/*.jsonl` 中 `type == "session_meta"` 的
+  `payload.model_provider`。
+- 修改前写入 app data 下的备份目录，不做 JSONL 全文替换。
 
 ### 4. Codex auth.json 登录边界
 

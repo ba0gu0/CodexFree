@@ -57,6 +57,7 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
     launchAgentEnabled: snapshot.daemonControl.launchAgent.enabled
   })
   const [confirmLaunchAgentOpen, setConfirmLaunchAgentOpen] = useState(false)
+  const [confirmSessionProviderOpen, setConfirmSessionProviderOpen] = useState(false)
 
   useEffect(() => {
     setDraft(snapshot.config)
@@ -325,6 +326,7 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
                 onChange={(codexConfigMonitorEnabled) =>
                   setDraft({ ...draft, codexConfigMonitorEnabled })
                 }
+                onRepairSessionProvider={() => setConfirmSessionProviderOpen(true)}
                 t={t}
               />
             </CardPanel>
@@ -358,6 +360,32 @@ export function ProxyPage({ actions, busyAction, locale, snapshot, t }: PageProp
           </AlertDialogFooter>
         </AlertDialogPopup>
       </AlertDialog>
+      <AlertDialog open={confirmSessionProviderOpen} onOpenChange={setConfirmSessionProviderOpen}>
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('proxy.sessionProviderConfirmTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('proxy.sessionProviderConfirmDesc')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              {t('action.cancel')}
+            </AlertDialogClose>
+            <AlertDialogClose
+              render={
+                <Button
+                  loading={busyAction === 'sessionProviderRepair'}
+                  onClick={() => {
+                    void actions.repairCodexSessionProvider()
+                  }}
+                  variant="destructive-outline"
+                />
+              }
+            >
+              {t('proxy.sessionProviderRepair')}
+            </AlertDialogClose>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
     </div>
   )
 }
@@ -366,12 +394,14 @@ function ConfigRepairPanel({
   actions,
   busyAction,
   checked,
+  onRepairSessionProvider,
   onChange,
   t
 }: {
   actions: PageProps['actions']
   busyAction: PageProps['busyAction']
   checked: boolean
+  onRepairSessionProvider: () => void
   onChange: (checked: boolean) => void
   t: PageProps['t']
 }): ReactElement {
@@ -383,7 +413,7 @@ function ConfigRepairPanel({
         label={t('proxy.configMonitor')}
         onChange={onChange}
       />
-      {!checked ? (
+      <div className="grid gap-2">
         <Field className="flex-row items-center justify-between gap-3 rounded-lg border bg-background p-2.5">
           <div className="min-w-0">
             <FieldLabel>{t('proxy.configToml')}</FieldLabel>
@@ -401,7 +431,33 @@ function ConfigRepairPanel({
             {t('proxy.configToml')}
           </Button>
         </Field>
-      ) : null}
+        <div className="grid grid-cols-3 gap-2">
+          <Button
+            loading={busyAction === 'configSnapshot'}
+            onClick={actions.snapshotCodexConfig}
+            variant="outline"
+          >
+            <SaveIcon data-icon="inline-start" />
+            {t('proxy.configSnapshot')}
+          </Button>
+          <Button
+            loading={busyAction === 'configRestore'}
+            onClick={actions.restoreCodexApiConfig}
+            variant="outline"
+          >
+            <RotateCcwIcon data-icon="inline-start" />
+            {t('proxy.configRestore')}
+          </Button>
+          <Button
+            loading={busyAction === 'sessionProviderRepair'}
+            onClick={onRepairSessionProvider}
+            variant="outline"
+          >
+            <RefreshCwIcon data-icon="inline-start" />
+            {t('proxy.sessionProviderRepair')}
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

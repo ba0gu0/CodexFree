@@ -2,6 +2,23 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
+import {
+  type CodexConfigRestoreResult,
+  type CodexConfigWriteResult,
+  type CodexTopLevelConfigSnapshot,
+  readCurrentCodexTopLevelConfig,
+  restoreCodexConfigSnapshot,
+  writeCodexConfigFile
+} from './codex/config'
+import {
+  type CodexConfigSnapshotSaveResult,
+  readCodexConfigSnapshot,
+  saveCodexConfigSnapshot
+} from './codex/config-store'
+import {
+  type CodexSessionProviderRepairResult,
+  repairCodexSessionProvider
+} from './codex/session-provider'
 import { DaemonAdminClient } from './daemon/client'
 import {
   type DaemonControlConfig,
@@ -60,7 +77,11 @@ export interface MainRuntime {
   turnSummaries: (limit: number) => ActivityPage<TurnSummaryRow>
   managedAccounts: () => ManagedAccountRow[]
   readRuntimeConfig: () => ProxyConfig
+  readCodexConfigSnapshot: () => CodexTopLevelConfigSnapshot | null
   requestSummary: () => RequestSummary
+  restoreCodexApiConfig: () => CodexConfigRestoreResult
+  repairCodexSessionProvider: () => Promise<CodexSessionProviderRepairResult>
+  saveCurrentCodexConfigSnapshot: () => CodexConfigSnapshotSaveResult
   clearRecords: () => { deletedRequests: number }
   deleteAccounts: (accountIds: string[]) => {
     accounts: ManagedAccountRow[]
@@ -84,6 +105,7 @@ export interface MainRuntime {
     config: ProxyConfig,
     input: DaemonControlSaveInput
   ) => Promise<{ config: ProxyConfig; status: ProxyStatus }>
+  writeCodexProxyConfig: () => CodexConfigWriteResult
   startDaemonProxy: () => Promise<ProxyStatus>
   stopProxy: () => Promise<ProxyStatus>
   usageSummary: () => UsageSummary
@@ -260,6 +282,33 @@ export function createMainRuntime(): MainRuntime {
   const turnSummaries = (limit: number): ActivityPage<TurnSummaryRow> =>
     withLedger((ledger) => pageRows(ledger.recentTurnSummaries(limit + 1), limit))
   const managedAccounts = (): ManagedAccountRow[] => withLedger((ledger) => ledger.accounts())
+  const readSavedCodexConfigSnapshot = (): CodexTopLevelConfigSnapshot | null =>
+    readCodexConfigSnapshot(paths.databasePath)
+  const saveCurrentCodexConfigSnapshot = (): CodexConfigSnapshotSaveResult =>
+    saveCodexConfigSnapshot(paths.databasePath, readCurrentCodexTopLevelConfig())
+  const restoreCodexApiConfig = (): CodexConfigRestoreResult => {
+    const snapshot = readCodexConfigSnapshot(paths.databasePath)
+    if (!snapshot) {
+      throw new Error('没有可恢复的 Codex API 配置快照，请先记录当前配置。')
+    }
+    return restoreCodexConfigSnapshot(snapshot)
+  }
+  const writeCodexProxyConfig = (): CodexConfigWriteResult => {
+    const config = readRuntimeConfig()
+    const endpoint = proxyEndpoint(config)
+    const result = writeCodexConfigFile({
+      chatgptBaseUrl: endpoint,
+      openaiBaseUrl: `${endpoint}/codex`
+    })
+    if (result.snapshot && codexConfigSnapshotHasValues(result.snapshot)) {
+      saveCodexConfigSnapshot(paths.databasePath, result.snapshot)
+    }
+    return result
+  }
+  const repairSavedCodexSessionProvider = (): Promise<CodexSessionProviderRepairResult> =>
+    repairCodexSessionProvider({
+      backupRootDir: join(paths.dataDir, 'codex-session-provider-backups')
+    })
   const requestSummary = (): RequestSummary => readRequestSummary(paths.databasePath)
   const usageSummary = (): UsageSummary => readUsageSummary(paths.databasePath)
   const clearRecords = (): { deletedRequests: number } =>
@@ -357,6 +406,7 @@ export function createMainRuntime(): MainRuntime {
     logEvents,
     managedAccounts,
     protocolMessages,
+    readCodexConfigSnapshot: readSavedCodexConfigSnapshot,
     readDaemonControlSettings: readDaemonControl,
     proxyStatus,
     rawCaptureDir,
@@ -364,6 +414,9 @@ export function createMainRuntime(): MainRuntime {
     readRuntimeConfig,
     requestSummary,
     resetExhaustedAccounts,
+    restoreCodexApiConfig,
+    repairCodexSessionProvider: repairSavedCodexSessionProvider,
+    saveCurrentCodexConfigSnapshot,
     saveDaemonControlSettings,
     restartProxy,
     saveProxyConfig,
@@ -374,7 +427,8 @@ export function createMainRuntime(): MainRuntime {
     syncAccounts,
     turnSummaries,
     updateAccountUsage,
-    usageSummary
+    usageSummary,
+    writeCodexProxyConfig
   }
 
   function withLedger<T>(read: (ledger: ProxyLedger) => T): T {
@@ -519,6 +573,14 @@ function stoppedProxyStatus(config: ProxyConfig, rawCaptureDir: string): ProxySt
 
 function proxyEndpoint(config: ProxyConfig): string {
   return `http://${config.listenHost}:${config.listenPort}/backend-api`
+}
+
+function codexConfigSnapshotHasValues(snapshot: CodexTopLevelConfigSnapshot): boolean {
+  return (
+    snapshot.chatgptBaseUrl !== null ||
+    snapshot.modelProvider !== null ||
+    snapshot.openaiBaseUrl !== null
+  )
 }
 
 function proxyStatusMatchesConfig(status: ProxyStatus, config: ProxyConfig): boolean {

@@ -6,7 +6,10 @@ import type {
   AuthImportResultDto,
   CleanExpiredAccountsDto,
   ClearProxyRecordsResultDto,
+  CodexConfigRestoreResultDto,
+  CodexConfigSnapshotSaveResultDto,
   CodexConfigWriteResultDto,
+  CodexSessionProviderRepairResultDto,
   DaemonControlSaveInputDto,
   DaemonControlSaveResultDto,
   DaemonControlSettingsDto,
@@ -74,6 +77,9 @@ declare global {
       exportAuthFiles: () => Promise<AuthExportResultDto>
       writePlaceholderAuth: () => Promise<PlaceholderAuthResultDto>
       writeCodexConfig: () => Promise<CodexConfigWriteResultDto>
+      snapshotCodexConfig: () => Promise<CodexConfigSnapshotSaveResultDto>
+      restoreCodexApiConfig: () => Promise<CodexConfigRestoreResultDto>
+      repairCodexSessionProvider: () => Promise<CodexSessionProviderRepairResultDto>
       getSetupAssistantState: () => Promise<SetupAssistantStateDto>
       renameCodexAuthForRelogin: () => Promise<SetupAssistantStateDto['auth']>
       resetExhaustedAccounts: () => Promise<ResetExhaustedAccountsDto>

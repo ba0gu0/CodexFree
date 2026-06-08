@@ -60,6 +60,27 @@ describe('setup assistant Codex config inspection', () => {
       expect(inspectCodexConfig(target, home).health).toBe('port_mismatch')
     })
   })
+
+  it('does not treat provider definitions as top-level model_provider drift', () => {
+    withHome((home) => {
+      writeCodexConfig(
+        home,
+        [
+          'chatgpt_base_url = "http://127.0.0.1:33333/backend-api"',
+          'openai_base_url = "http://127.0.0.1:33333/backend-api/codex"',
+          '',
+          '[model_providers.codex]',
+          'name = "codex"',
+          'base_url = "https://api.baoguo.site/v1"'
+        ].join('\n')
+      )
+
+      expect(inspectCodexConfig(target, home)).toMatchObject({
+        hasModelProvider: false,
+        health: 'current'
+      })
+    })
+  })
 })
 
 describe('setup assistant Codex auth inspection', () => {

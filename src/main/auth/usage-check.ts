@@ -43,7 +43,9 @@ export interface AccountUsageRequestInput {
   email?: string
   label: string
   lastRefresh?: string
+  planType?: string
   timeoutMs?: number
+  upstreamAccountId?: string
   usageUrl?: string
 }
 
@@ -56,10 +58,15 @@ interface UsageResponse {
   user?: unknown
   user_id?: unknown
   secondary_used_percent?: unknown
+  account_type?: unknown
+  chatgpt_plan_type?: unknown
+  plan?: unknown
+  planType?: unknown
   rate_limit?: unknown
   resets_at?: unknown
   primary_reset_at?: unknown
   rate_limit_reset_at?: unknown
+  subscription?: unknown
 }
 
 export async function checkAuthDirectoryUsage(
@@ -149,7 +156,9 @@ async function checkAccountUsage(
     email: normalized.email,
     label: normalized.label,
     lastRefresh: normalized.lastRefresh,
+    planType: normalized.planType,
     timeoutMs,
+    upstreamAccountId: normalized.upstreamAccountId,
     usageUrl
   })
   if (result.ok) {
@@ -200,7 +209,7 @@ export async function checkAccountUsageByAuthorization(
       label: input.label,
       ok: true,
       statusCode: response.statusCode,
-      planType: stringValue(body?.plan_type),
+      planType: planTypeFromUsageResponse(body) ?? input.planType,
       primaryUsedPercent:
         stringValue(body?.primary_used_percent) ??
         stringValue(recordValue(recordValue(body?.rate_limit, 'primary_window'), 'used_percent')),
@@ -234,8 +243,9 @@ async function fetchUsage(
       accept: 'application/json',
       authorization: input.authorization
     }
-    if (input.accountId) {
-      headers['chatgpt-account-id'] = input.accountId
+    const upstreamAccountId = input.upstreamAccountId ?? input.accountId
+    if (upstreamAccountId) {
+      headers['chatgpt-account-id'] = upstreamAccountId
     }
     let timeout: ReturnType<typeof setTimeout> | undefined
     const clearUsageTimeout = (): void => {
@@ -297,6 +307,25 @@ function parseUsageBody(text: string): UsageResponse | undefined {
   } catch {
     return undefined
   }
+}
+
+function planTypeFromUsageResponse(body: UsageResponse | undefined): string | undefined {
+  return (
+    stringValue(body?.plan_type) ??
+    stringValue(body?.chatgpt_plan_type) ??
+    stringValue(body?.account_type) ??
+    stringValue(body?.planType) ??
+    stringValue(body?.plan) ??
+    stringValue(recordValue(body?.account, 'plan_type')) ??
+    stringValue(recordValue(body?.account, 'chatgpt_plan_type')) ??
+    stringValue(recordValue(body?.account, 'account_type')) ??
+    stringValue(recordValue(body?.account, 'plan')) ??
+    stringValue(recordValue(body?.user, 'plan_type')) ??
+    stringValue(recordValue(body?.user, 'account_type')) ??
+    stringValue(recordValue(body?.subscription, 'plan_type')) ??
+    stringValue(recordValue(body?.subscription, 'plan')) ??
+    stringValue(recordValue(body?.rate_limit, 'plan_type'))
+  )
 }
 
 function emailFromUsageResponse(body: UsageResponse | undefined): string | undefined {

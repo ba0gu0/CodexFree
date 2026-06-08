@@ -27,6 +27,13 @@ interface AuthImportOptions {
   usageUrl?: string
 }
 
+interface AuthImportEntry {
+  fileName: string
+  filePath: string
+  input: unknown
+  parseError?: string
+}
+
 export async function importAuthFilesToDirectory(
   sourcePaths: string[],
   targetDirectory: string,
@@ -38,10 +45,12 @@ export async function importAuthFilesToDirectory(
   const errors: AuthImportResult['errors'] = []
   let skipped = 0
 
-  for (const filePath of files) {
+  for (const entry of expandImportEntries(files)) {
     try {
-      const input = JSON.parse(readFileSync(filePath, 'utf8')) as unknown
-      const normalized = await normalizeImportAuthFile(input, basename(filePath), options)
+      if (entry.parseError) {
+        throw new Error(entry.parseError)
+      }
+      const normalized = await normalizeImportAuthFile(entry.input, entry.fileName, options)
       const labelPart = safeFilePart(normalized.label) || 'account'
       const accountPart = safeFilePart(normalized.accountId) || normalized.fingerprint
       const fileName = `${labelPart}-${accountPart}.auth.json`
@@ -62,7 +71,7 @@ export async function importAuthFilesToDirectory(
     } catch (error) {
       skipped += 1
       errors.push({
-        filePath,
+        filePath: entry.filePath,
         message: error instanceof Error ? error.message : String(error)
       })
     }
@@ -149,9 +158,65 @@ function expandJsonFiles(sourcePath: string): string[] {
   }
 
   return readdirSync(sourcePath)
-    .filter((name) => name.endsWith('.json'))
     .sort()
-    .map((name) => join(sourcePath, name))
+    .flatMap((name) => expandJsonFiles(join(sourcePath, name)))
+}
+
+function expandImportEntries(filePaths: string[]): AuthImportEntry[] {
+  return filePaths.flatMap((filePath) => {
+    try {
+      const input = JSON.parse(readFileSync(filePath, 'utf8')) as unknown
+      const baseName = basename(filePath)
+      return recordsFromImportJson(input, baseName).map((entry) => ({
+        ...entry,
+        filePath:
+          entry.fileName === baseName
+            ? filePath
+            : `${filePath}${entry.fileName.slice(baseName.length)}`
+      }))
+    } catch (error) {
+      return [
+        {
+          fileName: basename(filePath),
+          filePath,
+          input: {
+            __codexfree_parse_error: error instanceof Error ? error.message : String(error)
+          },
+          parseError: error instanceof Error ? error.message : String(error)
+        }
+      ]
+    }
+  })
+}
+
+function recordsFromImportJson(
+  input: unknown,
+  fileName: string
+): Array<Omit<AuthImportEntry, 'filePath'>> {
+  if (Array.isArray(input)) {
+    return input.map((item, index) => ({ fileName: `${fileName}#${index + 1}`, input: item }))
+  }
+  if (!isRecord(input)) {
+    return [{ fileName, input }]
+  }
+  if (isAuthLikeRecord(input)) {
+    return [{ fileName, input }]
+  }
+
+  for (const key of ['accounts', 'auths', 'items', 'records', 'data', 'files']) {
+    const child = input[key]
+    if (Array.isArray(child)) {
+      return child.map((item, index) => ({ fileName: `${fileName}#${index + 1}`, input: item }))
+    }
+  }
+
+  const entries = Object.entries(input)
+    .filter(([, value]) => isRecord(value) && isAuthLikeRecord(value))
+    .map(([key, value]) => ({
+      fileName: `${fileName}#${safeFilePart(key) || 'record'}`,
+      input: value
+    }))
+  return entries.length > 0 ? entries : [{ fileName, input }]
 }
 
 function toStoredAuth(normalized: NormalizedAuthFile): unknown {
@@ -159,6 +224,7 @@ function toStoredAuth(normalized: NormalizedAuthFile): unknown {
     ...normalized.codexAuth,
     email: normalized.email,
     disabled: normalized.disabled,
+    plan_type: normalized.planType,
     refreshable: normalized.refreshable
   }
 }
@@ -202,10 +268,29 @@ function accessTokenFromInput(input: unknown): string | undefined {
   if (typeof direct === 'string' && direct.trim() !== '') {
     return direct
   }
-  const tokens = record.tokens
-  if (typeof tokens !== 'object' || tokens === null || Array.isArray(tokens)) {
-    return undefined
+  for (const key of ['tokens', 'token_data', 'storage']) {
+    const child = record[key]
+    if (!isRecord(child)) {
+      continue
+    }
+    const nested = child.access_token
+    if (typeof nested === 'string' && nested.trim() !== '') {
+      return nested
+    }
   }
-  const nested = (tokens as Record<string, unknown>).access_token
-  return typeof nested === 'string' && nested.trim() !== '' ? nested : undefined
+  return undefined
+}
+
+function isAuthLikeRecord(record: Record<string, unknown>): boolean {
+  return (
+    typeof record.access_token === 'string' ||
+    record.auth_mode === 'chatgpt' ||
+    isRecord(record.tokens) ||
+    isRecord(record.token_data) ||
+    isRecord(record.storage)
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
