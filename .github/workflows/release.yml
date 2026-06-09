@@ -185,8 +185,7 @@ jobs:
               --icon "$icon" \
               --bundleId "$APP_ID" \
               --releaseNotes release-notes.md \
-              --noInst \
-              --noPortable
+              --noInst
           done
 
       - name: Validate macOS delta packages
@@ -208,6 +207,7 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
+          find Releases -maxdepth 1 -type f ! -name '*.nupkg' ! -name 'releases.*.json' -delete
           find Releases -maxdepth 1 -type f -name '*.nupkg' ! -name "*-$VERSION-*" -delete
           for channel in osx-x64 osx-arm64; do
             node .github/scripts/normalize-velopack-assets.mjs Releases "$VERSION" "$channel"
