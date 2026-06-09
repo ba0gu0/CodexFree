@@ -4,6 +4,7 @@ import { BrowserWindow, shell } from 'electron'
 import icon from '../../../resources/icon.png?asset'
 
 export function createMainWindow(): BrowserWindow {
+  const isMac = process.platform === 'darwin'
   const mainWindow = new BrowserWindow({
     width: 1300,
     height: 800,
@@ -11,13 +12,20 @@ export function createMainWindow(): BrowserWindow {
     minHeight: 720,
     center: true,
     show: is.dev,
-    titleBarStyle: 'hidden',
-    trafficLightPosition: { x: 18, y: 18 },
-    transparent: true,
-    backgroundColor: '#00000000',
+    ...(isMac
+      ? {
+          backgroundColor: '#00000000',
+          titleBarStyle: 'hidden' as const,
+          trafficLightPosition: { x: 18, y: 18 },
+          transparent: true
+        }
+      : {
+          backgroundColor: '#f7f8fb',
+          transparent: false
+        }),
     hasShadow: true,
     autoHideMenuBar: true,
-    ...(process.platform === 'darwin' ? {} : { icon }),
+    ...(isMac ? {} : { icon }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

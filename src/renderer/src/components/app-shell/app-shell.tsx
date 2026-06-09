@@ -33,6 +33,7 @@ interface AppShellProps {
   onSetupOpen: () => void
   onThemeCycle: () => void
   onViewChange: (view: ViewId) => void
+  platform: string
   t: (key: CopyKey, values?: Record<string, string | number>) => string
   themeMode: ThemeMode
 }
@@ -53,14 +54,18 @@ export function AppShell({
   onSetupOpen,
   onThemeCycle,
   onViewChange,
+  platform,
   t,
   themeMode
 }: AppShellProps): ReactElement {
   const themeIcon =
     themeMode === 'dark' ? MoonIcon : themeMode === 'light' ? SunIcon : MonitorCogIcon
+  const headerPadding = platform === 'darwin' ? 'pl-[88px]' : 'pl-5'
   return (
     <div className="h-full min-w-[1160px] overflow-hidden bg-background text-foreground">
-      <header className="app-drag-region flex h-16 items-center justify-between border-b border-border bg-popover pr-5 pl-[88px]">
+      <header
+        className={`app-drag-region flex h-16 items-center justify-between border-b border-border bg-popover pr-5 ${headerPadding}`}
+      >
         <div className="flex min-w-[260px] items-center gap-3">
           <div className="grid size-10 place-items-center overflow-hidden rounded-xl bg-white shadow-[0_8px_22px_rgba(15,23,42,0.10)] ring-1 ring-border/70 dark:bg-card dark:shadow-none">
             <img

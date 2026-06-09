@@ -51,15 +51,6 @@ const renameFirst = (predicate, targetName) => {
   return targetName
 }
 
-renameFirst(
-  (name) => name.endsWith(`${version}-${channel}-full.nupkg`),
-  `${releasePrefix}-update.nupkg`
-)
-renameFirst(
-  (name) => name.endsWith(`${version}-${channel}-delta.nupkg`),
-  `${releasePrefix}-delta.nupkg`
-)
-
 if (osName === 'win') {
   renameFirst((name) => name.endsWith(`${channel}-Setup.exe`), `${releasePrefix}-setup.exe`)
 }
@@ -74,7 +65,7 @@ if (osName === 'linux') {
 
 const feedPath = join(releasesDir, `releases.${channel}.json`)
 
-if (existsSync(feedPath) && renames.size > 0) {
+if (existsSync(feedPath)) {
   const feed = JSON.parse(readFileSync(feedPath, 'utf8'))
 
   if (Array.isArray(feed.Assets)) {

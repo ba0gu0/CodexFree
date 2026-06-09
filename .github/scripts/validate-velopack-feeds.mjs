@@ -8,10 +8,7 @@ if (!feedsDir || !version) {
 }
 
 const forbiddenName =
-  /(^com\.baoguo\.codexfree|^assets\.|^RELEASES|\.blockmap$|Portable\.zip$|-full\.nupkg$)/
-const allowedPortableName = new RegExp(
-  `^CodexFree-${escapeRegExp(version)}-macos-(x64|arm64)-Portable\\.zip$`
-)
+  /(^assets\.|^RELEASES|\.blockmap$|Portable\.zip$|Setup\.exe$|AppImage$|-update\.nupkg$|^CodexFree-.*\.nupkg$)/
 const assets = new Set(
   readFileSync(join(feedsDir, 'assets.txt'), 'utf8').split(/\r?\n/).filter(Boolean)
 )
@@ -24,6 +21,10 @@ if (feeds.length !== 6) {
 }
 
 for (const feedName of feeds) {
+  const channel = feedName.replace(/^releases\./, '').replace(/\.json$/, '')
+  const velopackPackageName = new RegExp(
+    `^com\\.baoguo\\.codexfree-${escapeRegExp(version)}-${escapeRegExp(channel)}-(full|delta)\\.nupkg$`
+  )
   const feed = JSON.parse(readFileSync(join(feedsDir, feedName), 'utf8'))
 
   if (!Array.isArray(feed.Assets)) {
@@ -41,10 +42,11 @@ for (const feedName of feeds) {
       throw new Error(`${feedName} contains non-current version: ${asset.Version}`)
     }
 
-    if (
-      typeof asset.FileName !== 'string' ||
-      (forbiddenName.test(asset.FileName) && !allowedPortableName.test(asset.FileName))
-    ) {
+    if (typeof asset.FileName !== 'string' || forbiddenName.test(asset.FileName)) {
+      throw new Error(`${feedName} contains invalid asset name: ${asset.FileName}`)
+    }
+
+    if (!velopackPackageName.test(asset.FileName)) {
       throw new Error(`${feedName} contains invalid asset name: ${asset.FileName}`)
     }
 

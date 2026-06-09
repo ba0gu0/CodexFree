@@ -479,16 +479,16 @@ jobs:
           required=(
             "CodexFree-$VERSION-macos-x64-Portable.zip"
             "CodexFree-$VERSION-macos-arm64-Portable.zip"
-            "CodexFree-$VERSION-macos-x64-update.nupkg"
-            "CodexFree-$VERSION-macos-arm64-update.nupkg"
+            "com.baoguo.codexfree-$VERSION-osx-x64-full.nupkg"
+            "com.baoguo.codexfree-$VERSION-osx-arm64-full.nupkg"
             "CodexFree-$VERSION-windows-x64-setup.exe"
             "CodexFree-$VERSION-windows-arm64-setup.exe"
-            "CodexFree-$VERSION-windows-x64-update.nupkg"
-            "CodexFree-$VERSION-windows-arm64-update.nupkg"
+            "com.baoguo.codexfree-$VERSION-win-x64-full.nupkg"
+            "com.baoguo.codexfree-$VERSION-win-arm64-full.nupkg"
             "CodexFree-$VERSION-linux-x64.AppImage"
             "CodexFree-$VERSION-linux-arm64.AppImage"
-            "CodexFree-$VERSION-linux-x64-update.nupkg"
-            "CodexFree-$VERSION-linux-arm64-update.nupkg"
+            "com.baoguo.codexfree-$VERSION-linux-x64-full.nupkg"
+            "com.baoguo.codexfree-$VERSION-linux-arm64-full.nupkg"
             "releases.osx-x64.json"
             "releases.osx-arm64.json"
             "releases.win-x64.json"
@@ -503,7 +503,7 @@ jobs:
               missing=1
             fi
           done
-          forbidden_regex='(^com\.baoguo\.codexfree|^assets\.|^RELEASES|\.blockmap$|-full\.nupkg$)'
+          forbidden_regex='(^assets\.|^RELEASES|\.blockmap$|-update\.nupkg$|^CodexFree-.*\.nupkg$)'
           if printf '%s\n' "${assets[@]}" | grep -E "$forbidden_regex"; then
             echo "Release contains forbidden legacy asset names" >&2
             missing=1

@@ -398,7 +398,15 @@ function WizardBody({
   const section = setupSections(state, t, locale).find((item) => item.key === stepKey(step))
   return (
     <div className="grid gap-3">
-      {section ? <StatusRow {...section} /> : null}
+      {section ? (
+        <StatusRow
+          detail={section.detail}
+          label={section.label}
+          sectionKey={section.key}
+          tone={section.tone}
+          value={section.value}
+        />
+      ) : null}
       {step === 'config' ? <ConfigPreview state={state} t={t} /> : null}
       {step === 'accounts' ? <AccountsGate state={state} t={t} /> : null}
       {step === 'auth' ? (

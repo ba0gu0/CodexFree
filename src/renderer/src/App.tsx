@@ -33,7 +33,8 @@ const ACTIVITY_INITIAL_LIMIT = 50
 const ACTIVITY_PAGE_SIZE = 50
 const ACTIVITY_MAX_LIMIT = 1_000
 const LOCALE_STORAGE_KEY = 'codexfree.locale'
-const ONBOARDING_COMPLETED_KEY = 'onboarding.completedAt'
+const ONBOARDING_COMPLETED_KEY = 'codexfree.onboarding.completedAt'
+const LEGACY_ONBOARDING_COMPLETED_KEY = 'onboarding.completedAt'
 const SETUP_LAST_CHECKED_KEY = 'setupAssistant.lastCheckedAt'
 const THEME_STORAGE_KEY = 'codexfree.theme'
 const EMPTY_ACTIVITY_HAS_MORE: ConsoleActivityHasMore = {
@@ -61,6 +62,7 @@ function App(): React.JSX.Element {
   const [themeMode, setThemeMode] = useState<ThemeMode>(resolveInitialThemeMode)
   const [usageProgress, setUsageProgress] = useState<UsageProgress | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
+  const onboardingPromptedRef = useRef(false)
   const lastLoadMoreAt = useRef(0)
   const usageTaskRef = useRef(false)
   const t = useMemo(() => createTranslator(locale), [locale])
@@ -167,6 +169,15 @@ function App(): React.JSX.Element {
     }
     return undefined
   }, [error])
+
+  useEffect(() => {
+    if (!setupState || onboardingPromptedRef.current || hasCompletedOnboarding()) {
+      return
+    }
+    onboardingPromptedRef.current = true
+    setSetupOpen(true)
+    setWizardOpen(true)
+  }, [setupState])
 
   useEffect(() => {
     return window.api.onAccountUsageProgress((progress) => setUsageProgress(progress))
@@ -501,8 +512,11 @@ function App(): React.JSX.Element {
   const setupActions: SetupAssistantActions = {
     checkUsage: actions.checkUsage,
     importAuthFiles: actions.importAuthFiles,
-    markOnboardingComplete: () =>
-      localStorage.setItem(ONBOARDING_COMPLETED_KEY, new Date().toISOString()),
+    markOnboardingComplete: () => {
+      const completedAt = new Date().toISOString()
+      localStorage.setItem(ONBOARDING_COMPLETED_KEY, completedAt)
+      localStorage.setItem(LEGACY_ONBOARDING_COMPLETED_KEY, completedAt)
+    },
     openCodexDirectory: actions.openCodexDirectory,
     openRawCaptureDirectory: actions.openRawCaptureDirectory,
     openWorkDirectory: actions.openWorkDirectory,
@@ -551,6 +565,7 @@ function App(): React.JSX.Element {
       onSetupOpen={() => setSetupOpen(true)}
       onThemeCycle={cycleTheme}
       onViewChange={switchView}
+      platform={snapshot.updateStatus.platform}
       t={t}
       themeMode={themeMode}
     >
@@ -610,6 +625,13 @@ function resolveInitialLocale(): Locale {
 function resolveInitialThemeMode(): ThemeMode {
   const stored = localStorage.getItem(THEME_STORAGE_KEY)
   return stored === 'dark' || stored === 'light' || stored === 'system' ? stored : 'system'
+}
+
+function hasCompletedOnboarding(): boolean {
+  return (
+    localStorage.getItem(ONBOARDING_COMPLETED_KEY) !== null ||
+    localStorage.getItem(LEGACY_ONBOARDING_COMPLETED_KEY) !== null
+  )
 }
 
 function usageDoneText(
