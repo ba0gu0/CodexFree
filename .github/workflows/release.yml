@@ -386,6 +386,8 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
+          find Releases -maxdepth 1 -type f -name 'assets.*.json' -delete
+          find Releases -maxdepth 1 -type f -name 'RELEASES*' -delete
           find Releases -maxdepth 1 -type f -name '*.nupkg' ! -name "*-$VERSION-*" -delete
           node .github/scripts/normalize-velopack-assets.mjs Releases "$VERSION" "$CHANNEL"
 
@@ -502,7 +504,7 @@ jobs:
               missing=1
             fi
           done
-          forbidden_regex='(^com\.baoguo\.codexfree|\.blockmap$|Portable\.zip$|-full\.nupkg$)'
+          forbidden_regex='(^com\.baoguo\.codexfree|^assets\.|^RELEASES|\.blockmap$|Portable\.zip$|-full\.nupkg$)'
           if printf '%s\n' "${assets[@]}" | grep -E "$forbidden_regex"; then
             echo "Release contains forbidden legacy asset names" >&2
             missing=1
