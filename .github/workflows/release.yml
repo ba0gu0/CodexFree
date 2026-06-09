@@ -292,17 +292,20 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          args=(
-            github
-            --repoUrl "https://github.com/${{ github.repository }}"
-            --token "$GH_TOKEN"
-            --outputDir Releases
-            --releaseName "CodexFree $VERSION"
-            --tag "$TAG"
-            --merge
-            --publish
-          )
-          if [[ "$PRERELEASE" == "true" ]]; then
-            args+=(--pre)
-          fi
-          ./.tools/vpk upload "${args[@]}"
+          for channel in win-x64 linux-x64; do
+            args=(
+              github
+              --repoUrl "https://github.com/${{ github.repository }}"
+              --token "$GH_TOKEN"
+              --outputDir Releases
+              --releaseName "CodexFree $VERSION"
+              --tag "$TAG"
+              --channel "$channel"
+              --merge
+              --publish
+            )
+            if [[ "$PRERELEASE" == "true" ]]; then
+              args+=(--pre)
+            fi
+            ./.tools/vpk upload "${args[@]}"
+          done
