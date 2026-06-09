@@ -17,6 +17,7 @@ const RELEASES_URL = `${RELEASE_REPOSITORY_URL}/releases`
 type StoredUpdate = UpdateInfo | VelopackAsset
 
 export function runVelopackStartup(): void {
+  logger.info('Velopack update source configured', { sourceUrl: UPDATE_SOURCE_URL })
   VelopackApp.build()
     .setLogger((level, message) => {
       if (level === 'error') {
