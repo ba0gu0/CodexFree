@@ -74,6 +74,10 @@ if (existsSync(feedPath) && renames.size > 0) {
   const feed = JSON.parse(readFileSync(feedPath, 'utf8'))
 
   if (Array.isArray(feed.Assets)) {
+    feed.Assets = feed.Assets.filter((asset) => {
+      return asset && typeof asset === 'object' && asset.Version === version
+    })
+
     for (const asset of feed.Assets) {
       if (
         asset &&

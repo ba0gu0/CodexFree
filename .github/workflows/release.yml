@@ -509,4 +509,8 @@ jobs:
             echo "Release contains forbidden legacy asset names" >&2
             missing=1
           fi
+          mkdir -p feed-checks
+          printf '%s\n' "${assets[@]}" > feed-checks/assets.txt
+          gh release download "$TAG" --pattern 'releases.*.json' --dir feed-checks
+          node .github/scripts/validate-velopack-feeds.mjs feed-checks "$VERSION"
           exit "$missing"

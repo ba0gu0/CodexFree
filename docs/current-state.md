@@ -438,8 +438,9 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   `releases.win-x64.json`、`releases.win-arm64.json`、`releases.linux-x64.json` 和
   `releases.linux-arm64.json`。prerelease 发布会用 `vpk download github --pre` 拉取
   上一版；如果上一版同 channel feed 里存在 `Type: Full` 但本次没有生成 delta 包，
-  workflow 会失败。发布后校验会拒绝旧的 `com.baoguo.codexfree-*`、`.blockmap`、
-  `Portable.zip` 和 `*-full.nupkg` 文件名。
+  workflow 会失败。当前版本 feed 只保留本版本 full/delta 条目，发布后校验会拒绝旧的
+  `com.baoguo.codexfree-*`、`.blockmap`、`Portable.zip`、`*-full.nupkg`、`assets.*.json`
+  和 `RELEASES*` 文件名，并确认 feed 只引用当前 release 中实际存在的资产。
 - 最新 release/update wiring 验证通过：`rtk go run
   github.com/rhysd/actionlint/cmd/actionlint@latest -color=false .github/workflows/release.yml`、
   `rtk bun run lint`、`rtk bun run typecheck`、`rtk bun run test`、`rtk bun run build`、
