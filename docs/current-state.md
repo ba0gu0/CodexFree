@@ -202,7 +202,7 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - 添加 TanStack Query、TanStack Form、Valibot、Drizzle ORM、SQLite driver 和
   `electron-log`。
 - 切换到 Velopack 发布路线。`electron-builder` 负责生成 Electron app 和 macOS 完整
-  安装包；macOS/Windows/Linux 的 installer、portable、delta packages、
+  安装包；macOS/Windows/Linux 的 installer、delta packages、
   `releases.{channel}.json` 和 GitHub Release 上传由 Velopack 处理。
 - 添加 metadata-only SQLite schema seed，并为 account records 中 auth-secret exclusion
   添加 Vitest 覆盖。
@@ -429,6 +429,11 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   版本，创建 `v{version}` tag、构建 macOS 完整安装包，并为 macOS/Windows/Linux 生成
   Velopack packages 和 release feeds。发布前必须先在普通代码提交里更新并提交
   `package.json` 版本。
+- Release asset 目标清单是六个用户安装包：macOS `x64`/`arm64` DMG，Windows
+  `x64`/`arm64` Setup.exe，Linux `x64`/`arm64` AppImage。Velopack 同时上传六个 channel
+  feed：`osx-x64`、`osx-arm64`、`win-x64`、`win-arm64`、`linux-x64`、`linux-arm64`。
+  prerelease 发布会用 `vpk download github --pre` 拉取上一版；如果上一版同 channel
+  full 包存在但本次没有生成 delta 包，workflow 会失败。
 - 最新 release/update wiring 验证通过：`rtk bun run lint`、`rtk bun run typecheck`、
   `rtk bun run test`、`rtk bun run build`、`rtk bun run build:mac`。packaged macOS app
   bundle 不包含旧 `app-update.yml`，Velopack native `.node` 文件位于

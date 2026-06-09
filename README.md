@@ -115,6 +115,8 @@ openai_base_url = "http://host.docker.internal:33333/backend-api/codex"
   并按需在本机允许打开或自行签名。
 - macOS 也使用 Velopack 支持检查、下载和应用更新；GitHub Release 同时保留完整安装包供
   手动下载安装。Windows/Linux 同样使用 Velopack 更新。
+- 每个 release 应包含 macOS `x64`/`arm64` DMG、Windows `x64`/`arm64` Setup.exe、
+  Linux `x64`/`arm64` AppImage，以及对应的 Velopack release feeds。
 - 仓库忽略本地 `test` 参考材料、抓包、数据库和构建产物。不要手动把本地目录压缩上传替代
   GitHub 源码包。
 

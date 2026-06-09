@@ -115,14 +115,26 @@ jobs:
       - name: Download previous macOS Velopack releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
         run: |
           set -euo pipefail
+          : > previous-channels.txt
           for channel in osx-x64 osx-arm64; do
-            ./.tools/vpk download github \
-              --repoUrl "https://github.com/${{ github.repository }}" \
-              --token "$GH_TOKEN" \
-              --outputDir Releases \
-              --channel "$channel" || true
+            args=(
+              github
+              --repoUrl "https://github.com/${{ github.repository }}"
+              --token "$GH_TOKEN"
+              --outputDir Releases
+              --channel "$channel"
+            )
+            if [[ "$PRERELEASE" == "true" ]]; then
+              args+=(--pre)
+            fi
+            if ./.tools/vpk download "${args[@]}"; then
+              if find Releases -maxdepth 1 -type f -name "*-$channel-full.nupkg" | grep -q .; then
+                echo "$channel" >> previous-channels.txt
+              fi
+            fi
           done
 
       - name: Pack macOS Velopack releases
@@ -152,8 +164,24 @@ jobs:
               --outputDir Releases \
               --icon "$icon" \
               --bundleId "$APP_ID" \
-              --releaseNotes release-notes.md
+              --releaseNotes release-notes.md \
+              --noInst \
+              --noPortable
           done
+
+      - name: Validate macOS delta packages
+        run: |
+          set -euo pipefail
+          while IFS= read -r channel; do
+            if [[ -z "$channel" ]]; then
+              continue
+            fi
+            if ! find Releases -maxdepth 1 -type f -name "*-$channel-delta.nupkg" | grep -q .; then
+              echo "Expected a delta package for previous macOS channel: $channel" >&2
+              find Releases -maxdepth 1 -type f | sort >&2
+              exit 1
+            fi
+          done < previous-channels.txt
 
       - name: Upload macOS release files
         uses: actions/upload-artifact@v4
@@ -162,9 +190,6 @@ jobs:
           if-no-files-found: error
           path: |
             dist/*.dmg
-            dist/*.pkg
-            dist/*.zip
-            dist/*.blockmap
 
       - name: Upload macOS Velopack artifact
         uses: actions/upload-artifact@v4
@@ -188,7 +213,17 @@ jobs:
             pack_dir: dist/win-unpacked
             main_exe: CodexFree.exe
             icon: build/icon.ico
-            build_command: bun run build:win
+            build_command: bun run clean:packaged-apps && bun run build && bun electron-builder --win --dir --x64
+            pack_flags: --noPortable
+          - name: Windows arm64
+            runner: windows-latest
+            channel: win-arm64
+            runtime: win-arm64
+            pack_dir: dist/win-arm64-unpacked
+            main_exe: CodexFree.exe
+            icon: build/icon.ico
+            build_command: bun run clean:packaged-apps && bun run build && bun electron-builder --win --dir --arm64
+            pack_flags: --noPortable
           - name: Linux x64
             runner: ubuntu-latest
             channel: linux-x64
@@ -196,7 +231,17 @@ jobs:
             pack_dir: dist/linux-unpacked
             main_exe: codexfree
             icon: build/icon.png
-            build_command: bun run build:linux
+            build_command: bun run clean:packaged-apps && bun run build && bun electron-builder --linux --dir --x64
+            pack_flags: ""
+          - name: Linux arm64
+            runner: ubuntu-latest
+            channel: linux-arm64
+            runtime: linux-arm64
+            pack_dir: dist/linux-arm64-unpacked
+            main_exe: codexfree
+            icon: build/icon.png
+            build_command: bun run clean:packaged-apps && bun run build && bun electron-builder --linux --dir --arm64
+            pack_flags: ""
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v4
@@ -235,12 +280,25 @@ jobs:
         env:
           CHANNEL: ${{ matrix.channel }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
         run: |
-          ./.tools/vpk download github \
-            --repoUrl "https://github.com/${{ github.repository }}" \
-            --token "$GH_TOKEN" \
-            --outputDir Releases \
-            --channel "$CHANNEL" || true
+          set -euo pipefail
+          args=(
+            github
+            --repoUrl "https://github.com/${{ github.repository }}"
+            --token "$GH_TOKEN"
+            --outputDir Releases
+            --channel "$CHANNEL"
+          )
+          if [[ "$PRERELEASE" == "true" ]]; then
+            args+=(--pre)
+          fi
+          : > previous-channel.txt
+          if ./.tools/vpk download "${args[@]}"; then
+            if find Releases -maxdepth 1 -type f -name "*-$CHANNEL-full.nupkg" | grep -q .; then
+              echo "$CHANNEL" > previous-channel.txt
+            fi
+          fi
 
       - name: Pack Velopack release
         shell: bash
@@ -248,6 +306,7 @@ jobs:
           CHANNEL: ${{ matrix.channel }}
           ICON: ${{ matrix.icon }}
           MAIN_EXE: ${{ matrix.main_exe }}
+          PACK_FLAGS: ${{ matrix.pack_flags }}
           PACK_DIR: ${{ matrix.pack_dir }}
           RUNTIME: ${{ matrix.runtime }}
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -273,7 +332,22 @@ jobs:
             --channel "$CHANNEL" \
             --outputDir Releases \
             --icon "$ICON" \
-            --releaseNotes release-notes.md
+            --releaseNotes release-notes.md \
+            $PACK_FLAGS
+
+      - name: Validate delta package
+        shell: bash
+        env:
+          CHANNEL: ${{ matrix.channel }}
+        run: |
+          set -euo pipefail
+          if [[ -s previous-channel.txt ]]; then
+            if ! find Releases -maxdepth 1 -type f -name "*-$CHANNEL-delta.nupkg" | grep -q .; then
+              echo "Expected a delta package for previous channel: $CHANNEL" >&2
+              find Releases -maxdepth 1 -type f | sort >&2
+              exit 1
+            fi
+          fi
 
       - name: Upload Velopack artifact
         uses: actions/upload-artifact@v4
@@ -355,7 +429,7 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          for channel in osx-x64 osx-arm64 win-x64 linux-x64; do
+          for channel in osx-x64 osx-arm64 win-x64 win-arm64 linux-x64 linux-arm64; do
             args=(
               github
               --repoUrl "https://github.com/${{ github.repository }}"
@@ -372,3 +446,35 @@ jobs:
             fi
             ./.tools/vpk upload "${args[@]}"
           done
+
+      - name: Validate published asset set
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(gh release view "$TAG" --json assets --jq '.assets[].name' | sort)
+          printf '%s\n' "${assets[@]}"
+          required=(
+            "CodexFree-$VERSION-arm64.dmg"
+            "CodexFree-$VERSION-x64.dmg"
+            "com.baoguo.codexfree-win-x64-Setup.exe"
+            "com.baoguo.codexfree-win-arm64-Setup.exe"
+            "com.baoguo.codexfree-linux-x64.AppImage"
+            "com.baoguo.codexfree-linux-arm64.AppImage"
+            "releases.osx-x64.json"
+            "releases.osx-arm64.json"
+            "releases.win-x64.json"
+            "releases.win-arm64.json"
+            "releases.linux-x64.json"
+            "releases.linux-arm64.json"
+          )
+          missing=0
+          for name in "${required[@]}"; do
+            if ! printf '%s\n' "${assets[@]}" | grep -Fxq "$name"; then
+              echo "Missing expected release asset: $name" >&2
+              missing=1
+            fi
+          done
+          exit "$missing"

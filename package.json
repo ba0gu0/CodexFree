@@ -18,7 +18,7 @@
     "dev": "bun electron-vite dev",
     "build": "bun run typecheck && bun run daemon:bundle && bun electron-vite build",
     "postinstall": "bun node_modules/electron/install.js && electron-builder install-app-deps",
-    "clean:packaged-apps": "bun -e \"const { rmSync } = require('node:fs'); for (const path of ['dist/mac', 'dist/mac-arm64', 'dist/win-unpacked', 'dist/linux-unpacked']) rmSync(path, { recursive: true, force: true });\"",
+    "clean:packaged-apps": "bun -e \"const { rmSync } = require('node:fs'); for (const path of ['dist/mac', 'dist/mac-arm64', 'dist/win-unpacked', 'dist/win-arm64-unpacked', 'dist/linux-unpacked', 'dist/linux-arm64-unpacked']) rmSync(path, { recursive: true, force: true });\"",
     "build:unpack": "bun run clean:packaged-apps && bun run build && bun electron-builder --dir -c.mac.identity=null",
     "build:win": "bun run clean:packaged-apps && bun run build && bun electron-builder --win --dir",
     "build:mac": "bun run clean:packaged-apps && bun run build && bun electron-builder --mac -c.mac.identity=null",

@@ -131,6 +131,8 @@ openai_base_url = "http://host.docker.internal:33333/backend-api/codex"
   the app locally as needed.
 - macOS also uses Velopack for update checks, downloads, and applying updates; GitHub Releases
   still include full installers for manual downloads. Windows and Linux use Velopack updates too.
+- Each release should include macOS `x64`/`arm64` DMGs, Windows `x64`/`arm64` Setup.exe files,
+  Linux `x64`/`arm64` AppImages, and the matching Velopack release feeds.
 - Local `test` reference material, captures, databases, and build outputs are ignored by Git. Do
   not manually upload a local folder archive as a substitute for the GitHub source package.
 

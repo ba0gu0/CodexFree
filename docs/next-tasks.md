@@ -292,9 +292,13 @@ T15 当前实现证据：
 - 已完成：GitHub 仓库 `ba0gu0/CodexFree` 已通过 `gh repo create` 创建并绑定为 `origin`。
 - 已完成：新增手动触发的 GitHub Actions release workflow。`prepare` job 从当前提交的
   `package.json.version` 读取版本并打 `v{version}` tag；macOS job 构建完整安装包；
-  macOS/Windows/Linux jobs 使用 Velopack `osx-x64`、`osx-arm64`、`win-x64` 和
-  `linux-x64` channels 生成 installer、portable、full/delta packages 和 release feeds；
-  `publish` job 汇总并发布 GitHub Release。
+  macOS/Windows/Linux jobs 使用 Velopack `osx-x64`、`osx-arm64`、`win-x64`、`win-arm64`、
+  `linux-x64` 和 `linux-arm64` channels 生成 installer、full/delta packages 和 release
+  feeds；`publish` job 汇总并发布 GitHub Release。
+- 已完成：release workflow 增加发布资产完整性校验。每次 release 必须包含 macOS
+  x64/arm64 DMG、Windows x64/arm64 Setup.exe、Linux x64/arm64 AppImage，以及六个
+  `releases.{channel}.json`。prerelease 发布下载上一版时会传 `--pre`；如果上一版同 channel
+  full 包存在但没有生成 delta 包，workflow 会失败。
 - 已完成：App 内更新从 `electron-updater` 切换到 Velopack/GitHub release status。
   macOS/Windows/Linux 都支持 Velopack 检查、下载和应用更新。macOS 仍是不签名、不公证
   产物，用户需要按需在本机允许打开或自行签名。
@@ -311,8 +315,8 @@ T15 当前实现证据：
   .github/workflows/release.yml`。
 - Confirmed：packaged macOS app bundle 不包含旧 `app-update.yml`；Velopack native `.node`
   文件已进入 `app.asar.unpacked/node_modules/velopack/lib/native/`。
-- 未本地执行：macOS `vpk pack`。本地一次性安装 `vpk` help 超时；macOS Velopack packaging
-  由 GitHub Actions job 执行。
+- 未本地执行：macOS/Windows/Linux `vpk pack`。本地一次性安装 `vpk` help 超时；Velopack
+  packaging 由 GitHub Actions job 执行。
 
 验证：
 
