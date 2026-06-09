@@ -85,10 +85,11 @@ openai_base_url = "http://127.0.0.1:<port>/backend-api/codex"
 - 如果存在顶层 `model_provider = ...`，切换到代理模式时删除它，不新增
   `model_provider = "openai"`。
 - 不修改 `[model_providers.<name>]` 定义；恢复 API 模式时直接从 CodexFree 创建的
-  `*-codexfree-config.toml` 文件备份恢复。
+  `config-codexfree-*.toml` 文件备份恢复。
 - 如果目标内容已经正确，不备份、不重写，只提示“Codex 配置已是最新”。
-- 如果需要修改，先备份原 `config.toml` 为 `YYYYMMDDTHHMMSS-codexfree-config.toml`，并同时
-  备份现有 `auth.json` 为 `YYYYMMDDTHHMMSS-codexfree-auth.json`，再写入。
+- 如果需要修改，先备份原 `config.toml` 为
+  `config-codexfree-YYYYMMDD-HHMMSS.toml`，并同时备份现有 `auth.json` 为
+  `auth-codexfree-YYYYMMDD-HHMMSS.json`，再写入。
 - 不能把两行写进 `[profiles.xxx]` 或其他 table。
 
 界面展示：当前检测结果、目标配置预览、写入配置按钮、恢复配置备份按钮、同步会话
@@ -124,10 +125,11 @@ provider 按钮、打开 `~/.codex` 目录按钮。
    - 替代路径：用户没有自有账号，从已导入账号中选择一个写入 `auth.json`。
 4. 如果没有可用导入账号，替代路径不可选，但不阻断用户继续下一步。
 5. 如果用户没有自有账号，提供“从已导入账号写入 auth.json”的入口；必须用户手动选择账号并二次确认。
-6. 写入前备份现有文件为 `YYYYMMDDTHHMMSS-codexfree-auth.json`，写入后 chmod `0600`。
+6. 写入前备份现有文件为 `auth-codexfree-YYYYMMDD-HHMMSS.json`，写入后 chmod `0600`。
 7. 写入的账号在 SQLite 中标记为 `local_auth`，取消其当前 active 状态，并优先激活其他可用账号。
 8. 用户想重新登录时，提供“重命名当前 auth.json 并重新登录”的入口。
-9. 重命名动作必须二次确认，并显示新文件名，例如 `20260520T163000-codexfree-auth.json`。
+9. 重命名动作必须二次确认，并显示新文件名，例如
+   `auth-codexfree-20260520-163000.json`。
 10. `auth.json` 备份恢复入口放在 Proxy 恢复区，不放在配置助手的 Codex 登录步骤。
 11. 登录完成或手动恢复完成后回到 CodexFree 点击“重新检查”。
 
@@ -156,7 +158,8 @@ provider 按钮、打开 `~/.codex` 目录按钮。
 - 引导第一步是导入账号池，并查询用量确认可用账号。
 - 风险路径支持“显式选择已导入账号 + 二次确认 + 先备份再写入”。
 - 写入 `auth.json` 的账号在代理轮换中排到后面，避免优先消耗本地登录账号额度。
-- 备份恢复只支持 CodexFree 创建的 `*-codexfree-auth.json`，不接受任意文件路径。
+- 备份恢复只支持 CodexFree 创建的新版 `auth-codexfree-*.json`，不接受任意文件路径；恢复时不再
+  备份当前 `auth.json`。
 - API-key compatibility 先保持未实现/未启用，等抓包确认 Codex API-key 模式请求形态后再做。
 
 ### 6. 账号模式与 API-key 模式差异
@@ -241,7 +244,8 @@ provider 按钮、打开 `~/.codex` 目录按钮。
 - 首次向导先导入账号池，再检查或写入 `auth.json`，再完成代理和 config。
 - App 不会静默覆盖或复制 `~/.codex/auth.json`。
 - 用户显式选择已导入账号写入 `auth.json` 时，现有文件会先备份，写入账号会被排到代理轮换后面。
-- 用户可以从 CodexFree 创建的 `*-codexfree-auth.json` 列表中选择一个恢复，恢复前当前文件也会先备份。
+- 用户可以从 CodexFree 创建的 auth 备份列表中选择一个恢复；恢复会直接覆盖当前
+  `auth.json`，不再额外创建备份。
 - config.toml 正确时不会重复备份或重写。
 - 没有自有账号时，助手清楚区分推荐路径、风险路径和未来 API-key 路径。
 - API-key compatibility 未完成抓包前，不在 UI 中宣传为已可用能力。
@@ -257,7 +261,7 @@ provider 按钮、打开 `~/.codex` 目录按钮。
 3. 做首次引导 Dialog/Wizard，复用配置助手检测模型。
 4. 做 `auth.json` 重命名登录辅助入口，必须加确认弹窗。
 5. 增加“无自有账号”说明页，支持从已导入账号中显式选择一个写入 `auth.json`。
-6. 增加 CodexFree 备份恢复入口，只列出 `*-codexfree-auth.json`，不展示授权内容。
+6. 增加 CodexFree 备份恢复入口，只列出新版 `auth-codexfree-*.json`，不展示授权内容。
 7. API-key compatibility 单独排期：先抓包，再更新协议设计，再实现。
 8. 给代理页、账户页、请求页补局部辅助提示。
 9. 用 Vitest 覆盖关键状态判断，用 Computer Use 验证真实窗口。

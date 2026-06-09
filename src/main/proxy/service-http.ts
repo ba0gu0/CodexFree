@@ -18,6 +18,7 @@ import { createRequestId, fingerprint, firstHeaderValue, redactHeaders } from '.
 import type { ProxyHandlerContext } from './service-context'
 import { summarizeServerSentEvents } from './sse-summary'
 import { createTerminalQuotaPayload } from './terminal-quota'
+import { shouldRecordProxyRequest, shouldUseManagedAccountHeaders } from './traffic-policy'
 import { forwardHttpRequest } from './transport-http'
 
 export async function handleProxyHttpRequest(
@@ -163,10 +164,10 @@ export async function handleProxyHttpRequest(
 
   const mode = classification.mode
   const preserveOriginalAuth = isWhamRemotePath(request.url)
-  const useAccountRules = classification.mode === 'account' && !preserveOriginalAuth
-  let routedAccount = preserveOriginalAuth
-    ? undefined
-    : await ctx.routeAccount(request, requestId, accountId, conversationKey)
+  const useAccountRules = shouldUseManagedAccountHeaders(request.url) && !preserveOriginalAuth
+  let routedAccount = useAccountRules
+    ? await ctx.routeAccount(request, requestId, accountId, conversationKey)
+    : undefined
   if (
     routedAccount &&
     useAccountRules &&
@@ -399,6 +400,15 @@ export async function handleProxyHttpRequest(
   }
   ctx.writeDeferredHttpResponse(response, clientResult)
   const completedAt = new Date()
+  const outcome = terminalQuotaMessage
+    ? 'quota_exhausted'
+    : upstreamResult.errorMessage
+      ? 'failed'
+      : 'forwarded'
+  const shouldRecord = shouldRecordProxyRequest({ outcome, path: request.url })
+  if (!shouldRecord) {
+    return
+  }
   ctx.log.info('HTTP result', {
     id: requestId,
     method: request.method,
@@ -445,11 +455,7 @@ export async function handleProxyHttpRequest(
     method: request.method ?? 'GET',
     path: request.url ?? '/',
     mode,
-    outcome: terminalQuotaMessage
-      ? 'quota_exhausted'
-      : upstreamResult.errorMessage
-        ? 'failed'
-        : 'forwarded',
+    outcome,
     statusCode: terminalQuotaMessage ? 429 : clientResult.statusCode,
     durationMs: completedAt.getTime() - startedAt.getTime(),
     requestBytes: requestBody.byteLength,

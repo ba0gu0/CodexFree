@@ -86,9 +86,9 @@ that account later in proxy rotation so other available accounts are used first.
 The two `config.toml` lines must be top-level TOML values, not inside `[profiles.xxx]`. Proxy mode
 only needs the top-level `model_provider` removed. Do not delete `[model_providers.<name>]`, and
 do not add `model_provider = "openai"`. Before writing config, CodexFree backs up the current
-`config.toml` as `YYYYMMDDTHHMMSS-codexfree-config.toml`. To return to API mode, choose the backup
-to restore on the Proxy page, then sync historical session provider metadata from the current
-config.
+`config.toml` as `config-codexfree-YYYYMMDD-HHMMSS.toml`. To return to API mode, choose
+the backup to restore on the Proxy page, then sync historical session provider metadata from the
+current config.
 You can still use `cc switch` or other config-switching tools, but do not let them edit the same
 `config.toml` while CodexFree is also writing or monitoring it. Disable one side's automatic config
 write or monitoring before switching to avoid overwrites.
@@ -107,9 +107,10 @@ openai_base_url = "http://host.docker.internal:33333/backend-api/codex"
 - CodexFree does not automatically overwrite, copy, or replace your `~/.codex/auth.json`.
 - CodexFree writes `auth.json` only after you explicitly select an imported account in the guide
   and confirm the action. The existing file is backed up first.
-- CodexFree-created backups use dedicated names: `YYYYMMDDTHHMMSS-codexfree-config.toml` and
-  `YYYYMMDDTHHMMSS-codexfree-auth.json`. Restore only selects from those backups and does not read
-  arbitrary files.
+- CodexFree-created backups use dedicated names:
+  `config-codexfree-YYYYMMDD-HHMMSS.toml` and
+  `auth-codexfree-YYYYMMDD-HHMMSS.json`. Restore only selects from those backups, does not
+  read arbitrary files, and does not create another backup while restoring.
 - The relogin helper only renames the existing `auth.json` after confirmation and writes no
   replacement file.
 - Imported account auth files are managed locally by CodexFree and should never be committed to Git.

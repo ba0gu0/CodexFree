@@ -62,6 +62,9 @@ export class AccountQuotaGuard {
       usageUrl: this.options.usageUrl()
     })
     this.updateUsage(result)
+    if (result.quotaUnavailable) {
+      return this.remoteEvaluation(result)
+    }
     if (!result.ok) {
       this.options.log.warn('Quota guard usage check failed', {
         accountId: account.accountId,
@@ -77,7 +80,30 @@ export class AccountQuotaGuard {
       )
     }
 
-    const fallback = this.cachedEvaluation(account.accountId, false)
+    return this.remoteEvaluation(result)
+  }
+
+  private updateUsage(result: Awaited<ReturnType<typeof checkAccountUsageByAuthorization>>): void {
+    const ledger = this.options.ledger as ProxyLedger & {
+      updateAccountUsage?: ProxyLedger['updateAccountUsage']
+    }
+    ledger.updateAccountUsage?.({
+      accountId: result.accountId,
+      email: result.email,
+      label: result.label,
+      lastUsageError: result.ok || result.quotaUnavailable ? undefined : result.error,
+      planType: result.planType,
+      primaryUsedPercent: result.primaryUsedPercent,
+      rateLimitResetsAt: result.rateLimitResetsAt,
+      secondaryRateLimitResetsAt: result.secondaryRateLimitResetsAt,
+      secondaryUsedPercent: result.secondaryUsedPercent
+    })
+  }
+
+  private remoteEvaluation(
+    result: Awaited<ReturnType<typeof checkAccountUsageByAuthorization>>
+  ): AccountQuotaEvaluation {
+    const fallback = this.cachedEvaluation(result.accountId, false)
     const primaryUsedPercent = result.primaryUsedPercent ?? fallback?.primaryUsedPercent
     const secondaryUsedPercent = result.secondaryUsedPercent ?? fallback?.secondaryUsedPercent
     const protectedWindow = quotaProtectedWindow(primaryUsedPercent, secondaryUsedPercent)
@@ -92,23 +118,6 @@ export class AccountQuotaGuard {
       secondaryUsedPercent,
       source: 'remote'
     }
-  }
-
-  private updateUsage(result: Awaited<ReturnType<typeof checkAccountUsageByAuthorization>>): void {
-    const ledger = this.options.ledger as ProxyLedger & {
-      updateAccountUsage?: ProxyLedger['updateAccountUsage']
-    }
-    ledger.updateAccountUsage?.({
-      accountId: result.accountId,
-      email: result.email,
-      label: result.label,
-      lastUsageError: result.ok ? undefined : result.error,
-      planType: result.planType,
-      primaryUsedPercent: result.primaryUsedPercent,
-      rateLimitResetsAt: result.rateLimitResetsAt,
-      secondaryRateLimitResetsAt: result.secondaryRateLimitResetsAt,
-      secondaryUsedPercent: result.secondaryUsedPercent
-    })
   }
 
   private cachedEvaluation(

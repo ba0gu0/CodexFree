@@ -221,6 +221,63 @@ describe('proxy ledger account sync', () => {
     }
   })
 
+  it('cleans legacy usage 402 review state and noisy rows during schema init', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'codexfree-ledger-402-cleanup-'))
+    const databasePath = join(tempDir, 'ledger.sqlite')
+    try {
+      const ledger = new ProxyLedger(databasePath)
+      try {
+        ledger.syncAccountPool([
+          {
+            accountId: 'account-a',
+            fingerprint: 'fingerprint-a',
+            label: 'Account A',
+            sourceFormat: 'codex'
+          }
+        ])
+        ledger.updateAccountUsage({
+          accountId: 'account-a',
+          lastUsageError: 'usage check failed: 402'
+        })
+        ledger.recordLogEvent({
+          accountId: 'account-a',
+          eventType: 'quota',
+          level: 'warn',
+          message: 'Quota guard usage check failed',
+          detail: { statusCode: 402 }
+        })
+        ledger.insert(
+          createRequestLedgerEntry(402, {
+            id: 'request-402',
+            path: '/backend-api/wham/usage',
+            requestPurpose: 'account_usage',
+            statusCode: 402
+          })
+        )
+      } finally {
+        ledger.close()
+      }
+
+      const reopened = new ProxyLedger(databasePath)
+      try {
+        expect(reopened.accounts()).toEqual([
+          expect.objectContaining({
+            accountId: 'account-a',
+            lastUsageError: null,
+            primaryUsedPercent: '100',
+            status: 'exhausted'
+          })
+        ])
+        expect(reopened.recentLogEvents()).toEqual([])
+        expect(reopened.recent().map((request) => request.id)).not.toContain('request-402')
+      } finally {
+        reopened.close()
+      }
+    } finally {
+      rmSync(tempDir, { force: true, recursive: true })
+    }
+  })
+
   it('marks accounts exhausted when the secondary quota window reaches the guard line', () => {
     const ledger = new ProxyLedger(':memory:')
     try {

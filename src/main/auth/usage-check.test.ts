@@ -210,6 +210,54 @@ describe('account usage check', () => {
     }
   })
 
+  it('treats usage 402 as quota unavailable instead of a review error', async () => {
+    const server = http.createServer((_request, response) => {
+      response.writeHead(402, { 'content-type': 'application/json' })
+      response.end(
+        JSON.stringify({
+          account_id: 'team-account',
+          email: 'team@example.test',
+          plan_type: 'team',
+          rate_limit: {
+            primary_window: {
+              reset_at: 1780927748
+            },
+            secondary_window: {
+              used_percent: 78,
+              reset_at: 1781496691
+            }
+          }
+        })
+      )
+    })
+    await listen(server)
+
+    try {
+      const result = await checkAccountUsageByAuthorization({
+        accountId: 'team-account',
+        authorization: 'Bearer access-token',
+        label: 'team usage',
+        usageUrl: usageUrl(server)
+      })
+
+      expect(result).toMatchObject({
+        accountId: 'team-account',
+        email: 'team@example.test',
+        ok: false,
+        planType: 'team',
+        primaryUsedPercent: '100',
+        quotaUnavailable: true,
+        rateLimitResetsAt: 1780927748000,
+        secondaryRateLimitResetsAt: 1781496691000,
+        secondaryUsedPercent: '78',
+        statusCode: 402
+      })
+      expect(result.error).toBeUndefined()
+    } finally {
+      await closeServer(server)
+    }
+  })
+
   it('returns a timeout result when usage does not respond before the limit', async () => {
     const server = http.createServer(() => {
       // Keep the socket open so the client-side timeout path is exercised.

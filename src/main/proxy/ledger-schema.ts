@@ -307,6 +307,7 @@ export function initializeLedgerSchema(sqlite: Database.Database): void {
     ['parent_response_id', 'ALTER TABLE proxy_turn_summaries ADD COLUMN parent_response_id TEXT'],
     ['summary_json', 'ALTER TABLE proxy_turn_summaries ADD COLUMN summary_json TEXT']
   ])
+  cleanupUsageCheck402Rows(sqlite)
 }
 
 function ensureColumns(
@@ -339,4 +340,54 @@ function assertSafeTableName(table: string): void {
   if (!allowedTables.has(table)) {
     throw new Error(`Unsupported migration table: ${table}`)
   }
+}
+
+function cleanupUsageCheck402Rows(sqlite: Database.Database): void {
+  const now = Date.now()
+  const transaction = sqlite.transaction(() => {
+    sqlite
+      .prepare(`
+        UPDATE proxy_accounts
+        SET status = CASE
+              WHEN status = 'disabled' THEN status
+              ELSE 'exhausted'
+            END,
+            active = CASE
+              WHEN status = 'disabled' THEN active
+              ELSE 0
+            END,
+            exhausted_at = CASE
+              WHEN status = 'disabled' THEN exhausted_at
+              ELSE COALESCE(exhausted_at, @now)
+            END,
+            quota_reset_at = COALESCE(rate_limit_resets_at, quota_reset_at),
+            primary_used_percent = COALESCE(primary_used_percent, '100'),
+            last_usage_checked_at = COALESCE(last_usage_checked_at, @now),
+            last_usage_error = NULL,
+            updated_at = @now
+        WHERE last_usage_error LIKE 'usage check failed: 402%'
+      `)
+      .run({ now })
+    sqlite
+      .prepare(`
+        DELETE FROM proxy_log_events
+        WHERE (
+          message = 'Quota guard usage check failed'
+          AND detail_json LIKE '%"statusCode":402%'
+        ) OR (
+          message = 'Quota reset refresh skipped account'
+          AND detail_json LIKE '%usage check failed: 402%'
+        )
+      `)
+      .run()
+    sqlite
+      .prepare(`
+        DELETE FROM proxy_requests
+        WHERE path = '/backend-api/wham/usage'
+          AND request_purpose = 'account_usage'
+          AND status_code = 402
+      `)
+      .run()
+  })
+  transaction()
 }

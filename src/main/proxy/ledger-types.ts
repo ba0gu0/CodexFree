@@ -27,6 +27,7 @@ export interface AccountUsageInput {
   label?: string
   planType?: string
   primaryUsedPercent?: string
+  quotaUnavailable?: boolean
   secondaryUsedPercent?: string
   rateLimitResetsAt?: number
   secondaryRateLimitResetsAt?: number

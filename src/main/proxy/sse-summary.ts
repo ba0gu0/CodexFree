@@ -9,6 +9,7 @@ import {
   truncateForLog
 } from './json-utils'
 import type { ProtocolMessageInput, TurnSummaryInput } from './ledger-types'
+import { shouldPersistProtocolSummary } from './protocol-summary'
 
 export interface SseSummaryInput {
   accountId?: string
@@ -34,26 +35,6 @@ export function summarizeServerSentEvents(input: SseSummaryInput): SseSummaryRes
   const userText = extractUserText(request)
   const previousResponseId = stringField(request, 'previous_response_id')
   const model = stringField(request, 'model')
-  const toolCount = arrayField(request, 'tools')?.length
-  if (request) {
-    messages.push({
-      accountId: input.accountId,
-      conversationKey: input.conversationKey,
-      direction: 'codex-to-upstream',
-      inputItemCount: arrayField(request, 'input')?.length,
-      kind: 'user',
-      model,
-      path: input.path,
-      previousResponseId,
-      parentResponseId: previousResponseId,
-      protocolType: 'response.create',
-      requestId: input.requestId,
-      summaryJson: safeSummaryJson({ model, previousResponseId, toolCount, userText }),
-      text: truncateForLog(userText ? `用户请求: ${userText}` : `发起模型请求: ${model ?? '-'}`),
-      toolCount
-    })
-  }
-
   let assistantText: string | undefined
   let responseId: string | undefined
   let status: string | undefined
@@ -77,12 +58,17 @@ export function summarizeServerSentEvents(input: SseSummaryInput): SseSummaryRes
     if (!summary) {
       continue
     }
-    messages.push(summary)
+    if (shouldPersistProtocolSummary(summary)) {
+      messages.push(summary)
+    }
     responseId = summary.responseId ?? responseId
     if (summary.kind === 'assistant') {
       assistantText = stripPrefix(summary.text, 'AI 回复: ') || assistantText
     } else if (summary.kind === 'usage') {
       status = stringField(recordField(payload, 'response'), 'status') ?? status ?? 'completed'
+      if (summary.text.startsWith('AI 回复: ')) {
+        assistantText = stripPrefix(summary.text, 'AI 回复: ') || assistantText
+      }
       usage = {
         cachedInputTokens: summary.cachedInputTokens,
         inputTokens: summary.inputTokens,

@@ -27,11 +27,20 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - 代理把本地 Codex `/backend-api/codex/*` 流量转发到
   `https://chatgpt.com/backend-api/codex` 下的 ChatGPT 账号模式上游路径。
 - `/v1/*` 预留给未来明确的 API-key 兼容面，而不是文档化的账号登录代理配置。
-- 账号池路由是常规转发模式。代理只从托管账号文件中替换上游 `Authorization` 和
-  `chatgpt-account-id`。
-- 透明 MVP 会记录脱敏后的请求元数据，并且可以选择把原始本地调试抓包写入系统临时目录。
+- 账号池路由是常规转发模式。代理只在核心账号请求上从托管账号文件替换上游
+  `Authorization` 和 `chatgpt-account-id`：`/backend-api/codex/models`、
+  `/backend-api/codex/responses`、`/backend-api/codex/responses/compact` 和
+  `/backend-api/wham/usage`。
+- 透明 MVP 会记录脱敏后的核心请求元数据，并且可以选择把原始本地调试抓包写入系统临时目录。
 - 原始抓包现在包含升级后的 `/backend-api/codex/responses` 流量对应的 WebSocket
   frame JSONL 文件。
+- 常规请求观察现在优先写入 `proxy_turn_summaries`：user、assistant、usage 和工具调用只聚合为
+  turn 文本、token 和工具计数。`proxy_protocol_messages` 只保留错误、限流等排障事件，避免正常
+  对话和工具参数/结果碎片持续写入 SQLite。显式 `raw capture` 仍保持完整抓包调试用途。
+- 成功转发的 request ledger 只保留核心事件：`/backend-api/codex/responses`、
+  `/backend-api/codex/responses/compact` 和 `/backend-api/wham/usage`。models 请求仍会用托管
+  header 访问上游，但成功结果不入库；analytics、plugins、apps、connectors 等辅助接口只转发，
+  不做托管 header 替换，也不写普通请求行。
 - `docs/proxy-traffic-analysis.md` 现在记录当前 GET/POST 抓包清单、token usage
   提取来源、request/protocol ledger 字段，以及 UI 用量建议。把它作为跨会话参考，
   用于 request、usage、overview 和 account 页面数据源优化。
@@ -40,9 +49,9 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - 代理现在会解析解码后的上游 WebSocket 文本 frame，并把匹配的
   `usage_limit_reached` 请求在 request ledger 中标记为 `quota_exhausted`。
 - Auth-pool 路由现在使用单一 app 托管导入目录。用户不能把运行时指向任意 auth
-  目录。代理加载规范化后的导入 auth 文件，只替换上游 `Authorization` 和
-  `chatgpt-account-id`，按 conversation key 绑定账号，并在 WSS 配额事件之后的下一个
-  请求边界切换。
+  目录。代理加载规范化后的导入 auth 文件，只在核心账号请求上替换上游
+  `Authorization` 和 `chatgpt-account-id`，按 conversation key 绑定账号，并在 WSS
+  配额事件之后的下一个请求边界切换。
 - 新的 WSS 请求如果立即命中 `usage_limit_reached`，可以在不把 quota frame 转发给
   Codex 的情况下重试上游。只有当缓冲的 `response.create` frame 是自包含的，client
   socket 才会保持打开：没有 `previous_response_id`，并且 `input` 数组非空。如果该
@@ -61,10 +70,15 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - quota guard 的远程查量结果会通过 `proxy_accounts` 更新账号 plan、用量百分比和 reset
   时间。真实上游 `usage_limit_reached` 或本地 95% 保护线标记账号耗尽时，也会在同一事务中
   更新账号用量字段，避免账号已耗尽但 UI 仍显示旧额度。
+- 额度检查返回 402 时不再写入 `last_usage_error`。它会被归类为 quota unavailable，按主窗口
+  100% 更新账号并进入耗尽保护；启动 ledger schema 时会清理旧的
+  `usage check failed: 402` 待复核状态、相关 quota warn event 和 `/backend-api/wham/usage`
+  402 request row。
 - Daemon 现在有 quota reset 刷新任务，每 30 分钟检查一次账号池，只刷新
   `rate_limit_resets_at` 已过 5 分钟且当前 reset 窗口尚未刷新过的非禁用账号。刷新成功会写入
   `last_quota_refreshed_at` 和 `last_quota_refreshed_reset_at`，并记录 quota event，避免同一
-  reset 窗口重复刷新。
+  reset 窗口重复刷新。reset 刷新遇到 402 时只更新账号额度状态并标记该 reset 窗口已检查，不再写
+  skipped warn event。
 - 代理不会持久化完整的结构化 conversation transcript 来做跨账号重建。原始
   WebSocket 抓包和内存 probe buffer 是调试/重试辅助，不是持久 message-history 模型。
 - Usage 查询会使用当前绑定/默认可用账号转发，并返回真实的上游 usage。代理不会伪造
@@ -87,8 +101,9 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - 导入账号管理现在支持从 Electron 管理界面进行批量导入、批量 usage 检查、导出、
   401 清理、单账号禁用/启用，以及 exhaustion reset。导入、usage 检查和运行时路由
   都使用同一个 app 托管 auth-pool 目录。
-- 账号页的“待复核”统计和状态筛选使用同一口径：只有 `last_usage_error` 非空的账号进入
-  待复核；单纯尚未查量的账号不会显示为待复核，避免统计卡片和筛选结果不一致。
+- 账号页的“待复核”统计和状态筛选使用同一口径：只有需要人工处理的 `last_usage_error`
+  进入待复核；单纯尚未查量的账号和旧的 `usage check failed: 402` 不会显示为待复核，避免
+  统计卡片和筛选结果不一致。
 - 导入后会按 account id 覆盖旧授权文件，并只对本次新增/覆盖的账号自动查量；daemon
   同步仍读取托管目录中的全部有效账号，避免只导入一部分时误删旧账号状态。
 - 导入账号现在以 `access_token` 为唯一硬必填字段。缺少 account id 的记录会先用该
@@ -235,11 +250,15 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   `setupAssistant.lastCheckedAt` 本地键，不能作为健康状态依据。
 - Codex config 写入现在只管理顶层 `chatgpt_base_url`、`openai_base_url` 和
   `model_provider`。切换到 CodexFree 代理模式时会把当前 `config.toml` 备份为
-  `YYYYMMDDTHHMMSS-codexfree-config.toml`，删除顶层 `model_provider`，但不会写入
+  `config-codexfree-YYYYMMDD-HHMMSS.toml`，删除顶层 `model_provider`，但不会写入
   `model_provider = "openai"`，也不会修改 `[model_providers.<name>]` 定义。Proxy 页面支持从
   CodexFree 创建的 `auth.json` / `config.toml` 备份中选择一个恢复，以及按当前 `config.toml`
   同步 Codex 历史会话
-  provider。会话同步会先备份 app data 下的修复目录，只改
+  provider。新备份文件名使用本地时间 `auth-codexfree-YYYYMMDD-HHMMSS.json` 和
+  `config-codexfree-YYYYMMDD-HHMMSS.toml`；旧版
+  `YYYYMMDDTHHMMSS-codexfree-*` 备份不再进入可恢复列表。恢复 auth/config 备份时直接覆盖当前
+  `auth.json` / `config.toml`，不会再创建新的同类备份，避免恢复操作来回制造备份项。
+  会话同步会先备份 app data 下的修复目录，只改
   `state_*.sqlite` 的 `threads.model_provider` 和 session JSONL 的 `session_meta`
   `payload.model_provider`。会话同步的目录遍历、JSONL 读写和 JSONL 备份使用异步文件系统
   操作，并在 SQLite/JSONL 批处理间让出事件循环，避免在 Electron main process 中长时间
@@ -323,10 +342,12 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   "http://host.docker.internal:33333/backend-api/codex"`；这会让 Codex-to-proxy model
   traffic 保持在 `/backend-api/codex/models` 和 `/backend-api/codex/responses`。
 - `test/History-1778652315307.har` 加 temp raw captures 确认 `models`、`responses`、
-  `analytics-events`、`connectors`、`wham/apps` 和 `plugins/featured` 有成功的本地 entries。
-- 对从该 HAR 分析出的所有非主要 auxiliary interfaces，CodexFree 保留 request lines、
-  bodies、选定 auth/protocol headers 和 response packets；唯一有意的 request-header 差异是
-  `Host: 10.211.55.2:33333` 变为 `Host: chatgpt.com`。
+  `analytics-events`、`connectors`、`wham/apps` 和 `plugins/featured` 的上游形态。当前 request
+  ledger 只保留核心转发事件；这些 auxiliary interfaces 仍可在显式 raw capture 中查看。
+- 对从该 HAR 分析出的所有非主要 auxiliary interfaces，CodexFree 在 raw capture 中保留
+  request lines、bodies、原始 auth/protocol headers 和 response packets；普通转发不再替换托管
+  account headers。唯一有意的基础转发差异仍是 `Host: 10.211.55.2:33333` 变为
+  `Host: chatgpt.com`。
 - Raw capture 现在每个请求准确写入四个 protocol-shaped packet files：
   `codex-inbound-request.http`、`codex-downstream-response.http`、
   `chatgpt-outbound-request.http` 和 `chatgpt-upstream-response.http`。
@@ -423,18 +444,19 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   src/main/proxy/service.test.ts` 仍会命中上面描述的既有 raw socket/WebSocket failures；
   对这些 tests 使用 Vitest runner。
 - 最新 daemon log-model slice 已完成。`proxy_requests` 仍然是 request-level ledger，并且现在
-  存储 `summary_json`；`proxy_protocol_messages` 存储解析后的 SSE/WSS protocol events，包含
-  `item_id`、`call_id`、`parent_response_id` 和 `summary_json`；`proxy_turn_summaries` 聚合从
-  user request 到 assistant completion 的一轮，包含 tool 和 token counts。普通 `HTTP forward`、
-  `HTTP result` 和 `WSS lifecycle` progress logs 不再持久化到 `proxy_log_events`；quota、
-  auth、account switching、system 和 error events 仍然会持久化。request UI 现在加载 turn
-  summaries，并且可以一起显示 request、protocol message 和 turn-level details。
-- log-model slice 的验证通过：`rtk bun run lint`、`rtk bun run typecheck`、
-  `rtk bun run test`（27 files、108 tests）和 `rtk bun run build`。
+  存储 `summary_json`；`proxy_turn_summaries` 聚合从 user request 到 assistant completion 的一轮，
+  包含 tool 和 token counts。`proxy_protocol_messages` 只持久化 error/rate-limit 等排障事件；
+  常规 user、assistant、usage 和 tool 参数/结果不再作为 protocol detail rows 写入 SQLite。
+  普通 `HTTP forward`、`HTTP result` 和 `WSS lifecycle` progress logs 不再持久化到
+  `proxy_log_events`；quota、auth、account switching、system 和 error events 仍然会持久化。
+  request UI 现在以 turn summaries 为主，并只把错误/限流协议事件作为关联明细显示。
+- log-model slice 的当前验证通过：`rtk bun run lint`、`rtk bun run typecheck`、
+  `rtk bun run test`（41 files、174 tests）和 `rtk git diff --check`。
 - Live Docker Codex smoke 也在 isolated data dir `/tmp/codexfree-live-i757ob`、proxy `45570`
-  和 admin `45571` 下通过。Direct interactive `codex` traffic 产生了 HTTP catalog/usage
-  requests、WSS protocol messages、assistant replies、usage summaries，以及 shell tool
-  call/result 的真实 rows。最新 `/backend-api/wham/usage` row 记录了 proxied managed account
+  和 admin `45571` 下通过。该历史 smoke 曾产生 HTTP catalog/usage requests、WSS protocol
+  messages、assistant replies、usage summaries，以及 shell tool call/result rows；当前普通
+  ledger 已收敛为核心 request rows、turn summaries 和错误/限流 protocol details。最新
+  `/backend-api/wham/usage` row 记录了 proxied managed account
   以及 `primaryUsedPercent=4` 和 `primaryRemainingPercent=96`；普通 HTTP/WSS progress logs
   没有进入 `proxy_log_events`。
 
@@ -447,9 +469,10 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   updates、requests、request summaries、usage summaries、log events、parsed WSS protocol
   messages、delete/disable/reset account actions 和 clear-records。它有意不暴露 daemon
   lifecycle endpoints。
-- proxy ledger 现在把 operator log events 存储在 `proxy_log_events`，并把解析后的 WSS
-  user/assistant/tool/error summaries 存储在 `proxy_protocol_messages`。Electron preload
-  暴露两个 surfaces 供未来 app views 使用。
+- proxy ledger 现在把 operator log events 存储在 `proxy_log_events`，把 turn-level user、
+  assistant、tool counts 和 token usage 存储在 `proxy_turn_summaries`，并且只把错误/限流类
+  protocol details 存储在 `proxy_protocol_messages`。Electron preload 暴露这些 surfaces 供
+  app views 使用。
 - Admin write endpoints 现在会把成功 mutations 记录到 ledger audit log。
 - Request、routing、quota、protocol 和 log ledger tables 会按默认 30 天 retention window
   自动裁剪。

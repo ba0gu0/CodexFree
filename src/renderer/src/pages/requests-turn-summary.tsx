@@ -29,6 +29,11 @@ export function TurnSummaries({
             value={summary.startedAt ? formatDateTime(summary.startedAt, locale) : '-'}
           />
           <RequestDetail
+            label={t('table.completedAt')}
+            value={summary.completedAt ? formatDateTime(summary.completedAt, locale) : '-'}
+          />
+          <RequestDetail label={t('table.result')} value={summary.status ?? '-'} />
+          <RequestDetail
             label={t('requests.conversation')}
             value={summary.conversationKey ?? '-'}
           />
@@ -48,7 +53,6 @@ export function TurnSummaries({
             label={t('requests.assistantMessage')}
             value={summary.assistantText ?? '-'}
           />
-          <RequestDetail label={t('requests.summaryJson')} value={summary.summaryJson ?? '-'} />
         </div>
       ))}
     </DetailSection>

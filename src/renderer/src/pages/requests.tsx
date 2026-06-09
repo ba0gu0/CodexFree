@@ -121,7 +121,10 @@ export function RequestsPage({
           value={String(summary.quota)}
         />
         <MetricCard label={t('outcome.rejected')} tone="error" value={String(summary.rejected)} />
-        <MetricCard label={t('action.openCapture')} value={String(summary.captured)} />
+        <MetricCard
+          label={t('requests.turnSummary')}
+          value={String(snapshot.turnSummaries.length)}
+        />
       </section>
 
       <section className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px] min-[1400px]:grid-cols-[minmax(0,1fr)_340px]">

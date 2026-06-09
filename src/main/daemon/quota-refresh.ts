@@ -73,13 +73,22 @@ export class QuotaResetRefresher {
           accountId: result.accountId,
           email: result.email,
           label: result.label,
-          lastUsageError: result.error,
+          lastUsageError: result.quotaUnavailable ? undefined : result.error,
           planType: result.planType,
           primaryUsedPercent: result.primaryUsedPercent,
           rateLimitResetsAt: result.rateLimitResetsAt,
           secondaryRateLimitResetsAt: result.secondaryRateLimitResetsAt,
           secondaryUsedPercent: result.secondaryUsedPercent
         })
+        if (result.quotaUnavailable) {
+          skipped += 1
+          this.options.ledger.markQuotaRefreshed(
+            account.accountId,
+            result.rateLimitResetsAt ?? previousResetAt,
+            now
+          )
+          continue
+        }
         if (!result.ok) {
           skipped += 1
           this.recordSkipped(account, result.error ?? 'usage check failed')

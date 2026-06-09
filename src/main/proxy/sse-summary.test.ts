@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { summarizeServerSentEvents } from './sse-summary'
 
 describe('SSE protocol summary', () => {
-  it('parses a complete HTTP SSE turn into protocol messages and a turn summary', () => {
+  it('parses a complete HTTP SSE turn into a compact turn summary', () => {
     const requestBody = zstdCompressSync(
       Buffer.from(
         JSON.stringify({
@@ -32,28 +32,7 @@ describe('SSE protocol summary', () => {
       )
     })
 
-    expect(result.messages).toEqual([
-      expect.objectContaining({
-        direction: 'codex-to-upstream',
-        kind: 'user',
-        parentResponseId: 'resp-parent',
-        text: '用户请求: hello'
-      }),
-      expect.objectContaining({
-        direction: 'upstream-to-codex',
-        kind: 'assistant',
-        responseId: 'resp-1',
-        text: 'AI 回复: hi'
-      }),
-      expect.objectContaining({
-        cachedInputTokens: 4,
-        inputTokens: 10,
-        kind: 'usage',
-        outputTokens: 5,
-        reasoningTokens: 2,
-        totalTokens: 15
-      })
-    ])
+    expect(result.messages).toEqual([])
     expect(result.turnSummary).toMatchObject({
       assistantText: 'hi',
       inputTokens: 10,
@@ -61,6 +40,40 @@ describe('SSE protocol summary', () => {
       responseId: 'resp-1',
       status: 'completed',
       totalTokens: 15,
+      userText: 'hello'
+    })
+  })
+
+  it('keeps SSE error events in protocol messages for troubleshooting', () => {
+    const result = summarizeServerSentEvents({
+      accountId: 'account-1',
+      conversationKey: 'conversation-1',
+      path: '/backend-api/codex/responses',
+      requestBody: Buffer.from(
+        JSON.stringify({
+          input: [{ role: 'user', content: [{ type: 'input_text', text: 'hello' }] }],
+          model: 'gpt-5.5'
+        })
+      ),
+      requestId: 'request-1',
+      responseBody: Buffer.from(
+        [
+          'event: error',
+          'data: {"type":"error","error":{"type":"server_error","message":"upstream failed"}}',
+          ''
+        ].join('\n')
+      )
+    })
+
+    expect(result.messages).toEqual([
+      expect.objectContaining({
+        direction: 'upstream-to-codex',
+        kind: 'error',
+        text: '错误: server_error upstream failed'
+      })
+    ])
+    expect(result.turnSummary).toMatchObject({
+      status: 'error',
       userText: 'hello'
     })
   })

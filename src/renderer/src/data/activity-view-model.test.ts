@@ -118,7 +118,7 @@ describe('activity view model', () => {
     const turnItem = timeline.find((item) => item.kind === 'turn')
 
     expect(timeline.find((item) => item.kind === 'request')).toBeUndefined()
-    expect(turnItem?.activity.children).toHaveLength(1)
+    expect(turnItem?.activity.children).toHaveLength(0)
     expect(turnItem?.activity.title).toContain('用户请求')
   })
 

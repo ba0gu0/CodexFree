@@ -282,7 +282,15 @@ export class TransparentProxyService {
     const body = parseJsonRecord(
       (result.deferredBody ?? result.responseSample ?? Buffer.alloc(0)).toString('utf8')
     )
-    const usage = extractUsageResponse(body)
+    const rawUsage = extractUsageResponse(body)
+    const quotaUnavailable = result.statusCode === 402
+    const usage = {
+      ...rawUsage,
+      primaryUsedPercent: quotaUnavailable
+        ? (rawUsage.primaryUsedPercent ?? '100')
+        : rawUsage.primaryUsedPercent,
+      quotaUnavailable
+    }
     this.ledger.updateAccountUsage({
       accountId,
       ...usage
@@ -295,8 +303,10 @@ export class TransparentProxyService {
       rateLimitResetsAt: usage.rateLimitResetsAt,
       secondaryRateLimitResetsAt: usage.secondaryRateLimitResetsAt
     })
-    const exhausted = isUsageQuotaProtected(usage.primaryUsedPercent, usage.secondaryUsedPercent)
-    if (exhausted) {
+    const exhausted =
+      quotaUnavailable ||
+      isUsageQuotaProtected(usage.primaryUsedPercent, usage.secondaryUsedPercent)
+    if (exhausted && !quotaUnavailable) {
       this.log.warn('Usage limit reached; marking account exhausted', {
         accountId,
         used: usage.primaryUsedPercent,

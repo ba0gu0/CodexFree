@@ -135,12 +135,7 @@ describe('transparent proxy service websocket handling', () => {
     expect(response).toContain('HTTP/1.1 101 Switching Protocols')
     expect(forwardedAccount).toBe('placeholder-account')
     expect(forwardedAuthorization).toBe('Bearer placeholder-token')
-    expect(entries[0]).toMatchObject({
-      accountId: 'placeholder-account',
-      mode: 'account_passthrough',
-      path: '/backend-api/wham/remote/control/server',
-      statusCode: 101
-    })
+    expect(entries).toEqual([])
   })
 
   it('captures websocket frame payloads after a successful upgrade', async () => {
@@ -283,9 +278,10 @@ describe('transparent proxy service websocket handling', () => {
         String((item.data as { kind?: string }).kind).startsWith('tool')
     )
     expect(toolMessages).toHaveLength(1)
-    expect(JSON.stringify(toolMessages[0].data)).toContain('工具调用: exec_command')
-    expect(JSON.stringify(toolMessages[0].data)).toContain('参数: node -v')
-    expect(JSON.stringify(toolMessages[0].data)).toContain('结果: completed')
+    const toolMessageJson = JSON.stringify(toolMessages[0].data)
+    expect(toolMessageJson).toContain('工具调用完成: exec_command')
+    expect(toolMessageJson).not.toContain('参数: node -v')
+    expect(toolMessageJson).not.toContain('结果: completed')
   })
 
   it('marks websocket usage limit errors as quota exhausted', async () => {

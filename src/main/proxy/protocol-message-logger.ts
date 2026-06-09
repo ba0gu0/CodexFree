@@ -1,6 +1,7 @@
 import { truncateForLog } from './json-utils'
 import type { ProxyLedger } from './ledger'
 import {
+  shouldPersistProtocolSummary,
   summarizeWebSocketFrame,
   type ToolCallState,
   type WebSocketSummary
@@ -86,7 +87,13 @@ export class ProtocolMessageLogger {
       totalTokens: summary.totalTokens,
       truncated: summary.truncated
     })
-    if (typeof this.ledger.recordProtocolMessage !== 'function') {
+    if (typeof this.ledger.recordTurnSummary === 'function') {
+      this.recordTurnSummary(requestId, accountId, conversationKey, frame.direction, summary)
+    }
+    if (
+      !shouldPersistProtocolSummary(summary) ||
+      typeof this.ledger.recordProtocolMessage !== 'function'
+    ) {
       return
     }
     this.ledger.recordProtocolMessage({
@@ -116,9 +123,6 @@ export class ProtocolMessageLogger {
       totalTokens: summary.totalTokens,
       truncated: summary.truncated
     })
-    if (typeof this.ledger.recordTurnSummary === 'function') {
-      this.recordTurnSummary(requestId, accountId, conversationKey, frame.direction, summary)
-    }
   }
 
   private mergeToolSummary(
@@ -146,25 +150,9 @@ export class ProtocolMessageLogger {
 
     this.toolCallSummaries.delete(key)
     const name = current.name ?? 'unknown_tool'
-    const parts = [`工具调用: ${name}`]
-    if (current.arguments) {
-      parts.push(`参数: ${current.arguments}`)
-    }
-    if (current.resultCount !== undefined) {
-      parts.push(`结果: ${current.resultCount} 条`)
-    } else if (current.result) {
-      parts.push(`结果: ${current.result}`)
-    } else {
-      parts.push('结果: completed')
-    }
     return {
-      summaryJson: safeToolSummaryJson({
-        arguments: current.arguments,
-        result: current.result,
-        resultCount: current.resultCount,
-        tool: name
-      }),
-      text: truncateForLog(parts.join(' '))
+      summaryJson: safeToolSummaryJson({ phase: 'completed', tool: name }),
+      text: truncateForLog(`工具调用完成: ${name}`)
     }
   }
 
@@ -192,7 +180,12 @@ export class ProtocolMessageLogger {
         parentResponseId: summary.previousResponseId ?? summary.parentResponseId,
         requestId,
         startedAt: Date.now(),
-        summaryJson: summary.summaryJson,
+        summaryJson: safeTurnSummaryJson({
+          inputItemCount: summary.inputItemCount,
+          model: summary.model,
+          previousResponseId: summary.previousResponseId,
+          toolCount: summary.toolCount
+        }),
         turnKey,
         userText: summary.text.replace(/^用户请求:\s*/, '')
       })
@@ -213,7 +206,6 @@ export class ProtocolMessageLogger {
         parentResponseId: summary.parentResponseId,
         requestId,
         responseId: summary.responseId,
-        summaryJson: summary.summaryJson,
         turnKey
       })
     } else if (summary.kind === 'usage') {
@@ -229,7 +221,11 @@ export class ProtocolMessageLogger {
         requestId,
         responseId: summary.responseId,
         status: 'completed',
-        summaryJson: summary.summaryJson,
+        summaryJson: safeTurnSummaryJson({
+          model: summary.model,
+          responseId: summary.responseId,
+          status: 'completed'
+        }),
         totalTokens: summary.totalTokens,
         turnKey
       })
@@ -241,7 +237,6 @@ export class ProtocolMessageLogger {
         parentResponseId: summary.parentResponseId,
         requestId,
         responseId: summary.responseId,
-        summaryJson: summary.summaryJson,
         toolCallDelta: isCompletedToolProtocol(summary.protocolType) ? 1 : 0,
         toolResultDelta: isCompletedToolProtocol(summary.protocolType) ? 1 : 0,
         turnKey
@@ -253,7 +248,6 @@ export class ProtocolMessageLogger {
         parentResponseId: summary.parentResponseId,
         requestId,
         responseId: summary.responseId,
-        summaryJson: summary.summaryJson,
         toolResultDelta: 1,
         turnKey
       })
@@ -266,7 +260,10 @@ export class ProtocolMessageLogger {
         requestId,
         responseId: summary.responseId,
         status: 'error',
-        summaryJson: summary.summaryJson,
+        summaryJson: safeTurnSummaryJson({
+          responseId: summary.responseId,
+          status: 'error'
+        }),
         turnKey
       })
       this.activeTurnKeys.delete(contextKey)
@@ -299,6 +296,14 @@ function isCompletedToolProtocol(protocolType: string | undefined): boolean {
 }
 
 function safeToolSummaryJson(value: unknown): string {
+  return safeJson(value)
+}
+
+function safeTurnSummaryJson(value: unknown): string {
+  return safeJson(value)
+}
+
+function safeJson(value: unknown): string {
   try {
     return JSON.stringify(value)
   } catch {

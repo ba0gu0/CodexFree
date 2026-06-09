@@ -18,6 +18,8 @@ import { UserCheckIcon } from 'lucide-react'
 import { type ReactElement, useMemo } from 'react'
 import {
   accountFormatLabel,
+  accountNeedsReview,
+  accountReviewError,
   fiveHourQuotaResetAt,
   statusTone,
   weeklyQuotaResetAt
@@ -83,7 +85,10 @@ export function AccountInspector({
                 label={t('table.lastCheck')}
                 value={formatDateTime(account.lastUsageCheckedAt, locale)}
               />
-              <DetailRow label={t('requests.errorMessage')} value={account.lastUsageError ?? '-'} />
+              <DetailRow
+                label={t('requests.errorMessage')}
+                value={accountReviewError(account) ?? '-'}
+              />
             </div>
             <ContextList
               empty={t('status.empty')}
@@ -141,13 +146,14 @@ export function AccountStatus({
   account: ManagedAccount
   t: PageProps['t']
 }): ReactElement {
+  const needsReview = accountNeedsReview(account)
   return (
     <div className="flex flex-wrap items-center gap-2">
       {account.active === 1 ? (
         <StatusBadge tone="success">{t('status.current')}</StatusBadge>
       ) : null}
       <StatusBadge tone={statusTone(account)}>
-        {account.lastUsageError ? t('accounts.statusInvalid') : t(accountStatusKey(account.status))}
+        {needsReview ? t('accounts.statusInvalid') : t(accountStatusKey(account.status))}
       </StatusBadge>
     </div>
   )

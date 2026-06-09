@@ -9,10 +9,17 @@
 
 - 不估算 token。只有响应或上报事件中存在真实 `usage` / token 字段时才记录。
 - cached token 必须单独记录为 `cached_input_tokens`，不能合并进普通 input 展示。
-- WSS、HTTP SSE、analytics-events 都可能包含 token，但来源不同，UI 必须用 `token_usage_source` 区分。
+- WSS 和 HTTP SSE 是默认持久化的 token 来源；analytics-events 只在显式 raw capture 中保留，
+  不再写普通 request row。
 - Authorization、Cookie、Set-Cookie、refresh token、access token、id token 等敏感信息只允许保存指纹或脱敏摘要。
 - 请求体保持透明转发，中转分析只读取样本和结构化字段，不修改请求体。
 - `/backend-api/wham/remote/*` 是原始 Codex 账号通道，保留原始上游认证，不用账号池认证替换。
+- 默认托管 header 替换只发生在核心账号请求：
+  `/backend-api/codex/models`、`/backend-api/codex/responses`、
+  `/backend-api/codex/responses/compact` 和 `/backend-api/wham/usage`。
+- 默认 request ledger 只记录成功的核心事件：Codex responses、compact responses 和 wham usage。
+  models 成功请求只做 header 预检不入库；analytics、plugins、apps、connectors 等辅助接口只转发，
+  不替换托管 header，也不写普通 request row。raw capture 开关不受此收敛影响。
 - `/v1/*`、`/responses`、`/models` 等属于未来 API-key 兼容面或探测流量，不是默认账号登录代理主路径。
 
 ## 抓包接口清单
@@ -23,13 +30,14 @@
 |---|---|---|---|---|
 | GET | `/backend-api/codex/responses` | Codex 主 WSS 101 通道 | `codex_wss` | account、thread、turn、WSS frame、quota、protocol token |
 | POST | `/backend-api/codex/responses` | Codex HTTP SSE 响应通道 | `codex_response_sse` | request model/input、SSE `response.completed` usage |
-| POST | `/backend-api/codex/analytics-events/events` | Codex 客户端事件上报 | `analytics_events` | runtime、model、thread、turn、status、真实 turn token |
-| GET | `/backend-api/codex/models` | Codex 模型列表 | `models` | model slugs、item count、capability 摘要 |
-| POST | `/backend-api/wham/apps` | ChatGPT apps/connectors JSON-RPC | `wham_apps` | `rpc_method`、`rpc_id`、response item count |
+| POST | `/backend-api/codex/analytics-events/events` | Codex 客户端事件上报 | raw capture only | runtime、model、thread、turn、status、真实 turn token |
+| GET | `/backend-api/codex/models` | Codex 模型列表 | header precheck only | model slugs、item count、capability 摘要 |
+| POST | `/backend-api/wham/apps` | ChatGPT apps/connectors JSON-RPC | raw capture only | `rpc_method`、`rpc_id`、response item count |
 | GET | `/backend-api/wham/usage` | 账号额度查询 | `account_usage` | plan、used percent、reset time、model |
-| GET | `/backend-api/connectors/directory/list` | 连接器目录 | `connector_directory` | item count、连接器类别统计 |
-| GET | `/backend-api/plugins/featured` | 插件推荐目录 | `plugin_featured` | item count、插件类别统计 |
-| GET | `/backend-api/ps/plugins/installed` | 已安装插件查询 | `plugin_installed` | item count、默认活动预览过滤 |
+| GET | `/backend-api/connectors/directory/list` | 连接器目录 | raw capture only | item count、连接器类别统计 |
+| GET | `/backend-api/plugins/featured` | 插件推荐目录 | raw capture only | item count、插件类别统计 |
+| GET | `/backend-api/ps/plugins/installed` | 已安装插件查询 | raw capture only | item count、默认活动预览过滤 |
+| GET | `/backend-api/ps/plugins/list` | 插件目录分页查询 | raw capture only | item count、分页与过滤条件 |
 | GET | `/v1/responses` | 兼容面探测或未来 API-key 模式 | `api_key_compat` | method/path/status/reject reason |
 | GET | `/responses` | 非 `/backend-api` 响应探测 | `api_key_compat` | method/path/status/reject reason |
 | GET | `/v1/chat/completions` | legacy chat completions 探测 | `api_key_compat` | method/path/status/reject reason |
@@ -93,11 +101,13 @@ JSON 内也会包含 `response.usage`，字段结构与 WSS 一致。
 - 这些字段是客户端上报结果，不是代理估算。
 - 与 WSS/SSE usage 可能描述同一 turn，UI 做总量分析时需要按 `thread_id + turn_id + source`
   设计去重或分组策略。
-- 当前中转请求表记录 token 与 `token_usage_source = analytics_event`，后续可扩展专门的 turn summary 表。
+- 当前默认中转请求表不再记录 analytics-events；需要调试时通过 raw capture 查看。后续如需恢复
+  客户端视角汇总，应写入 turn summary 级别数据，而不是重新增加 request spam。
 
 ## 请求表字段建议
 
-`proxy_requests` 适合作为请求列表、总览和用量分析的基础数据源：
+`proxy_requests` 适合作为请求列表、总览和用量分析的基础数据源，但只针对默认保留的核心
+request rows：
 
 | 字段 | 来源 | 用途 |
 |---|---|---|
@@ -161,7 +171,8 @@ JSON 内也会包含 `response.usage`，字段结构与 WSS 一致。
 
 - 聚合维度建议：account、model、thread、turn、source、day。
 - 首版可直接使用 `proxy_requests` 和 `proxy_protocol_messages`，后续若要去重更严谨，再增加 turn summary 表。
-- `analytics_event` 适合展示 Codex 客户端视角的 turn 完成情况；`sse` / `protocol` 适合展示代理看到的上游响应 usage。
+- `analytics_event` 只适用于历史行或未来显式汇总的 Codex 客户端视角 turn 数据；当前默认视图主要展示
+  `sse` / `protocol` 这类代理看到的上游响应 usage。
 - 没有 usage 的请求参与请求量和错误率统计，不参与 token 总量统计。
 
 ## 额度耗尽行为结论

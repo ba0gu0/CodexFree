@@ -25,6 +25,7 @@ import {
   accountNeedsReview,
   accountPlanKind,
   accountRemainingQuotaPercent,
+  accountReviewError,
   filterAccounts,
   fiveHourQuotaResetAt,
   hasShortQuotaWindow,
@@ -370,10 +371,12 @@ function AccountTable({
                 <span
                   className="block truncate"
                   title={
-                    account.lastUsageError ?? formatDateTime(account.lastUsageCheckedAt, locale)
+                    accountReviewError(account) ??
+                    formatDateTime(account.lastUsageCheckedAt, locale)
                   }
                 >
-                  {account.lastUsageError ?? formatDateTime(account.lastUsageCheckedAt, locale)}
+                  {accountReviewError(account) ??
+                    formatDateTime(account.lastUsageCheckedAt, locale)}
                 </span>
               </td>
               <td className="overflow-hidden px-2.5 align-middle">

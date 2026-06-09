@@ -10,6 +10,7 @@ import { createRawCapture } from './raw-capture'
 import { createRequestId, fingerprint, firstHeaderValue, redactHeaders } from './redaction'
 import type { ProxyHandlerContext } from './service-context'
 import { createTerminalQuotaPayload } from './terminal-quota'
+import { shouldRecordProxyRequest, shouldUseManagedAccountHeaders } from './traffic-policy'
 import { forwardUpgradeRequest, type WebSocketLifecycleEvent } from './transport'
 import { createServerTextFrame, formatHttpResponse, formatUpgradeResponse } from './transport-utils'
 import type { RequestLedgerEntry } from './types'
@@ -63,7 +64,7 @@ export async function handleProxyUpgrade(
   }
 
   const preserveOriginalAuth = isWhamRemotePath(request.url)
-  const useAccountRules = classification.mode === 'account' && !preserveOriginalAuth
+  const useAccountRules = shouldUseManagedAccountHeaders(request.url) && !preserveOriginalAuth
   if (useAccountRules && ctx.config.authPool.enabled && ctx.availableAccountCount() === 0) {
     const terminalQuota = createTerminalQuotaPayload(ctx.ledger, accountId)
     ctx.ledger.recordRoutingEvent({
@@ -90,9 +91,9 @@ export async function handleProxyUpgrade(
     })
     return
   }
-  const routedAccount = preserveOriginalAuth
-    ? undefined
-    : await ctx.routeAccount(request, requestId, accountId, conversationKey)
+  const routedAccount = useAccountRules
+    ? await ctx.routeAccount(request, requestId, accountId, conversationKey)
+    : undefined
   if (useAccountRules && ctx.config.authPool.enabled && !routedAccount) {
     const terminalQuota = createTerminalQuotaPayload(ctx.ledger, accountId)
     finishUpgradeWithTerminalQuota(ctx, {
@@ -229,6 +230,14 @@ export async function handleProxyUpgrade(
       : undefined
   )
   const completedAt = new Date()
+  const outcome = terminalQuotaMessage
+    ? 'quota_exhausted'
+    : upstreamResult.errorMessage
+      ? 'failed'
+      : 'forwarded'
+  if (!shouldRecordProxyRequest({ outcome, path: request.url })) {
+    return
+  }
   ctx.ledger.insert({
     ...requestAnalysis,
     id: requestId,
@@ -237,11 +246,7 @@ export async function handleProxyUpgrade(
     method: request.method ?? 'GET',
     path: request.url ?? '/',
     mode: classification.mode,
-    outcome: terminalQuotaMessage
-      ? 'quota_exhausted'
-      : upstreamResult.errorMessage
-        ? 'failed'
-        : 'forwarded',
+    outcome,
     statusCode: terminalQuotaMessage ? 429 : upstreamResult.statusCode,
     durationMs: completedAt.getTime() - startedAt.getTime(),
     requestBytes: head.byteLength,

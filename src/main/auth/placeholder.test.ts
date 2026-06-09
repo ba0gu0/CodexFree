@@ -50,7 +50,7 @@ describe('placeholder auth writer', () => {
       const result = writePlaceholderAuthFile(home)
 
       expect(result.backedUp).toBe(true)
-      expect(result.backupPath?.endsWith('-codexfree-auth.json')).toBe(true)
+      expect(result.backupPath ?? '').toMatch(/auth-codexfree-\d{8}-\d{6}\.json$/)
       expect(readFileSync(result.backupPath ?? '', 'utf8')).toContain('"old":true')
     } finally {
       rmSync(home, { force: true, recursive: true })

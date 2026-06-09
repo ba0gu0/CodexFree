@@ -48,6 +48,10 @@ export interface ToolCallState {
   resultCount?: number
 }
 
+export function shouldPersistProtocolSummary(summary: { kind: string }): boolean {
+  return summary.kind === 'error' || summary.kind === 'rate_limit'
+}
+
 export function summarizeWebSocketFrame(
   frame: CapturedWebSocketFrame
 ): WebSocketSummary | undefined {

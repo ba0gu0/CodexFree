@@ -1,5 +1,5 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 
 export type CodexBackupKind = 'auth' | 'config'
 
@@ -10,9 +10,20 @@ export interface CodexFileRestoreResult {
   restoredFileName: string
 }
 
-const backupSpecs: Record<CodexBackupKind, { fileName: string; suffix: string }> = {
-  auth: { fileName: 'auth.json', suffix: 'codexfree-auth.json' },
-  config: { fileName: 'config.toml', suffix: 'codexfree-config.toml' }
+const backupSpecs: Record<
+  CodexBackupKind,
+  { extension: string; fileName: string; prefix: string }
+> = {
+  auth: {
+    extension: 'json',
+    fileName: 'auth.json',
+    prefix: 'auth-codexfree'
+  },
+  config: {
+    extension: 'toml',
+    fileName: 'config.toml',
+    prefix: 'config-codexfree'
+  }
 }
 
 export function sourceCodexFilePath(codexDir: string, kind: CodexBackupKind): string {
@@ -41,7 +52,7 @@ export function listCodexBackupFileNames(codexDir: string, kind: CodexBackupKind
   return readdirSync(codexDir, { withFileTypes: true })
     .filter((entry) => entry.isFile() && pattern.test(entry.name))
     .map((entry) => entry.name)
-    .sort((left, right) => right.localeCompare(left))
+    .sort((left, right) => backupSortKey(right).localeCompare(backupSortKey(left)))
 }
 
 export function backupCodexFile(codexDir: string, kind: CodexBackupKind): string | null {
@@ -81,12 +92,11 @@ export function restoreCodexFileBackup(
   const sourcePath = sourceCodexFilePath(codexDir, kind)
   const backupPath = join(codexDir, backupFileName)
   const replaced = existsSync(sourcePath)
-  const currentBackupPath = replaced ? backupCodexFile(codexDir, kind) : null
   copyFileSync(backupPath, sourcePath)
   chmodSync(sourcePath, 0o600)
 
   return {
-    backupFileName: currentBackupPath ? basename(currentBackupPath) : null,
+    backupFileName: null,
     path: sourcePath,
     replaced,
     restoredFileName: backupFileName
@@ -94,12 +104,29 @@ export function restoreCodexFileBackup(
 }
 
 export function codexBackupFileName(kind: CodexBackupKind, date: Date): string {
-  const stamp = date.toISOString().replaceAll('-', '').replaceAll(':', '').slice(0, 15)
-  return `${stamp}-${backupSpecs[kind].suffix}`
+  const stamp = localTimestampForPath(date)
+  const spec = backupSpecs[kind]
+  return `${spec.prefix}-${stamp}.${spec.extension}`
 }
 
 function codexBackupPattern(kind: CodexBackupKind): RegExp {
-  return new RegExp(`^\\d{8}T\\d{6}-${escapeRegExp(backupSpecs[kind].suffix)}$`)
+  const { extension, prefix } = backupSpecs[kind]
+  return new RegExp(`^${escapeRegExp(prefix)}-\\d{8}-\\d{6}\\.${escapeRegExp(extension)}$`)
+}
+
+function backupSortKey(fileName: string): string {
+  const match = /-(\d{8})-(\d{6})\./.exec(fileName)
+  return match ? `${match[1]}${match[2]}` : fileName
+}
+
+function localTimestampForPath(date: Date): string {
+  const year = date.getFullYear().toString().padStart(4, '0')
+  const month = (date.getMonth() + 1).toString().padStart(2, '0')
+  const day = date.getDate().toString().padStart(2, '0')
+  const hour = date.getHours().toString().padStart(2, '0')
+  const minute = date.getMinutes().toString().padStart(2, '0')
+  const second = date.getSeconds().toString().padStart(2, '0')
+  return `${year}${month}${day}-${hour}${minute}${second}`
 }
 
 function escapeRegExp(value: string): string {

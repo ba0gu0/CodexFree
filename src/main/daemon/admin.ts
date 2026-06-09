@@ -172,7 +172,9 @@ export class DaemonAdminServer {
           accountId: result.accountId,
           email: result.email,
           label: result.label,
-          lastUsageError: result.error ?? result.lastUsageError,
+          lastUsageError: result.quotaUnavailable
+            ? undefined
+            : (result.error ?? result.lastUsageError),
           planType: result.planType,
           primaryUsedPercent: result.primaryUsedPercent,
           rateLimitResetsAt: result.rateLimitResetsAt,

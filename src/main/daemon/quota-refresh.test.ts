@@ -33,7 +33,7 @@ describe('quota reset refresher', () => {
     const root = mkdtempSync(join(tmpdir(), 'codexfree-quota-refresh-'))
     const authPoolDir = join(root, 'auth')
     const ledger = new ProxyLedger(join(root, 'ledger.sqlite'))
-    const resetAt = Date.now() - 10 * 60 * 1000
+    const resetAt = Math.floor((Date.now() - 10 * 60 * 1000) / 1000) * 1000
     writeAuthFile(authPoolDir, 'account-a')
     ledger.syncAccountPool([
       {
@@ -98,6 +98,78 @@ describe('quota reset refresher', () => {
       expect(ledger.recentLogEvents(1)[0]?.message).toBe(
         'Quota reset window refreshed account usage'
       )
+    } finally {
+      await closeServer(server)
+      ledger.close()
+    }
+  })
+
+  it('cleans usage 402 refreshes without writing skipped events', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'codexfree-quota-refresh-402-'))
+    const authPoolDir = join(root, 'auth')
+    const ledger = new ProxyLedger(join(root, 'ledger.sqlite'))
+    const resetAt = Math.floor((Date.now() - 10 * 60 * 1000) / 1000) * 1000
+    writeAuthFile(authPoolDir, 'account-a')
+    ledger.syncAccountPool([
+      {
+        accountId: 'account-a',
+        fingerprint: 'fingerprint-a',
+        label: 'account-a',
+        refreshable: true,
+        sourceFormat: 'codex'
+      }
+    ])
+    ledger.updateAccountUsage({
+      accountId: 'account-a',
+      planType: 'team',
+      primaryUsedPercent: '100',
+      rateLimitResetsAt: resetAt
+    })
+
+    const checkedAccounts: string[] = []
+    const server = http.createServer((request, response) => {
+      checkedAccounts.push(String(request.headers['chatgpt-account-id']))
+      response.writeHead(402, { 'content-type': 'application/json' })
+      response.end(
+        JSON.stringify({
+          account_id: 'account-a',
+          plan_type: 'team',
+          rate_limit: {
+            primary_window: {
+              reset_at: Math.floor(resetAt / 1000)
+            }
+          }
+        })
+      )
+    })
+    await listen(server)
+
+    try {
+      const refresher = new QuotaResetRefresher({
+        authPoolDir,
+        ledger,
+        readUpstreamBaseUrl: () => `${serverOrigin(server)}/backend-api/codex`,
+        refreshAccountState: () => proxyStatus()
+      })
+
+      await expect(refresher.refreshDueAccounts()).resolves.toMatchObject({
+        checked: 1,
+        refreshed: 0,
+        skipped: 1
+      })
+      await expect(refresher.refreshDueAccounts()).resolves.toMatchObject({
+        checked: 0,
+        refreshed: 0,
+        skipped: 0
+      })
+
+      const account = ledger.accounts()[0]
+      expect(checkedAccounts).toEqual(['account-a'])
+      expect(account.status).toBe('exhausted')
+      expect(account.lastUsageError).toBeNull()
+      expect(account.primaryUsedPercent).toBe('100')
+      expect(account.lastQuotaRefreshedResetAt).toBe(resetAt)
+      expect(ledger.recentLogEvents(5)).toEqual([])
     } finally {
       await closeServer(server)
       ledger.close()

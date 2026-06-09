@@ -12,6 +12,7 @@ export interface AccountUsageCheckResult {
   statusCode?: number
   planType?: string
   primaryUsedPercent?: string
+  quotaUnavailable?: boolean
   secondaryUsedPercent?: string
   rateLimitResetsAt?: number
   secondaryRateLimitResetsAt?: number
@@ -180,6 +181,22 @@ export async function checkAccountUsageByAuthorization(
     const response = await fetchUsage(input)
     const body = response.body
     const accountId = input.accountId ?? accountIdFromUsageResponse(body)
+    if (response.statusCode === 402) {
+      return {
+        accountId: accountId ?? '',
+        email: emailFromUsageResponse(body) ?? input.email,
+        label: input.label,
+        ok: false,
+        planType: planTypeFromUsageResponse(body) ?? input.planType,
+        primaryUsedPercent: usageWindowPercent(body, 'primary_window') ?? '100',
+        quotaUnavailable: true,
+        rateLimitResetsAt: resetTimeMillis(body, 'primary_window'),
+        secondaryRateLimitResetsAt: resetTimeMillis(body, 'secondary_window'),
+        secondaryUsedPercent: usageWindowPercent(body, 'secondary_window'),
+        statusCode: response.statusCode,
+        lastRefresh: input.lastRefresh ?? ''
+      }
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       return {
         accountId: accountId ?? '',
@@ -210,12 +227,8 @@ export async function checkAccountUsageByAuthorization(
       ok: true,
       statusCode: response.statusCode,
       planType: planTypeFromUsageResponse(body) ?? input.planType,
-      primaryUsedPercent:
-        stringValue(body?.primary_used_percent) ??
-        stringValue(recordValue(recordValue(body?.rate_limit, 'primary_window'), 'used_percent')),
-      secondaryUsedPercent:
-        stringValue(body?.secondary_used_percent) ??
-        stringValue(recordValue(recordValue(body?.rate_limit, 'secondary_window'), 'used_percent')),
+      primaryUsedPercent: usageWindowPercent(body, 'primary_window'),
+      secondaryUsedPercent: usageWindowPercent(body, 'secondary_window'),
       rateLimitResetsAt: resetTimeMillis(body, 'primary_window'),
       secondaryRateLimitResetsAt: resetTimeMillis(body, 'secondary_window'),
       lastRefresh: input.lastRefresh ?? ''
@@ -376,6 +389,18 @@ function resetTimeMillis(
     return undefined
   }
   return numeric > 10_000_000_000 ? numeric : numeric * 1000
+}
+
+function usageWindowPercent(
+  body: UsageResponse | undefined,
+  windowKey: 'primary_window' | 'secondary_window'
+): string | undefined {
+  const directValue =
+    windowKey === 'primary_window' ? body?.primary_used_percent : body?.secondary_used_percent
+  return (
+    stringValue(directValue) ??
+    stringValue(recordValue(recordValue(body?.rate_limit, windowKey), 'used_percent'))
+  )
 }
 
 function stringValue(value: unknown): string | undefined {

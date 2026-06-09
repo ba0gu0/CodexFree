@@ -61,7 +61,7 @@
    - quota remaining 和 reset time；
    - HTTP request purpose 和 response result；
    - WSS connection lifecycle；
-   - user request、AI reply 和 tool events；
+   - turn summary 中的 user request、AI reply、token usage 和 tool counts；
    - quota detection；
    - account switch 或 no replacement account。
 6. 修复 HTTP fallback `POST /backend-api/codex/responses` quota handling，使它遵循与 WSS
@@ -190,8 +190,8 @@ T12 当前实现证据：
   同时把 request/error/traffic statistics 与 token totals 分开。
 - 已完成：Overview 现在包含 recent request purpose distribution，Accounts 暴露 reset/check/error
   details，同时把 quota history 过滤为 typed quota events。
-- 已完成：Accounts 的“待复核”summary card 和 `invalid` 状态筛选统一使用
-  `last_usage_error` 口径；尚未查量但无错误的账号不会被误计入待复核。
+- 已完成：Accounts 的“待复核”summary card 和 `invalid` 状态筛选统一使用人工复核错误口径；
+  尚未查量但无错误的账号，以及旧的 `usage check failed: 402` 账号，不会被误计入待复核。
 - 已完成：User-feedback polish pass 添加 full-database request 和 usage summary cards、所有页面
   manual refresh buttons、refresh-on-navigation、top-center concise notices、触发按钮上的
   account usage progress、per-row usage refresh controls、sticky sortable list headers，以及
@@ -222,17 +222,32 @@ T12 当前实现证据：
   `primary_window` 是 18000 秒 5 小时窗口，`secondary_window` 是 604800 秒周窗口。Accounts、
   Inspector、Dashboard 和 quota guard 已统一使用双窗口模型，team 不再只显示被错标的
   “周额度”，任一窗口达到 95% 保护线都会退出可用池。
+- Confirmed：额度检查 402 现在按 quota unavailable 处理，主窗口默认补为 100%，清空
+  `last_usage_error` 并进入耗尽保护；ledger schema 初始化会清理旧 402 待复核状态、quota warn
+  event 和 wham usage 402 request row。
+- Confirmed：常规 SSE/WSS 观察日志已收敛为 turn summary 优先。正常 user、assistant、usage 和
+  tool 参数/结果不再写入 `proxy_protocol_messages`；协议明细只保留错误/限流排障事件。Requests
+  UI 以交互汇总数和 turn detail 为主，隐藏历史 tool protocol 碎片，`raw capture` 调试能力保持不变。
+- Confirmed：成功转发的 request ledger 只记录 Codex responses、compact responses 和 wham usage
+  这类核心事件；`models` 只做托管 header 预检但不写成功请求行，analytics/plugins/apps/connectors
+  等辅助接口只转发，不替换托管 header，也不写普通 request row。
+- Passed：`rtk bun run lint`、`rtk bun run typecheck`、`rtk bun run test`
+  （41 files、174 tests）和 `rtk git diff --check`。
 
 T13 当前实现证据：
 
 - 已完成：主进程新增 setup assistant 检测模型，检查 daemon、目标代理入口、Codex
-  `config.toml`、本地 `auth.json`、账号池数量和最近成功 models/usage 记录。
+  `config.toml`、本地 `auth.json`、账号池数量和最近成功 usage 记录；历史 models rows 只用于模型数量
+  展示，不再作为新的成功信号。
 - 已完成：`config.toml` 检测区分 current、missing、missing values、port mismatch、wrong
   table、顶层 model_provider cleanup 和 mismatch；写入仍复用安全 writer，正确时不重复备份。
   writer 只管理顶层 `chatgpt_base_url`、`openai_base_url` 和 `model_provider`，不写入
   `model_provider = "openai"`，不修改 `[model_providers.<name>]` 定义。写入前会把当前
-  `config.toml` 备份为 `YYYYMMDDTHHMMSS-codexfree-config.toml`，并备份现有 `auth.json`。
-  Proxy 页面新增 auth/config 备份恢复和会话 provider 同步；会话同步按当前配置修复
+  `config.toml` 备份为 `config-codexfree-YYYYMMDD-HHMMSS.toml`，并备份现有
+  `auth.json`。Proxy 页面新增 auth/config 备份恢复和会话 provider 同步；新备份名使用本地时间
+  `auth-codexfree-YYYYMMDD-HHMMSS.json` / `config-codexfree-YYYYMMDD-HHMMSS.toml`，
+  旧版 `YYYYMMDDTHHMMSS-codexfree-*` 不再进入可恢复列表；
+  恢复 auth/config 备份时不再备份当前文件，避免恢复操作反复生成备份项。会话同步按当前配置修复
   `state_*.sqlite` 与 session JSONL，并先写入 app data 备份。会话同步的目录遍历、JSONL
   读写和 JSONL 备份已改为异步文件系统操作，并在 SQLite/JSONL 批处理之间让出事件循环，
   避免 Electron 界面被长时间阻塞。
@@ -391,7 +406,8 @@ T1b 已针对普通账号模式流量完成。HAR 分析确认 direct upstream p
 `GET /backend-api/codex/models` status `200`，WebSocket
 `GET /backend-api/codex/responses` status `101`。Auxiliary interfaces（`analytics-events`、
 `connectors`、`wham/apps` 和 `plugins/featured`）在 HAR 和 raw capture 之间 body 与选定
-auth/protocol headers 保持不变。
+auth/protocol headers 保持不变；当前默认转发会保留原始 auth headers，且成功辅助接口不写
+request ledger。
 
 即时下一步：继续把 API-key compatibility mode 保持为单独的 T8 phase。account-login proxy
 path 现在已可配合 imported managed accounts、real usage checks、persisted account state 和

@@ -61,7 +61,6 @@ export function ProtocolMessageMetadata({
       <RequestDetail label={t('requests.sequence')} value={String(message.sequenceNumber ?? '-')} />
       <RequestDetail label={t('table.bytes')} value={formatBytes(message.payloadBytes, locale)} />
       <RequestDetail label={t('requests.message')} value={message.text || '-'} />
-      <RequestDetail label={t('requests.summaryJson')} value={message.summaryJson ?? '-'} />
     </DetailSection>
   )
 }

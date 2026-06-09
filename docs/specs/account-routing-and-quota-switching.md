@@ -38,8 +38,8 @@ HAR 文件 `test/History-1778577142774.har` 显示直接 ChatGPT upstream surfac
 
 有用 headers：
 
-- `authorization`：上游 bearer token；只在 account-mode requests 上替换。
-- `chatgpt-account-id`：上游 account id；替换为选中的 auth file。
+- `authorization`：上游 bearer token；只在核心 account-mode requests 上替换。
+- `chatgpt-account-id`：上游 account id；只在核心 account-mode requests 上替换为选中的 auth file。
 - `thread_id` / `session_id`：conversation identity。
 - `x-client-request-id`：conversation-level request id fallback。
 - `x-codex-turn-metadata`：包含 `turn_id` 的 JSON metadata。
@@ -49,12 +49,16 @@ HAR 文件 `test/History-1778577142774.har` 显示直接 ChatGPT upstream surfac
 
 ## 认证替换边界
 
-对于 account-mode requests，代理只能替换上游 auth identity：
+对于核心 account-mode requests，代理只能替换上游 auth identity：
 
 - `Authorization`
 - `Chatgpt-Account-Id`
 
 代理不得修改 body、model、messages、tool payload、compression、streaming headers 或用户可见 conversation fields。
+
+当前核心替换范围是 `/backend-api/codex/models`、`/backend-api/codex/responses`、
+`/backend-api/codex/responses/compact` 和 `/backend-api/wham/usage`。analytics、plugins、
+apps、connectors 等辅助接口只透明转发，保留 incoming auth headers。
 
 四账号包对比确认，只有 `Authorization` 和 `chatgpt-account-id` 需要账号替换。以下字段由 Codex session/runtime state 拥有，必须从 incoming request 保留：
 

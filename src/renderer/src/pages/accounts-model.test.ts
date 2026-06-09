@@ -5,6 +5,7 @@ import {
   accountPlanKind,
   accountQuotaResetAt,
   accountRemainingQuotaPercent,
+  accountReviewError,
   filterAccounts,
   fiveHourQuotaResetAt,
   hasShortQuotaWindow,
@@ -79,10 +80,18 @@ describe('accounts model quota windows', () => {
       lastUsageCheckedAt: 1780927748000,
       lastUsageError: 'usage check failed'
     })
-    const accounts = [uncheckedAccount, errorAccount]
+    const quotaUnavailableAccount = managedAccount({
+      accountId: 'quota-unavailable-account',
+      lastUsageCheckedAt: 1780927748000,
+      lastUsageError: 'usage check failed: 402',
+      status: 'exhausted'
+    })
+    const accounts = [uncheckedAccount, errorAccount, quotaUnavailableAccount]
 
     expect(accountNeedsReview(uncheckedAccount)).toBe(false)
     expect(accountNeedsReview(errorAccount)).toBe(true)
+    expect(accountNeedsReview(quotaUnavailableAccount)).toBe(false)
+    expect(accountReviewError(quotaUnavailableAccount)).toBeNull()
     expect(
       filterAccounts(accounts, '', 'invalid', 'all', 'all').map((account) => account.accountId)
     ).toEqual(['error-account'])

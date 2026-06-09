@@ -38,8 +38,8 @@ describe('Codex config writer', () => {
 
       expect(result.changed).toBe(true)
       expect(result.backupPath).not.toBeNull()
-      expect(result.backupPath?.endsWith('-codexfree-config.toml')).toBe(true)
-      expect(result.authBackupPath?.endsWith('-codexfree-auth.json')).toBe(true)
+      expect(result.backupPath ?? '').toMatch(/config-codexfree-\d{8}-\d{6}\.toml$/)
+      expect(result.authBackupPath ?? '').toMatch(/auth-codexfree-\d{8}-\d{6}\.json$/)
       expect(readFileSync(result.authBackupPath ?? '', 'utf8')).toContain('old')
       expect(readFileSync(configPath, 'utf8')).toBe(
         [
@@ -85,8 +85,9 @@ describe('Codex config writer', () => {
     })
   })
 
-  it('restores a selected CodexFree config backup as a whole file', () => {
+  it('restores a selected CodexFree config backup without creating another backup', () => {
     withHome((home) => {
+      const codexDir = join(home, '.codex')
       const configPath = writeCodexConfig(
         home,
         [
@@ -98,7 +99,7 @@ describe('Codex config writer', () => {
         ].join('\n')
       )
       writeFileSync(
-        join(home, '.codex', '20260608T010203-codexfree-config.toml'),
+        join(codexDir, 'config-codexfree-20260608-090203.toml'),
         [
           'model_provider = "codex"',
           '',
@@ -107,15 +108,17 @@ describe('Codex config writer', () => {
           ''
         ].join('\n')
       )
+      writeFileSync(join(codexDir, '20260608T010203-codexfree-config.toml'), 'legacy = true\n')
 
       expect(listCodexConfigBackupFileNames(home)).toEqual([
-        '20260608T010203-codexfree-config.toml'
+        'config-codexfree-20260608-090203.toml'
       ])
 
-      const result = restoreCodexConfigBackup('20260608T010203-codexfree-config.toml', home)
+      const result = restoreCodexConfigBackup('config-codexfree-20260608-090203.toml', home)
 
       expect(result.changed).toBe(true)
-      expect(result.restoredFileName).toBe('20260608T010203-codexfree-config.toml')
+      expect(result.backupPath).toBeNull()
+      expect(result.restoredFileName).toBe('config-codexfree-20260608-090203.toml')
       expect(readFileSync(configPath, 'utf8')).toBe(
         [
           'model_provider = "codex"',
@@ -125,6 +128,9 @@ describe('Codex config writer', () => {
           ''
         ].join('\n')
       )
+      expect(listCodexConfigBackupFileNames(home)).toEqual([
+        'config-codexfree-20260608-090203.toml'
+      ])
     })
   })
 })

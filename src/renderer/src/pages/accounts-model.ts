@@ -42,7 +42,15 @@ export function filterAccounts(
 }
 
 export function accountNeedsReview(account: ManagedAccount): boolean {
-  return Boolean(account.lastUsageError)
+  return accountReviewError(account) !== null
+}
+
+export function accountReviewError(account: ManagedAccount): string | null {
+  const error = account.lastUsageError?.trim()
+  if (!error || isQuotaUnavailableUsageError(error)) {
+    return null
+  }
+  return error
 }
 
 export function accountPlanKind(account: ManagedAccount): AccountPlanFilter {
@@ -191,7 +199,7 @@ export function statusFilterLabel(filter: AccountStatusFilter, t: PageProps['t']
 }
 
 export function statusTone(account: ManagedAccount): 'default' | 'success' | 'warning' | 'error' {
-  if (account.lastUsageError) {
+  if (accountNeedsReview(account)) {
     return 'error'
   }
   if (account.status === 'exhausted') {
@@ -201,4 +209,8 @@ export function statusTone(account: ManagedAccount): 'default' | 'success' | 'wa
     return 'default'
   }
   return 'success'
+}
+
+function isQuotaUnavailableUsageError(error: string): boolean {
+  return /^usage check failed: 402(?:\b|$)/.test(error)
 }

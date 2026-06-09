@@ -231,7 +231,7 @@ export function SetupAssistant({
             <DialogTitle>{t('setup.renameAuthTitle')}</DialogTitle>
             <DialogDescription>
               {t('setup.renameAuthDesc', {
-                file: state?.auth.backupFileName ?? 'codexfree-auth.json'
+                file: state?.auth.backupFileName ?? 'auth-codexfree-YYYYMMDD-HHMMSS.json'
               })}
             </DialogDescription>
           </DialogHeader>
@@ -264,7 +264,7 @@ export function SetupAssistant({
                 account: selectedAuthAccount
                   ? accountDisplayName(selectedAuthAccount, t('accounts.emailPending'))
                   : '-',
-                file: state?.auth.backupFileName ?? 'codexfree-auth.json'
+                file: state?.auth.backupFileName ?? 'auth-codexfree-YYYYMMDD-HHMMSS.json'
               })}
             </DialogDescription>
           </DialogHeader>

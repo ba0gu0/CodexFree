@@ -170,7 +170,7 @@ describe('setup assistant Codex auth inspection', () => {
         accountId: 'pool-account',
         replaced: true
       })
-      expect(result.backupFileName).toMatch(/^\d{8}T\d{6}-codexfree-auth\.json$/)
+      expect(result.backupFileName).toMatch(/^auth-codexfree-\d{8}-\d{6}\.json$/)
       expect(inspectCodexAuth(home).health).toBe('codex_login_like')
       expect(inspectCodexAuth(home).backupFileNames).toContain(result.backupFileName)
       expect(readFileSync(join(codexDir, 'auth.json'), 'utf8')).toContain('pool-access')
@@ -178,7 +178,7 @@ describe('setup assistant Codex auth inspection', () => {
     })
   })
 
-  it('restores the latest Codex auth backup after backing up the current file', () => {
+  it('restores a selected Codex auth backup without creating another backup', () => {
     withHome((home) => {
       writeAuth(
         home,
@@ -193,7 +193,7 @@ describe('setup assistant Codex auth inspection', () => {
       )
       const codexDir = join(home, '.codex')
       writeFileSync(
-        join(codexDir, '20260608T010203-codexfree-auth.json'),
+        join(codexDir, 'auth-codexfree-20260608-090203.json'),
         JSON.stringify({
           auth_mode: 'chatgpt',
           tokens: {
@@ -203,18 +203,29 @@ describe('setup assistant Codex auth inspection', () => {
           }
         })
       )
+      writeFileSync(
+        join(codexDir, '20260608T010203-codexfree-auth.json'),
+        JSON.stringify({
+          auth_mode: 'chatgpt',
+          tokens: {
+            access_token: 'legacy-access',
+            account_id: 'legacy-account',
+            refresh_token: 'legacy-refresh'
+          }
+        })
+      )
 
-      const result = restoreCodexAuthBackup('20260608T010203-codexfree-auth.json', home)
+      const result = restoreCodexAuthBackup('auth-codexfree-20260608-090203.json', home)
 
       expect(result).toMatchObject({
         replaced: true,
-        restoredFileName: '20260608T010203-codexfree-auth.json'
+        restoredFileName: 'auth-codexfree-20260608-090203.json'
       })
       expect(readFileSync(join(codexDir, 'auth.json'), 'utf8')).toContain('backup-access')
-      expect(result.backupFileName).not.toBeNull()
-      expect(readFileSync(join(codexDir, result.backupFileName ?? ''), 'utf8')).toContain(
-        'current-access'
-      )
+      expect(result.backupFileName).toBeNull()
+      expect(inspectCodexAuth(home).backupFileNames).toEqual([
+        'auth-codexfree-20260608-090203.json'
+      ])
     })
   })
 })

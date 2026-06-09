@@ -120,7 +120,7 @@ export async function readSetupAssistantState(runtime: MainRuntime): Promise<Set
   ])
   const codexConfig = inspectCodexConfig(target)
   const auth = inspectCodexAuth()
-  const recentSuccess = findRecentSuccess(recentRequests, accounts)
+  const recentSuccess = findRecentSuccess(accounts)
   return {
     accounts: summarizeAccounts(proxy.status, accounts),
     auth,
@@ -360,19 +360,8 @@ function looksLikeApiKeyMode(value: Record<string, unknown>): boolean {
   return typeof apiKey === 'string' && apiKey.trim().length > 0
 }
 
-function findRecentSuccess(
-  requests: RecentRequest[],
-  accounts: ManagedAccountRow[]
-): SetupRecentSuccess {
-  const models = requests.find(
-    (request) => request.requestPurpose === 'models' && request.outcome === 'forwarded'
-  )
-  if (models) {
-    return { kind: 'models', requestId: models.id, seenAt: models.startedAt }
-  }
-  const usageAccount = accounts.find(
-    (account) => account.lastUsageCheckedAt !== null && account.lastUsageError === null
-  )
+function findRecentSuccess(accounts: ManagedAccountRow[]): SetupRecentSuccess {
+  const usageAccount = accounts.find(hasCompletedUsageCheck)
   return usageAccount
     ? { kind: 'usage', requestId: null, seenAt: usageAccount.lastUsageCheckedAt }
     : { kind: null, requestId: null, seenAt: null }
@@ -406,12 +395,17 @@ function summarizeAccounts(status: ProxyStatus, accounts: ManagedAccountRow[]): 
     lastUsageCheckedAt,
     total: status.authPoolAccounts || accounts.length,
     usageCheckedAvailable: accounts.filter(
-      (account) =>
-        account.status === 'available' &&
-        account.lastUsageCheckedAt !== null &&
-        account.lastUsageError === null
+      (account) => account.status === 'available' && hasCompletedUsageCheck(account)
     ).length
   }
+}
+
+function hasCompletedUsageCheck(account: ManagedAccountRow): boolean {
+  return account.lastUsageCheckedAt !== null && !isUsageCheckReviewError(account.lastUsageError)
+}
+
+function isUsageCheckReviewError(error: string | null): boolean {
+  return Boolean(error && !/^usage check failed: 402(?:\b|$)/.test(error))
 }
 
 function setupTargetConfig(listenHost: string, listenPort: number): SetupTargetConfig {

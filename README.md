@@ -77,8 +77,8 @@ CodexFree 不影响远程控制的连接和管理。
 `config.toml` 中的两行必须位于 TOML 顶层，不能写进 `[profiles.xxx]`。代理模式只需要移除
 顶层 `model_provider`；不要删除 `[model_providers.<name>]`，也不要额外写入
 `model_provider = "openai"`。写入配置前会把当前 `config.toml` 备份为
-`YYYYMMDDTHHMMSS-codexfree-config.toml`；如果需要切回 API 模式，可以在 Proxy 页面从备份列表
-选择要恢复的配置文件，并按当前配置同步历史会话 provider。
+`config-codexfree-YYYYMMDD-HHMMSS.toml`；如果需要切回 API 模式，可以在 Proxy 页面从
+备份列表选择要恢复的配置文件，并按当前配置同步历史会话 provider。
 `cc switch` 或其他配置切换工具可以继续使用，但不要与 CodexFree 同时改同一个
 `config.toml`；切换前先关闭另一方的自动配置写入或监控，避免互相覆盖。
 
@@ -96,8 +96,9 @@ openai_base_url = "http://host.docker.internal:33333/backend-api/codex"
 - CodexFree 不会自动覆盖、复制或替换你的 `~/.codex/auth.json`。
 - 只有用户在引导中显式选择已导入账号并二次确认时，CodexFree 才会写入 `auth.json`；
   写入前会备份现有文件。
-- CodexFree 创建的配置备份使用专用命名：`YYYYMMDDTHHMMSS-codexfree-config.toml` 和
-  `YYYYMMDDTHHMMSS-codexfree-auth.json`；恢复时只从这些备份中选择，不读取任意文件。
+- CodexFree 创建的配置备份使用专用命名：`config-codexfree-YYYYMMDD-HHMMSS.toml` 和
+  `auth-codexfree-YYYYMMDD-HHMMSS.json`；恢复时只从这些备份中选择，不读取任意文件，
+  并且恢复动作不会再额外备份当前文件。
 - 重新登录辅助只会在二次确认后重命名现有 `auth.json`，不会写入替代文件。
 - 导入的账号授权文件由 CodexFree 管理，不应提交到 Git。
 - 普通日志不会记录 access token、refresh token、cookie 或完整授权文件内容。

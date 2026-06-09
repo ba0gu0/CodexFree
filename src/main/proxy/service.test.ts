@@ -47,7 +47,7 @@ describe('transparent proxy service http handling', () => {
     const service = new TransparentProxyService(createConfig(upstream), ledger, log)
     services.push(service)
     const status = await service.start()
-    const response = await fetch(`${status.openaiBaseUrl}/models?probe=1`, {
+    const response = await fetch(`${status.openaiBaseUrl}/responses?probe=1`, {
       method: 'POST',
       headers: {
         authorization: 'Bearer secret-account-token',
@@ -60,7 +60,7 @@ describe('transparent proxy service http handling', () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
-      path: '/backend-api/codex/models?probe=1',
+      path: '/backend-api/codex/responses?probe=1',
       body: '{"ok":true}'
     })
 
@@ -105,8 +105,12 @@ describe('transparent proxy service http handling', () => {
     })
   })
 
-  it('forwards codex models responses without rewriting', async () => {
+  it('forwards codex models with managed auth but no request rows', async () => {
+    const authDirectory = mkdtempSync(join(tmpdir(), 'codexfree-auth-pool-'))
+    writeAuthFile(authDirectory, 'a.json', 'account-a', 'managed-a')
     let upstreamPath = ''
+    let forwardedAccount = ''
+    let forwardedAuthorization = ''
     const upstreamBody = {
       models: [
         {
@@ -128,17 +132,30 @@ describe('transparent proxy service http handling', () => {
     }
     const upstream = http.createServer((request, response) => {
       upstreamPath = request.url ?? ''
+      forwardedAccount = String(request.headers['chatgpt-account-id'])
+      forwardedAuthorization = String(request.headers.authorization)
       response.writeHead(200, { 'content-type': 'application/json' })
       response.end(JSON.stringify(upstreamBody))
     })
     await listen(upstream)
     upstreams.push(upstream)
 
+    const entries: RequestLedgerEntry[] = []
     const ledger = {
-      insert: () => undefined,
-      recent: () => []
+      activeAccountId: () => undefined,
+      disabledAccountIds: () => [],
+      exhaustedAccountIds: () => [],
+      insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
+      recordRoutingEvent: () => undefined,
+      recent: () => [],
+      setActiveAccount: () => 1,
+      syncAccountPool: () => undefined
     } as unknown as ProxyLedger
-    const service = new TransparentProxyService(createConfig(upstream), ledger, log)
+    const service = new TransparentProxyService(
+      { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
+      ledger,
+      log
+    )
     services.push(service)
     const status = await service.start()
     const response = await fetch(`${status.openaiBaseUrl}/models?client_version=0.130.0`, {
@@ -150,7 +167,10 @@ describe('transparent proxy service http handling', () => {
 
     expect(response.status).toBe(200)
     expect(upstreamPath).toBe('/backend-api/codex/models?client_version=0.130.0')
+    expect(forwardedAccount).toBe('account-a')
+    expect(forwardedAuthorization).toBe('Bearer managed-a')
     await expect(response.json()).resolves.toEqual(upstreamBody)
+    expect(entries).toEqual([])
   })
 
   it('rejects API-key mode requests without forwarding upstream', async () => {
@@ -225,15 +245,17 @@ describe('transparent proxy service http handling', () => {
     })
   })
 
-  it('passes through new backend-api paths with managed auth but no account rules', async () => {
+  it('passes auxiliary backend-api paths through without managed auth or request rows', async () => {
     const authDirectory = mkdtempSync(join(tmpdir(), 'codexfree-auth-pool-'))
     writeAuthFile(authDirectory, 'a.json', 'account-a', 'managed-a')
     writeAuthFile(authDirectory, 'b.json', 'account-b', 'managed-b')
     const forwardedAccounts: string[] = []
+    const forwardedAuthorizations: string[] = []
     const upstream = http.createServer((request, response) => {
       forwardedAccounts.push(String(request.headers['chatgpt-account-id']))
-      response.writeHead(401, { 'content-type': 'application/json' })
-      response.end(JSON.stringify({ detail: 'Not Found' }))
+      forwardedAuthorizations.push(String(request.headers.authorization))
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ ok: true }))
     })
     await listen(upstream)
     upstreams.push(upstream)
@@ -261,23 +283,19 @@ describe('transparent proxy service http handling', () => {
     )
     services.push(service)
     const status = await service.start()
-    const response = await fetch(`${status.endpoint}/new/codex/path?probe=1`, {
+    const response = await fetch(`${status.endpoint}/ps/plugins/installed?probe=1`, {
       headers: {
         authorization: 'Bearer placeholder-token',
         'chatgpt-account-id': 'placeholder-account'
       }
     })
 
-    expect(response.status).toBe(401)
-    await expect(response.json()).resolves.toEqual({ detail: 'Not Found' })
-    expect(forwardedAccounts).toEqual(['account-a'])
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(forwardedAccounts).toEqual(['placeholder-account'])
+    expect(forwardedAuthorizations).toEqual(['Bearer placeholder-token'])
     expect(disabledAccounts).toEqual([])
-    expect(entries[0]).toMatchObject({
-      accountId: 'account-a',
-      mode: 'account_passthrough',
-      path: '/backend-api/new/codex/path?probe=1',
-      statusCode: 401
-    })
+    expect(entries).toEqual([])
   })
 
   it('preserves original auth for wham remote paths', async () => {
@@ -322,12 +340,7 @@ describe('transparent proxy service http handling', () => {
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(forwardedAccount).toBe('placeholder-account')
     expect(forwardedAuthorization).toBe('Bearer placeholder-token')
-    expect(entries[0]).toMatchObject({
-      accountId: 'placeholder-account',
-      mode: 'account_passthrough',
-      path: '/backend-api/wham/remote/session?probe=1',
-      statusCode: 200
-    })
+    expect(entries).toEqual([])
   })
 
   it('passes compact responses through with managed auth', async () => {

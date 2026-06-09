@@ -407,9 +407,7 @@ export function isOverviewHiddenPath(path: string | null): boolean {
 }
 
 function isDashboardProtocolMessage(message: { kind: string }): boolean {
-  return ['error', 'rate_limit', 'tool_call', 'tool_result', 'user', 'assistant', 'usage'].includes(
-    message.kind
-  )
+  return message.kind === 'error' || message.kind === 'rate_limit'
 }
 
 function isMeaningfulTurn(turn: {

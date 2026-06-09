@@ -78,6 +78,7 @@ export function buildRequestTimeline(
   return [
     ...meaningfulTurns.map((turn): RequestTimelineItem => {
       const children = (index.messagesByTurnId.get(turn.id) ?? [])
+        .filter(isVisibleProtocolParent)
         .map((message) => protocolActivityViewModel(message, context))
         .sort(compareActivityId)
       const activity = turnActivityViewModel(turn, context, children)
@@ -93,6 +94,7 @@ export function buildRequestTimeline(
       const children = [
         ...relatedToRequest(index.messagesByRequest, index.messagesByConversation, request)
           .filter((message) => !index.messageIdsInTurns.has(message.id))
+          .filter(isVisibleProtocolParent)
           .map((message) => protocolActivityViewModel(message, context)),
         ...relatedToRequest(index.eventsByRequest, index.eventsByConversation, request).map(
           (event) => logActivityViewModel(event, context)

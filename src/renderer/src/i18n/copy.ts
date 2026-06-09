@@ -48,8 +48,7 @@ const zh = {
   'notice.codexAuthWrittenWithBackup':
     '已把导入账号写入 auth.json，原文件已备份为 {file}，并优先选择其他可用账号作为当前代理账号。',
   'notice.codexAuthRestored': '已从 {restored} 恢复 auth.json。',
-  'notice.codexAuthRestoredWithBackup':
-    '已从 {restored} 恢复 auth.json，恢复前的当前文件已备份为 {backup}。',
+  'notice.codexAuthRestoredWithBackup': '已从 {restored} 恢复 auth.json。',
   'notice.releasePageOpened': '已打开 GitHub Release 页面。',
   'notice.updateApplyStarted': '更新安装已启动，应用将退出并重启。',
   'notice.updateAvailable': '发现新版本 {version}。',
@@ -159,7 +158,7 @@ const zh = {
   'setup.restoreAuth': '恢复 auth.json 备份',
   'setup.restoreAuthTitle': '确认恢复 auth.json',
   'setup.restoreAuthDesc':
-    '将使用 CodexFree 创建的备份 {file} 覆盖当前 ~/.codex/auth.json。当前文件会先备份，CodexFree 不会读取或展示 token 内容。',
+    '将使用 CodexFree 创建的备份 {file} 覆盖当前 ~/.codex/auth.json。恢复不会再创建新的备份，CodexFree 不会读取或展示 token 内容。',
   'setup.restoreAuthEmpty': '没有找到 CodexFree 创建的 auth.json 备份。',
   'setup.importedAuthTitle': '从已导入账号写入 auth.json',
   'setup.importedAuthDesc':
@@ -364,6 +363,7 @@ const zh = {
   'table.code': '状态码',
   'table.duration': '耗时',
   'table.startedAt': '开始时间',
+  'table.completedAt': '完成时间',
   'table.accountId': '账户',
   'table.message': '消息',
   'table.purpose': '用途',
@@ -421,7 +421,7 @@ const zh = {
   'proxy.configRestore': '恢复配置备份',
   'proxy.configRestoreTitle': '恢复 Codex config.toml？',
   'proxy.configRestoreDesc':
-    '请选择一个 CodexFree 创建的 config.toml 备份。恢复前当前 config.toml 会先备份。',
+    '请选择一个 CodexFree 创建的 config.toml 备份。恢复会直接覆盖当前 config.toml，不再创建新的备份。',
   'proxy.configRestoreEmpty': '没有找到 CodexFree 创建的 config.toml 备份。',
   'proxy.sessionProviderRepair': '同步会话',
   'proxy.sessionProviderConfirmTitle': '同步 Codex 会话 provider？',
@@ -722,8 +722,7 @@ const en: Record<keyof typeof zh, string> = {
   'notice.codexAuthWrittenWithBackup':
     'Imported account written to auth.json. Previous file was backed up as {file}; another available account is preferred as the current proxy account.',
   'notice.codexAuthRestored': 'Restored auth.json from {restored}.',
-  'notice.codexAuthRestoredWithBackup':
-    'Restored auth.json from {restored}. The previous current file was backed up as {backup}.',
+  'notice.codexAuthRestoredWithBackup': 'Restored auth.json from {restored}.',
   'notice.releasePageOpened': 'GitHub Release page opened.',
   'notice.updateApplyStarted': 'Update installation started. The app will exit and restart.',
   'notice.updateAvailable': 'Version {version} is available.',
@@ -835,7 +834,7 @@ const en: Record<keyof typeof zh, string> = {
   'setup.restoreAuth': 'Restore auth.json backup',
   'setup.restoreAuthTitle': 'Confirm auth.json restore',
   'setup.restoreAuthDesc':
-    'This will restore ~/.codex/auth.json from the CodexFree-created backup {file}. The current file is backed up first, and CodexFree does not read or display token contents.',
+    'This will replace ~/.codex/auth.json with the CodexFree-created backup {file}. Restore does not create another backup, and CodexFree does not read or display token contents.',
   'setup.restoreAuthEmpty': 'No CodexFree-created auth.json backup was found.',
   'setup.importedAuthTitle': 'Write auth.json from an imported account',
   'setup.importedAuthDesc':
@@ -1051,6 +1050,7 @@ const en: Record<keyof typeof zh, string> = {
   'table.code': 'Code',
   'table.duration': 'Duration',
   'table.startedAt': 'Started',
+  'table.completedAt': 'Completed',
   'table.accountId': 'Account',
   'table.message': 'Message',
   'table.purpose': 'Purpose',
@@ -1110,7 +1110,7 @@ const en: Record<keyof typeof zh, string> = {
   'proxy.configRestore': 'Restore config backup',
   'proxy.configRestoreTitle': 'Restore Codex config.toml?',
   'proxy.configRestoreDesc':
-    'Choose a CodexFree-created config.toml backup. The current config.toml is backed up before restore.',
+    'Choose a CodexFree-created config.toml backup. Restore directly replaces the current config.toml and does not create another backup.',
   'proxy.configRestoreEmpty': 'No CodexFree-created config.toml backup was found.',
   'proxy.sessionProviderRepair': 'Sync sessions',
   'proxy.sessionProviderConfirmTitle': 'Sync Codex session provider?',

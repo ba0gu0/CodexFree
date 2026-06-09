@@ -364,7 +364,7 @@ export function ProxyPage({ actions, busyAction, snapshot, t }: PageProps): Reac
             <AlertDialogTitle>{t('setup.restoreAuthTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
               {t('setup.restoreAuthDesc', {
-                file: selectedAuthBackup || 'codexfree-auth.json'
+                file: selectedAuthBackup || 'auth-codexfree-YYYYMMDD-HHMMSS.json'
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>
