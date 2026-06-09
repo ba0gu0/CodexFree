@@ -111,9 +111,10 @@ openai_base_url = "http://host.docker.internal:33333/backend-api/codex"
 
 - 许可证：MIT，见 [LICENSE](./LICENSE)。
 - 安全报告规则：见 [SECURITY.md](./SECURITY.md)。
-- macOS release 默认不签名、不公证。这是当前发布策略，不是阻塞项；用户需要自行判断安装风险。
-- macOS 只检查 GitHub Release 新版本，并引导用户手动下载完整安装包；Windows/Linux
-  release 使用 Velopack 支持检查、下载和应用更新。
+- macOS release 默认不签名、不公证。这是当前发布策略，不是阻塞项；用户需要自行判断安装风险，
+  并按需在本机允许打开或自行签名。
+- macOS 也使用 Velopack 支持检查、下载和应用更新；GitHub Release 同时保留完整安装包供
+  手动下载安装。Windows/Linux 同样使用 Velopack 更新。
 - 仓库忽略本地 `test` 参考材料、抓包、数据库和构建产物。不要手动把本地目录压缩上传替代
   GitHub 源码包。
 

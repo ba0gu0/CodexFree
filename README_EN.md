@@ -127,9 +127,10 @@ openai_base_url = "http://host.docker.internal:33333/backend-api/codex"
 - License: MIT. See [LICENSE](./LICENSE).
 - Security reporting rules: see [SECURITY.md](./SECURITY.md).
 - macOS releases are unsigned and not notarized by default. This is the current release policy,
-  not a blocker; users should decide whether the install risk is acceptable.
-- macOS checks GitHub Releases and opens the release page for a manual full-installer download.
-  Windows and Linux releases use Velopack for update checks, downloads, and applying updates.
+  not a blocker; users should decide whether the install risk is acceptable and allow or self-sign
+  the app locally as needed.
+- macOS also uses Velopack for update checks, downloads, and applying updates; GitHub Releases
+  still include full installers for manual downloads. Windows and Linux use Velopack updates too.
 - Local `test` reference material, captures, databases, and build outputs are ignored by Git. Do
   not manually upload a local folder archive as a substitute for the GitHub source package.
 

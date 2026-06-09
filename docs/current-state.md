@@ -201,9 +201,9 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   record 和 `lucide-react`。
 - 添加 TanStack Query、TanStack Form、Valibot、Drizzle ORM、SQLite driver 和
   `electron-log`。
-- 切换到 Velopack 发布路线。`electron-builder` 只负责生成 Electron app 和 macOS 完整
-  安装包；Windows/Linux 的 installer、portable、delta packages、`releases.{channel}.json`
-  和 GitHub Release 上传由 Velopack 处理。
+- 切换到 Velopack 发布路线。`electron-builder` 负责生成 Electron app 和 macOS 完整
+  安装包；macOS/Windows/Linux 的 installer、portable、delta packages、
+  `releases.{channel}.json` 和 GitHub Release 上传由 Velopack 处理。
 - 添加 metadata-only SQLite schema seed，并为 account records 中 auth-secret exclusion
   添加 Vitest 覆盖。
 - 在 V3 shell refactor 后验证 Electron renderer。desktop window 现在能加载重新设计后的
@@ -420,14 +420,15 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   `docs/packaging-size-optimization.md`。
 - Dev app runtime 已用 Computer Use 检查。dashboard 渲染 full-database historical request
   count、purpose distribution、proxy config，以及 animated background-service card。
-- App 更新入口已接入 Velopack/GitHub release status。macOS alpha 只通过 GitHub Releases API
-  检查新版本，并引导用户打开 release 页面手动下载安装包；Windows/Linux 使用 Velopack
-  `UpdateManager` 检查、下载并应用更新。Dashboard 显示的当前版本来自同一份
-  update status `currentVersion`，不再单独维护 `app:version` IPC。
+- App 更新入口已接入 Velopack/GitHub release status。macOS/Windows/Linux 都使用
+  Velopack `UpdateManager` 检查、下载并应用更新。macOS 产物仍然不签名、不公证；用户
+  需要按需在本机允许打开或自行签名。Dashboard 显示的当前版本来自同一份 update status
+  `currentVersion`，不再单独维护 `app:version` IPC。
 - GitHub 仓库 `ba0gu0/CodexFree` 已创建并绑定为 `origin`。发布流程改为手动触发的
   GitHub Actions release workflow：workflow 从当前提交的 `package.json.version` 读取发布
-  版本，创建 `v{version}` tag、构建 macOS 完整安装包，并为 Windows/Linux 生成 Velopack
-  packages 和 release feeds。发布前必须先在普通代码提交里更新并提交 `package.json` 版本。
+  版本，创建 `v{version}` tag、构建 macOS 完整安装包，并为 macOS/Windows/Linux 生成
+  Velopack packages 和 release feeds。发布前必须先在普通代码提交里更新并提交
+  `package.json` 版本。
 - 最新 release/update wiring 验证通过：`rtk bun run lint`、`rtk bun run typecheck`、
   `rtk bun run test`、`rtk bun run build`、`rtk bun run build:mac`。packaged macOS app
   bundle 不包含旧 `app-update.yml`，Velopack native `.node` 文件位于

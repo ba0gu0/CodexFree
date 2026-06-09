@@ -43,7 +43,7 @@ export interface ProxyRuntimeStatusDto {
   uptimeSeconds: number
 }
 
-export type AppUpdateModeDto = 'managed' | 'manual-download'
+export type AppUpdateModeDto = 'managed'
 
 export type AppUpdateStateDto =
   | 'idle'

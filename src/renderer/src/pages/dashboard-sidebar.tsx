@@ -1,7 +1,7 @@
 import { Button } from '@renderer/components/ui/button'
 import { ActiveProxyCard } from '@renderer/components/vectormotion/codexfree-cards'
 import { formatBytes, formatDateTime } from '@renderer/data/format'
-import { DownloadIcon, ExternalLinkIcon, RefreshCwIcon, RocketIcon } from 'lucide-react'
+import { DownloadIcon, RefreshCwIcon, RocketIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
 import { type ActivityRow, rowTone, typeLabel } from './dashboard-model'
 import type { PageProps } from './types'
@@ -135,12 +135,7 @@ export function VersionPanel({
                 size: formatBytes(available.size, locale),
                 version: available.version
               })
-            : update.errorMessage ||
-              t(
-                update.mode === 'manual-download'
-                  ? 'dashboard.updateManualMac'
-                  : 'dashboard.autoUpdate'
-              )}
+            : update.errorMessage || t('dashboard.autoUpdate')}
       </div>
       <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
         <Button
@@ -154,17 +149,6 @@ export function VersionPanel({
           <RefreshCwIcon data-icon="inline-start" />
           {t('action.checkUpdate')}
         </Button>
-        {primaryAction === 'release' ? (
-          <Button
-            loading={busyAction === 'openRelease'}
-            onClick={actions.openReleasePage}
-            size="xs"
-            variant="secondary"
-          >
-            <ExternalLinkIcon data-icon="inline-start" />
-            {t('action.openRelease')}
-          </Button>
-        ) : null}
         {primaryAction === 'download' ? (
           <Button
             loading={busyAction === 'updateDownload' || update.state === 'downloading'}
@@ -196,12 +180,9 @@ export function VersionPanel({
 
 function updatePrimaryAction(
   update: PageProps['snapshot']['updateStatus']
-): 'apply' | 'download' | 'release' | 'check' {
+): 'apply' | 'download' | 'check' {
   if (update.canApply) {
     return 'apply'
-  }
-  if (update.mode === 'manual-download' && update.availableUpdate) {
-    return 'release'
   }
   return update.canDownload ? 'download' : 'check'
 }
