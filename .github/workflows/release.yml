@@ -5,7 +5,7 @@ name: Release
     inputs:
       prerelease:
         default: false
-        description: Must stay false; latest/download update feeds ignore GitHub prereleases
+        description: Must stay false; Velopack GithubSource ignores prereleases by default
         required: true
         type: boolean
       release_notes:
@@ -192,7 +192,6 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          find Releases -maxdepth 1 -type f -name 'assets.*.json' -delete
           find Releases -maxdepth 1 -type f -name 'RELEASES*' -delete
           find Releases -maxdepth 1 -type f -name '*.nupkg' ! -name "*-$VERSION-*" -delete
           for channel in osx-x64 osx-arm64; do
@@ -223,22 +222,12 @@ jobs:
             fi
           done
 
-      - name: Upload macOS release files
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-packages
-          if-no-files-found: error
-          path: |
-            Releases/*macos-*-Portable.zip
-
       - name: Upload macOS Velopack artifact
         uses: actions/upload-artifact@v4
         with:
           name: velopack-osx
           if-no-files-found: error
-          path: |
-            Releases/*.nupkg
-            Releases/releases.*.json
+          path: Releases/**
 
   build-velopack:
     name: Build ${{ matrix.name }} Velopack packages
@@ -398,7 +387,6 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          find Releases -maxdepth 1 -type f -name 'assets.*.json' -delete
           find Releases -maxdepth 1 -type f -name 'RELEASES*' -delete
           find Releases -maxdepth 1 -type f -name '*.nupkg' ! -name "*-$VERSION-*" -delete
           node .github/scripts/normalize-velopack-assets.mjs Releases "$VERSION" "$CHANNEL"
@@ -411,7 +399,7 @@ jobs:
           path: Releases/**
 
   publish:
-    name: Publish GitHub release
+    name: Deploy GitHub release with Velopack
     needs:
       - prepare
       - build-macos
@@ -428,12 +416,15 @@ jobs:
         with:
           path: artifacts
 
-      - name: Prepare release notes
-        env:
-          RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
-        run: printf '%s\n' "$RELEASE_NOTES" > release-notes.md
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
 
-      - name: Create GitHub release
+      - name: Install Velopack CLI
+        run: dotnet tool install --tool-path ./.tools vpk --version "$VPK_VERSION"
+
+      - name: Deploy Velopack release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
@@ -442,44 +433,39 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$PRERELEASE" == "true" ]]; then
-            echo "latest/download update feeds require a normal GitHub release, not a prerelease." >&2
+            echo "Velopack GithubSource ignores prereleases by default; publish as a normal release." >&2
             exit 1
           fi
-          args=(--title "CodexFree $VERSION" --notes-file release-notes.md --verify-tag)
-          gh release create "$TAG" "${args[@]}"
-
-      - name: Upload macOS installers
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.prepare.outputs.tag }}
-        run: |
-          set -euo pipefail
-          mapfile -t files < <(find artifacts/macos-packages -type f | sort)
-          if [[ "${#files[@]}" -eq 0 ]]; then
-            echo "No macOS artifacts found" >&2
-            exit 1
-          fi
-          gh release upload "$TAG" "${files[@]}" --clobber
-
-      - name: Merge Velopack artifacts
-        run: |
-          set -euo pipefail
-          mkdir -p Releases
-          find artifacts -path '*/velopack-*/*' -type f -exec cp {} Releases/ \;
-          find Releases -maxdepth 1 -type f | sort
-
-      - name: Upload Velopack releases
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.prepare.outputs.tag }}
-        run: |
-          set -euo pipefail
-          mapfile -t files < <(find Releases -maxdepth 1 -type f | sort)
-          if [[ "${#files[@]}" -eq 0 ]]; then
-            echo "No Velopack artifacts found" >&2
-            exit 1
-          fi
-          gh release upload "$TAG" "${files[@]}" --clobber
+          specs=(
+            "artifacts/velopack-osx|osx-x64|false"
+            "artifacts/velopack-osx|osx-arm64|false"
+            "artifacts/velopack-win-x64|win-x64|false"
+            "artifacts/velopack-win-arm64|win-arm64|false"
+            "artifacts/velopack-linux-x64|linux-x64|false"
+            "artifacts/velopack-linux-arm64|linux-arm64|true"
+          )
+          for spec in "${specs[@]}"; do
+            IFS='|' read -r output_dir channel publish <<< "$spec"
+            if [[ ! -f "$output_dir/assets.$channel.json" ]]; then
+              echo "Missing Velopack build asset manifest: $output_dir/assets.$channel.json" >&2
+              find "$output_dir" -maxdepth 1 -type f | sort >&2
+              exit 1
+            fi
+            args=(
+              github
+              --repoUrl "https://github.com/${{ github.repository }}"
+              --token "$GH_TOKEN"
+              --outputDir "$output_dir"
+              --channel "$channel"
+              --merge
+              --releaseName "CodexFree $VERSION"
+              --tag "$TAG"
+            )
+            if [[ "$publish" == "true" ]]; then
+              args+=(--publish)
+            fi
+            ./.tools/vpk upload "${args[@]}"
+          done
 
       - name: Validate published asset set
         env:

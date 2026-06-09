@@ -97,6 +97,27 @@ if (existsSync(feedPath) && renames.size > 0) {
   writeFileSync(feedPath, `${JSON.stringify(feed)}\n`)
 }
 
+const buildAssetsPath = join(releasesDir, `assets.${channel}.json`)
+
+if (existsSync(buildAssetsPath) && renames.size > 0) {
+  const buildAssets = JSON.parse(readFileSync(buildAssetsPath, 'utf8'))
+
+  if (Array.isArray(buildAssets)) {
+    for (const asset of buildAssets) {
+      if (
+        asset &&
+        typeof asset === 'object' &&
+        typeof asset.RelativeFileName === 'string' &&
+        renames.has(asset.RelativeFileName)
+      ) {
+        asset.RelativeFileName = renames.get(asset.RelativeFileName)
+      }
+    }
+  }
+
+  writeFileSync(buildAssetsPath, `${JSON.stringify(buildAssets)}\n`)
+}
+
 for (const [from, to] of renames) {
   console.log(`${from} -> ${to}`)
 }
