@@ -64,6 +64,10 @@ if (osName === 'win') {
   renameFirst((name) => name.endsWith(`${channel}-Setup.exe`), `${releasePrefix}-setup.exe`)
 }
 
+if (osName === 'osx') {
+  renameFirst((name) => name.endsWith(`${channel}-Portable.zip`), `${releasePrefix}-Portable.zip`)
+}
+
 if (osName === 'linux') {
   renameFirst((name) => name.endsWith(`${channel}.AppImage`), `${releasePrefix}.AppImage`)
 }

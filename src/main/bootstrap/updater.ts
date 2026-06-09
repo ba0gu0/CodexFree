@@ -7,8 +7,12 @@ import type {
 } from '../../preload/proxy-api'
 import { logger } from '../logger'
 
-const UPDATE_SOURCE_URL = 'https://github.com/ba0gu0/CodexFree'
-const RELEASES_URL = `${UPDATE_SOURCE_URL}/releases`
+declare const CODEXFREE_RELEASE_REPOSITORY_URL: string
+declare const CODEXFREE_UPDATE_SOURCE_URL: string
+
+const RELEASE_REPOSITORY_URL = CODEXFREE_RELEASE_REPOSITORY_URL
+const UPDATE_SOURCE_URL = ensureTrailingSlash(CODEXFREE_UPDATE_SOURCE_URL)
+const RELEASES_URL = `${RELEASE_REPOSITORY_URL}/releases`
 
 type StoredUpdate = UpdateInfo | VelopackAsset
 
@@ -181,6 +185,10 @@ export class AppUpdateService {
 }
 
 export const appUpdateService = new AppUpdateService()
+
+function ensureTrailingSlash(value: string): string {
+  return value.endsWith('/') ? value : `${value}/`
+}
 
 function withCapabilities(status: AppUpdateStatusDto): AppUpdateStatusDto {
   const hasAvailableUpdate = status.availableUpdate !== null

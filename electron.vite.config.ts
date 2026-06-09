@@ -21,9 +21,16 @@ function readPackageJson(): PackageJson {
 }
 
 const externalDependencies = ['electron', ...Object.keys(readPackageJson().dependencies ?? {})]
+const releaseRepositoryUrl = 'https://github.com/ba0gu0/CodexFree'
+const updateSourceUrl = `${releaseRepositoryUrl}/releases/latest/download/`
+const buildDefines = {
+  CODEXFREE_RELEASE_REPOSITORY_URL: JSON.stringify(releaseRepositoryUrl),
+  CODEXFREE_UPDATE_SOURCE_URL: JSON.stringify(updateSourceUrl)
+}
 
 export default defineConfig({
   main: {
+    define: buildDefines,
     build: {
       rollupOptions: {
         external: externalDependencies

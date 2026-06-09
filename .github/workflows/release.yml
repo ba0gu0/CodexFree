@@ -4,8 +4,8 @@ name: Release
   workflow_dispatch:
     inputs:
       prerelease:
-        default: true
-        description: Mark the GitHub release as a prerelease
+        default: false
+        description: Must stay false; latest/download update feeds ignore GitHub prereleases
         required: true
         type: boolean
       release_notes:
@@ -79,7 +79,7 @@ jobs:
           git push origin "$TAG"
 
   build-macos:
-    name: Build macOS full installers
+    name: Build macOS portable packages
     needs: prepare
     runs-on: macos-latest
     steps:
@@ -101,28 +101,13 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build macOS packages
+      - name: Build macOS app bundles
         run: bun run build:mac
 
-      - name: Normalize macOS installer names
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
+      - name: Remove unmanaged macOS installers
         run: |
           set -euo pipefail
-          for spec in \
-            "x64|CodexFree-$VERSION-macos-x64.dmg" \
-            "arm64|CodexFree-$VERSION-macos-arm64.dmg"
-          do
-            IFS='|' read -r arch target_name <<< "$spec"
-            source_path="dist/CodexFree-$VERSION-$arch.dmg"
-            target_path="dist/$target_name"
-            if [[ ! -f "$source_path" ]]; then
-              echo "Expected macOS installer missing: $source_path" >&2
-              find dist -maxdepth 1 -type f | sort >&2
-              exit 1
-            fi
-            mv "$source_path" "$target_path"
-          done
+          find dist -maxdepth 1 -type f -name '*.dmg' -delete
 
       - name: Install Velopack CLI
         run: dotnet tool install --tool-path ./.tools vpk --version "$VPK_VERSION"
@@ -207,10 +192,35 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          find Releases -maxdepth 1 -type f ! -name '*.nupkg' ! -name 'releases.*.json' -delete
+          find Releases -maxdepth 1 -type f -name 'assets.*.json' -delete
+          find Releases -maxdepth 1 -type f -name 'RELEASES*' -delete
           find Releases -maxdepth 1 -type f -name '*.nupkg' ! -name "*-$VERSION-*" -delete
           for channel in osx-x64 osx-arm64; do
             node .github/scripts/normalize-velopack-assets.mjs Releases "$VERSION" "$channel"
+          done
+          find Releases -maxdepth 1 -type f -name '*Portable.zip' \
+            ! -name "CodexFree-$VERSION-macos-*-Portable.zip" -delete
+
+      - name: Validate macOS portable packages
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          for arch in x64 arm64; do
+            package="Releases/CodexFree-$VERSION-macos-$arch-Portable.zip"
+            if [[ ! -f "$package" ]]; then
+              echo "Expected macOS portable package missing: $package" >&2
+              find Releases -maxdepth 1 -type f | sort >&2
+              exit 1
+            fi
+            if ! zipinfo -1 "$package" | grep -Eq 'CodexFree\.app/Contents/MacOS/UpdateMac$'; then
+              echo "macOS portable package is missing Velopack UpdateMac: $package" >&2
+              exit 1
+            fi
+            if ! zipinfo -1 "$package" | grep -Eq 'CodexFree\.app/Contents/(MacOS|Resources)/sq\.version$'; then
+              echo "macOS portable package is missing Velopack sq.version: $package" >&2
+              exit 1
+            fi
           done
 
       - name: Upload macOS release files
@@ -219,14 +229,16 @@ jobs:
           name: macos-packages
           if-no-files-found: error
           path: |
-            dist/*.dmg
+            Releases/*macos-*-Portable.zip
 
       - name: Upload macOS Velopack artifact
         uses: actions/upload-artifact@v4
         with:
           name: velopack-osx
           if-no-files-found: error
-          path: Releases/**
+          path: |
+            Releases/*.nupkg
+            Releases/releases.*.json
 
   build-velopack:
     name: Build ${{ matrix.name }} Velopack packages
@@ -429,10 +441,11 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          args=(--title "CodexFree $VERSION" --notes-file release-notes.md --verify-tag)
           if [[ "$PRERELEASE" == "true" ]]; then
-            args+=(--prerelease)
+            echo "latest/download update feeds require a normal GitHub release, not a prerelease." >&2
+            exit 1
           fi
+          args=(--title "CodexFree $VERSION" --notes-file release-notes.md --verify-tag)
           gh release create "$TAG" "${args[@]}"
 
       - name: Upload macOS installers
@@ -478,8 +491,8 @@ jobs:
           mapfile -t assets < <(gh release view "$TAG" --json assets --jq '.assets[].name' | sort)
           printf '%s\n' "${assets[@]}"
           required=(
-            "CodexFree-$VERSION-macos-x64.dmg"
-            "CodexFree-$VERSION-macos-arm64.dmg"
+            "CodexFree-$VERSION-macos-x64-Portable.zip"
+            "CodexFree-$VERSION-macos-arm64-Portable.zip"
             "CodexFree-$VERSION-macos-x64-update.nupkg"
             "CodexFree-$VERSION-macos-arm64-update.nupkg"
             "CodexFree-$VERSION-windows-x64-setup.exe"
@@ -504,7 +517,7 @@ jobs:
               missing=1
             fi
           done
-          forbidden_regex='(^com\.baoguo\.codexfree|^assets\.|^RELEASES|\.blockmap$|Portable\.zip$|-full\.nupkg$)'
+          forbidden_regex='(^com\.baoguo\.codexfree|^assets\.|^RELEASES|\.blockmap$|-full\.nupkg$)'
           if printf '%s\n' "${assets[@]}" | grep -E "$forbidden_regex"; then
             echo "Release contains forbidden legacy asset names" >&2
             missing=1

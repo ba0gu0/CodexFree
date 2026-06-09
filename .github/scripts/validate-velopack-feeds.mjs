@@ -9,6 +9,9 @@ if (!feedsDir || !version) {
 
 const forbiddenName =
   /(^com\.baoguo\.codexfree|^assets\.|^RELEASES|\.blockmap$|Portable\.zip$|-full\.nupkg$)/
+const allowedPortableName = new RegExp(
+  `^CodexFree-${escapeRegExp(version)}-macos-(x64|arm64)-Portable\\.zip$`
+)
 const assets = new Set(
   readFileSync(join(feedsDir, 'assets.txt'), 'utf8').split(/\r?\n/).filter(Boolean)
 )
@@ -38,7 +41,10 @@ for (const feedName of feeds) {
       throw new Error(`${feedName} contains non-current version: ${asset.Version}`)
     }
 
-    if (typeof asset.FileName !== 'string' || forbiddenName.test(asset.FileName)) {
+    if (
+      typeof asset.FileName !== 'string' ||
+      (forbiddenName.test(asset.FileName) && !allowedPortableName.test(asset.FileName))
+    ) {
       throw new Error(`${feedName} contains invalid asset name: ${asset.FileName}`)
     }
 
@@ -54,4 +60,8 @@ for (const feedName of feeds) {
   if (!hasFullAsset) {
     throw new Error(`Feed is missing a Full asset: ${feedName}`)
   }
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
