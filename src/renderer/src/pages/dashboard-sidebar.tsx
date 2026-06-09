@@ -120,7 +120,7 @@ export function VersionPanel({
     >
       <div className={`${muted} font-bold text-xs`}>{t('dashboard.versionUpdate')}</div>
       <div className="flex items-center justify-between gap-2">
-        <div className={`${title} text-lg`}>v{snapshot.version}</div>
+        <div className={`${title} text-lg`}>v{update.currentVersion}</div>
         <span
           className={`shrink-0 rounded-full px-2 py-1 font-bold text-xs ${updateBadgeTone(update.state)}`}
         >

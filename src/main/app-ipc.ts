@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { app, dialog, ipcMain, shell } from 'electron'
+import { dialog, ipcMain, shell } from 'electron'
 import { importAuthFilesToDirectory, readImportedAuthAccounts } from './auth/import'
 import { writePlaceholderAuthFile } from './auth/placeholder'
 import { checkAuthDirectoryUsage } from './auth/usage-check'
@@ -45,7 +45,6 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
   let appLocale: AppLocale = 'zh-CN'
   const currentDialogCopy = (): DialogCopy => dialogCopyByLocale[appLocale]
 
-  ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('app:update-status', () => appUpdateService.currentStatus())
   ipcMain.handle('app:check-update', () => appUpdateService.checkForUpdates())
   ipcMain.handle('app:download-update', () => appUpdateService.downloadAvailableUpdate())

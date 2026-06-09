@@ -37,7 +37,6 @@ export interface ConsoleSnapshot {
   turnSummaries: TurnSummary[]
   updateStatus: AppUpdateStatus
   usageSummary: UsageSummary
-  version: string
 }
 
 export interface MetricItem {

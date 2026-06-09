@@ -275,12 +275,13 @@ T15 当前实现证据：
 - 已完成：`electron-builder.yml` 移除未使用的 Camera、Microphone、Documents 和 Downloads
   权限说明，保留 `identity: null` 和 `notarize: false`。
 - 已完成：GitHub 仓库 `ba0gu0/CodexFree` 已通过 `gh repo create` 创建并绑定为 `origin`。
-- 已完成：新增手动触发的 GitHub Actions release workflow。`prepare` job 写入输入版本并打
-  `v{version}` tag；macOS job 构建完整安装包；Windows/Linux jobs 使用 Velopack
-  `win-x64`/`linux-x64` channels 生成 installer、portable、full/delta packages 和 release
-  feeds；`publish` job 汇总并发布 GitHub Release。
+- 已完成：新增手动触发的 GitHub Actions release workflow。`prepare` job 从当前提交的
+  `package.json.version` 读取版本并打 `v{version}` tag；macOS job 构建完整安装包；
+  Windows/Linux jobs 使用 Velopack `win-x64`/`linux-x64` channels 生成 installer、portable、
+  full/delta packages 和 release feeds；`publish` job 汇总并发布 GitHub Release。
 - 已完成：App 内更新从 `electron-updater` 切换到 Velopack/GitHub release status。macOS 只
   检查更新并打开 GitHub Release 下载；Windows/Linux 支持 Velopack 检查、下载和应用更新。
+  Dashboard 当前版本显示统一使用 update status `currentVersion`。
 - 已完成：`electron-builder.yml` 显式设置 `publish: null`，避免基于 GitHub metadata
   重新生成旧 updater 配置；macOS 完整包仍由 `electron-builder` 输出，Windows/Linux
   unpacked app 交给 Velopack 打包。

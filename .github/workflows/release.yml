@@ -3,10 +3,6 @@ name: Release
 "on":
   workflow_dispatch:
     inputs:
-      version:
-        description: Semver version to publish, for example 0.1.0-alpha.1
-        required: true
-        type: string
       prerelease:
         default: true
         description: Mark the GitHub release as a prerelease
@@ -21,7 +17,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.event.inputs.version }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -32,12 +28,12 @@ env:
 
 jobs:
   prepare:
-    name: Prepare release tag
+    name: Prepare release version and tag
     runs-on: ubuntu-latest
     outputs:
       prerelease: ${{ github.event.inputs.prerelease }}
-      tag: v${{ github.event.inputs.version }}
-      version: ${{ github.event.inputs.version }}
+      tag: ${{ steps.package-version.outputs.tag }}
+      version: ${{ steps.package-version.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -45,46 +41,39 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Validate version
-        env:
-          VERSION: ${{ github.event.inputs.version }}
-        run: |
-          set -euo pipefail
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Version must be semver2: $VERSION" >&2
-            exit 1
-          fi
-          if git ls-remote --exit-code --tags origin "v$VERSION" >/dev/null 2>&1; then
-            echo "Tag already exists: v$VERSION" >&2
-            exit 1
-          fi
-
-      - name: Set package version
-        env:
-          VERSION: ${{ github.event.inputs.version }}
+      - name: Read package version
+        id: package-version
         run: |
           node - <<'NODE'
           const fs = require('node:fs')
-          const version = process.env.VERSION
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
-          pkg.version = version
-          fs.writeFileSync('package.json', `${JSON.stringify(pkg, null, 2)}\n`)
+          const version = pkg.version
+          if (typeof version !== 'string') {
+            throw new Error('package.json version must be a string')
+          }
+          const semver = /^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/
+          if (!semver.test(version)) {
+            throw new Error(`package.json version must be semver2: ${version}`)
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`)
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=v${version}\n`)
           NODE
 
-      - name: Commit and tag release
+      - name: Validate release tag
         env:
-          TAG: v${{ github.event.inputs.version }}
-          VERSION: ${{ github.event.inputs.version }}
+          TAG: ${{ steps.package-version.outputs.tag }}
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json
-          if ! git diff --cached --quiet; then
-            git commit \
-              -m "chore(release): $TAG" \
-              -m "Set CodexFree package version to $VERSION for the manual GitHub release."
+          if git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
+            echo "Tag already exists: $TAG" >&2
+            exit 1
           fi
+
+      - name: Create release tag
+        env:
+          TAG: ${{ steps.package-version.outputs.tag }}
+        run: |
+          set -euo pipefail
           git tag "$TAG"
           git push origin "HEAD:${GITHUB_REF_NAME}"
           git push origin "$TAG"

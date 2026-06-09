@@ -41,7 +41,6 @@ declare global {
       }
     }
     api: {
-      getVersion: () => Promise<string>
       getUpdateStatus: () => Promise<AppUpdateStatusDto>
       checkForUpdate: () => Promise<AppUpdateStatusDto>
       downloadUpdate: () => Promise<AppUpdateStatusDto>

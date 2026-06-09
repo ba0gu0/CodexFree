@@ -68,7 +68,6 @@ function App(): React.JSX.Element {
   const refresh = useCallback(async (): Promise<void> => {
     setError(null)
     const [
-      version,
       config,
       status,
       updateStatus,
@@ -83,7 +82,6 @@ function App(): React.JSX.Element {
       usageSummary,
       setupAssistant
     ] = await Promise.all([
-      window.api.getVersion(),
       window.api.getProxyConfig(),
       window.api.getProxyStatus(),
       window.api.getUpdateStatus(),
@@ -110,8 +108,7 @@ function App(): React.JSX.Element {
       status,
       turnSummaries: turnSummaryPage.items,
       updateStatus,
-      usageSummary,
-      version
+      usageSummary
     })
     setHasMoreActivity({
       logEvents: activityLimit < ACTIVITY_MAX_LIMIT && logEventPage.hasMore,

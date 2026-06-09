@@ -42,7 +42,6 @@ const electronBridge = {
 }
 
 const api = {
-  getVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
   getUpdateStatus: (): Promise<AppUpdateStatusDto> => ipcRenderer.invoke('app:update-status'),
   checkForUpdate: (): Promise<AppUpdateStatusDto> => ipcRenderer.invoke('app:check-update'),
   downloadUpdate: (): Promise<AppUpdateStatusDto> => ipcRenderer.invoke('app:download-update'),
