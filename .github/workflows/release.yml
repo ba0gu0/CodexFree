@@ -104,6 +104,26 @@ jobs:
       - name: Build macOS packages
         run: bun run build:mac
 
+      - name: Normalize macOS installer names
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          for spec in \
+            "x64|CodexFree-$VERSION-macos-x64.dmg" \
+            "arm64|CodexFree-$VERSION-macos-arm64.dmg"
+          do
+            IFS='|' read -r arch target_name <<< "$spec"
+            source_path="dist/CodexFree-$VERSION-$arch.dmg"
+            target_path="dist/$target_name"
+            if [[ ! -f "$source_path" ]]; then
+              echo "Expected macOS installer missing: $source_path" >&2
+              find dist -maxdepth 1 -type f | sort >&2
+              exit 1
+            fi
+            mv "$source_path" "$target_path"
+          done
+
       - name: Install Velopack CLI
         run: dotnet tool install --tool-path ./.tools vpk --version "$VPK_VERSION"
 
@@ -131,7 +151,7 @@ jobs:
               args+=(--pre)
             fi
             if ./.tools/vpk download "${args[@]}"; then
-              if find Releases -maxdepth 1 -type f -name "*-$channel-full.nupkg" | grep -q .; then
+              if node .github/scripts/has-velopack-full-release.mjs Releases "$channel"; then
                 echo "$channel" >> previous-channels.txt
               fi
             fi
@@ -182,6 +202,16 @@ jobs:
               exit 1
             fi
           done < previous-channels.txt
+
+      - name: Normalize macOS Velopack file names
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          find Releases -maxdepth 1 -type f -name '*.nupkg' ! -name "*-$VERSION-*" -delete
+          for channel in osx-x64 osx-arm64; do
+            node .github/scripts/normalize-velopack-assets.mjs Releases "$VERSION" "$channel"
+          done
 
       - name: Upload macOS release files
         uses: actions/upload-artifact@v4
@@ -295,7 +325,7 @@ jobs:
           fi
           : > previous-channel.txt
           if ./.tools/vpk download "${args[@]}"; then
-            if find Releases -maxdepth 1 -type f -name "*-$CHANNEL-full.nupkg" | grep -q .; then
+            if node .github/scripts/has-velopack-full-release.mjs Releases "$CHANNEL"; then
               echo "$CHANNEL" > previous-channel.txt
             fi
           fi
@@ -349,6 +379,16 @@ jobs:
             fi
           fi
 
+      - name: Normalize Velopack file names
+        shell: bash
+        env:
+          CHANNEL: ${{ matrix.channel }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          find Releases -maxdepth 1 -type f -name '*.nupkg' ! -name "*-$VERSION-*" -delete
+          node .github/scripts/normalize-velopack-assets.mjs Releases "$VERSION" "$CHANNEL"
+
       - name: Upload Velopack artifact
         uses: actions/upload-artifact@v4
         with:
@@ -369,18 +409,10 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.tag }}
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
-
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-
-      - name: Install Velopack CLI
-        run: dotnet tool install --tool-path ./.tools vpk --version "$VPK_VERSION"
 
       - name: Prepare release notes
         env:
@@ -424,28 +456,15 @@ jobs:
       - name: Upload Velopack releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
           TAG: ${{ needs.prepare.outputs.tag }}
-          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          for channel in osx-x64 osx-arm64 win-x64 win-arm64 linux-x64 linux-arm64; do
-            args=(
-              github
-              --repoUrl "https://github.com/${{ github.repository }}"
-              --token "$GH_TOKEN"
-              --outputDir Releases
-              --releaseName "CodexFree $VERSION"
-              --tag "$TAG"
-              --channel "$channel"
-              --merge
-              --publish
-            )
-            if [[ "$PRERELEASE" == "true" ]]; then
-              args+=(--pre)
-            fi
-            ./.tools/vpk upload "${args[@]}"
-          done
+          mapfile -t files < <(find Releases -maxdepth 1 -type f | sort)
+          if [[ "${#files[@]}" -eq 0 ]]; then
+            echo "No Velopack artifacts found" >&2
+            exit 1
+          fi
+          gh release upload "$TAG" "${files[@]}" --clobber
 
       - name: Validate published asset set
         env:
@@ -457,12 +476,18 @@ jobs:
           mapfile -t assets < <(gh release view "$TAG" --json assets --jq '.assets[].name' | sort)
           printf '%s\n' "${assets[@]}"
           required=(
-            "CodexFree-$VERSION-arm64.dmg"
-            "CodexFree-$VERSION-x64.dmg"
-            "com.baoguo.codexfree-win-x64-Setup.exe"
-            "com.baoguo.codexfree-win-arm64-Setup.exe"
-            "com.baoguo.codexfree-linux-x64.AppImage"
-            "com.baoguo.codexfree-linux-arm64.AppImage"
+            "CodexFree-$VERSION-macos-x64.dmg"
+            "CodexFree-$VERSION-macos-arm64.dmg"
+            "CodexFree-$VERSION-macos-x64-update.nupkg"
+            "CodexFree-$VERSION-macos-arm64-update.nupkg"
+            "CodexFree-$VERSION-windows-x64-setup.exe"
+            "CodexFree-$VERSION-windows-arm64-setup.exe"
+            "CodexFree-$VERSION-windows-x64-update.nupkg"
+            "CodexFree-$VERSION-windows-arm64-update.nupkg"
+            "CodexFree-$VERSION-linux-x64.AppImage"
+            "CodexFree-$VERSION-linux-arm64.AppImage"
+            "CodexFree-$VERSION-linux-x64-update.nupkg"
+            "CodexFree-$VERSION-linux-arm64-update.nupkg"
             "releases.osx-x64.json"
             "releases.osx-arm64.json"
             "releases.win-x64.json"
@@ -477,4 +502,9 @@ jobs:
               missing=1
             fi
           done
+          forbidden_regex='(^com\.baoguo\.codexfree|\.blockmap$|Portable\.zip$|-full\.nupkg$)'
+          if printf '%s\n' "${assets[@]}" | grep -E "$forbidden_regex"; then
+            echo "Release contains forbidden legacy asset names" >&2
+            missing=1
+          fi
           exit "$missing"

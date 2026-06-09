@@ -294,18 +294,20 @@ T15 当前实现证据：
   `package.json.version` 读取版本并打 `v{version}` tag；macOS job 构建完整安装包；
   macOS/Windows/Linux jobs 使用 Velopack `osx-x64`、`osx-arm64`、`win-x64`、`win-arm64`、
   `linux-x64` 和 `linux-arm64` channels 生成 installer、full/delta packages 和 release
-  feeds；`publish` job 汇总并发布 GitHub Release。
-- 已完成：release workflow 增加发布资产完整性校验。每次 release 必须包含 macOS
-  x64/arm64 DMG、Windows x64/arm64 Setup.exe、Linux x64/arm64 AppImage，以及六个
+  feeds；`publish` job 归一化文件名后汇总并发布 GitHub Release。
+- 已完成：release workflow 增加发布资产完整性校验。每次 release 必须包含 6 个安装包：
+  macOS x64/arm64 DMG、Windows x64/arm64 setup exe、Linux x64/arm64 AppImage；还必须
+  包含 6 个 `CodexFree-<version>-<platform>-<arch>-update.nupkg` 完整更新包和六个
   `releases.{channel}.json`。prerelease 发布下载上一版时会传 `--pre`；如果上一版同 channel
-  full 包存在但没有生成 delta 包，workflow 会失败。
+  feed 里存在 `Type: Full` 但没有生成 delta 包，workflow 会失败。发布后校验会拒绝
+  `com.baoguo.codexfree-*`、`.blockmap`、`Portable.zip` 和 `*-full.nupkg` 旧命名。
 - 已完成：App 内更新从 `electron-updater` 切换到 Velopack/GitHub release status。
   macOS/Windows/Linux 都支持 Velopack 检查、下载和应用更新。macOS 仍是不签名、不公证
   产物，用户需要按需在本机允许打开或自行签名。
   Dashboard 当前版本显示统一使用 update status `currentVersion`。
 - 已完成：`electron-builder.yml` 显式设置 `publish: null`，避免基于 GitHub metadata
   重新生成旧 updater 配置；macOS 完整包仍由 `electron-builder` 输出，各平台 Velopack
-  release feeds 由 `vpk pack` 和 `vpk upload` 处理。
+  release feeds 由 `vpk pack` 处理，GitHub Release assets 由 workflow 用归一化后的文件名上传。
 - Passed：`rtk bun run lint`。
 - Passed：`rtk bun run typecheck`。
 - Passed：`rtk bun run test`。

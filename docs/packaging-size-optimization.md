@@ -161,10 +161,10 @@ native module 解析路径未被破坏。
    `enableEmbeddedAsarIntegrityValidation: true`。这主要提升安全性，体积收益很小。
 2. 用 `onNodeModuleFile` 做更细的 node_modules 过滤。适合发现某个生产依赖带入大量
    docs/tests/examples 时使用，但必须配套 packaged smoke，避免误删 runtime 文件。
-3. 继续审核 Velopack 的 platform package 输出。macOS 当前同时上传完整 DMG 和
-   `osx-x64`/`osx-arm64` Velopack release feeds；Windows/Linux 由 `win-x64`、`win-arm64`、
-   `linux-x64`、`linux-arm64` Velopack release feeds 支持自动更新。Velopack full 包接近
-   安装包大小是正常现象；跨版本增量更新依赖同 channel 历史 full 包生成的 delta 包。
+3. 继续审核 Velopack 的 platform package 输出。GitHub Release 核心资产应是 6 个安装包和
+   6 个完整更新包；对应的 `releases.{channel}.json` feed 是 GitHub 更新源必需资产。
+   Velopack full/update 包接近安装包大小是正常现象；跨版本增量更新依赖同 channel 历史 full
+   包生成的 delta 包。
 4. 长期改用 Utility Process 替代 `ELECTRON_RUN_AS_NODE` daemon。这样未来才可能关闭
    `runAsNode` fuse；这是架构改造，不是单纯体积优化。
 

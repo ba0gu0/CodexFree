@@ -115,8 +115,14 @@ openai_base_url = "http://host.docker.internal:33333/backend-api/codex"
   并按需在本机允许打开或自行签名。
 - macOS 也使用 Velopack 支持检查、下载和应用更新；GitHub Release 同时保留完整安装包供
   手动下载安装。Windows/Linux 同样使用 Velopack 更新。
-- 每个 release 应包含 macOS `x64`/`arm64` DMG、Windows `x64`/`arm64` Setup.exe、
-  Linux `x64`/`arm64` AppImage，以及对应的 Velopack release feeds。
+- 每个 release 的核心资产应包含 6 个安装包和 6 个完整更新包：
+  `CodexFree-<version>-macos-{x64,arm64}.dmg`、
+  `CodexFree-<version>-windows-{x64,arm64}-setup.exe`、
+  `CodexFree-<version>-linux-{x64,arm64}.AppImage`，以及对应的
+  `CodexFree-<version>-<platform>-<arch>-update.nupkg`。
+- 使用 GitHub Release 作为 Velopack 更新源时，还必须上传 6 个
+  `releases.{channel}.json` feed。存在同 channel 上一版时，workflow 还会生成并上传
+  `CodexFree-<version>-<platform>-<arch>-delta.nupkg`。
 - 仓库忽略本地 `test` 参考材料、抓包、数据库和构建产物。不要手动把本地目录压缩上传替代
   GitHub 源码包。
 
