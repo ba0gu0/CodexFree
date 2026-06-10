@@ -140,6 +140,9 @@ Requests 和 Usage 已实现并连接。上面的目录结构仍是后续维护 
 - buttons、cards、tables、toggles、inputs、tabs 和 layout primitives 优先使用 Coss UI；
 - 只有当 Coss UI 不提供所需 component 或 interaction pattern 时，才使用 shadcn/ui；
 - 当已有 Coss 或 shadcn source component 可以复制到 `components/ui/` 时，不要创建平行 custom primitive layer。
+- Windows packaged Electron 中不要为端口等配置字段使用 native `input[type="number"]`。
+  这类字段应使用现有 `Input` 的 text 模式、`inputMode="numeric"` 和保存前的显式范围校验，
+  避免进入 Chromium number input 的原生 crash 路径。
 
 shadcn CLI 不会自动检测 electron-vite，因此本项目保留手动 `components.json` 配置。使用 `bunx shadcn@latest` 命令添加 components，并按最终项目结构和 Coss-first policy 调整。
 

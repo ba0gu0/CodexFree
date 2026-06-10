@@ -17,7 +17,7 @@ import {
   CardPanel,
   CardTitle
 } from '@renderer/components/ui/card'
-import { Field, FieldDescription, FieldLabel } from '@renderer/components/ui/field'
+import { Field, FieldDescription, FieldError, FieldLabel } from '@renderer/components/ui/field'
 import { Input } from '@renderer/components/ui/input'
 import {
   Select,
@@ -28,7 +28,12 @@ import {
   SelectValue
 } from '@renderer/components/ui/select'
 import { Switch } from '@renderer/components/ui/switch'
-import { type OutboundMode, outboundModes, type ProxyConfig } from '@renderer/data/proxy-console'
+import {
+  type DaemonControlSaveInput,
+  type OutboundMode,
+  outboundModes,
+  type ProxyConfig
+} from '@renderer/data/proxy-console'
 import {
   FilePenLineIcon,
   PlayIcon,
@@ -42,16 +47,19 @@ import type { PageProps } from './types'
 
 interface DaemonDraft {
   adminHost: string
-  adminPort: number
   adminToken: string
   launchAgentEnabled: boolean
 }
 
+const PORT_MIN = 1000
+const PORT_MAX = 65535
+
 export function ProxyPage({ actions, busyAction, snapshot, t }: PageProps): ReactElement {
   const [draft, setDraft] = useState<ProxyConfig>(snapshot.config)
+  const [listenPortText, setListenPortText] = useState(String(snapshot.config.listenPort))
+  const [adminPortText, setAdminPortText] = useState(String(snapshot.daemonControl.adminPort))
   const [daemonDraft, setDaemonDraft] = useState<DaemonDraft>({
     adminHost: snapshot.daemonControl.adminHost,
-    adminPort: snapshot.daemonControl.adminPort,
     adminToken: '',
     launchAgentEnabled: snapshot.daemonControl.launchAgent.enabled
   })
@@ -66,23 +74,33 @@ export function ProxyPage({ actions, busyAction, snapshot, t }: PageProps): Reac
 
   useEffect(() => {
     setDraft(snapshot.config)
+    setListenPortText(String(snapshot.config.listenPort))
   }, [snapshot.config])
   useEffect(() => {
     setDaemonDraft({
       adminHost: snapshot.daemonControl.adminHost,
-      adminPort: snapshot.daemonControl.adminPort,
       adminToken: '',
       launchAgentEnabled: snapshot.daemonControl.launchAgent.enabled
     })
+    setAdminPortText(String(snapshot.daemonControl.adminPort))
   }, [snapshot.daemonControl])
 
   const modeItems = outboundModes.map((mode) => ({ label: t(`mode.${mode}`), value: mode }))
-  const hasDraftChanges = proxyPageChanged(draft, daemonDraft, snapshot)
+  const listenPort = parsePortText(listenPortText)
+  const adminPort = parsePortText(adminPortText)
+  const listenPortInvalid = listenPort === null
+  const adminPortInvalid = adminPort === null
+  const hasInvalidPort = listenPortInvalid || adminPortInvalid
+  const hasDraftChanges = proxyPageChanged(draft, listenPort, daemonDraft, adminPort, snapshot)
   const saveAll = async (): Promise<void> => {
-    if (!hasDraftChanges) {
+    if (!hasDraftChanges || listenPort === null || adminPort === null) {
       return
     }
-    await actions.saveProxyPageConfig(draft, daemonDraft)
+    const daemonInput: DaemonControlSaveInput = {
+      ...daemonDraft,
+      adminPort
+    }
+    await actions.saveProxyPageConfig({ ...draft, listenPort }, daemonInput)
   }
   const openConfigRestore = async (): Promise<void> => {
     const backups = await actions.listCodexConfigBackups()
@@ -102,7 +120,11 @@ export function ProxyPage({ actions, busyAction, snapshot, t }: PageProps): Reac
       <PageHeader
         actions={
           <>
-            <Button disabled={!hasDraftChanges} loading={busyAction === 'save'} onClick={saveAll}>
+            <Button
+              disabled={!hasDraftChanges || hasInvalidPort}
+              loading={busyAction === 'save'}
+              onClick={saveAll}
+            >
               <SaveIcon data-icon="inline-start" />
               {hasDraftChanges ? t('action.configChangedSaveRestart') : t('action.saveAndRestart')}
             </Button>
@@ -187,14 +209,13 @@ export function ProxyPage({ actions, busyAction, snapshot, t }: PageProps): Reac
                 value={draft.listenHost}
               />
             </Field>
-            <Field>
+            <Field invalid={listenPortInvalid || undefined}>
               <FieldLabel>{t('proxy.port')}</FieldLabel>
-              <Input
-                min={1}
-                nativeInput
-                onChange={(event) => patchNumber(setDraft, draft, 'listenPort', event.target.value)}
-                type="number"
-                value={draft.listenPort}
+              <PortInput
+                invalid={listenPortInvalid}
+                onChange={setListenPortText}
+                t={t}
+                value={listenPortText}
               />
             </Field>
             <Field className="md:col-span-2">
@@ -268,20 +289,14 @@ export function ProxyPage({ actions, busyAction, snapshot, t }: PageProps): Reac
                     value={daemonDraft.adminHost}
                   />
                 </Field>
-                <Field>
+                <Field invalid={adminPortInvalid || undefined}>
                   <FieldLabel>{t('proxy.adminPort')}</FieldLabel>
-                  <Input
-                    min={1}
-                    nativeInput
-                    onChange={(event) =>
-                      setDaemonDraft({
-                        ...daemonDraft,
-                        adminPort: Number.parseInt(event.target.value, 10)
-                      })
-                    }
+                  <PortInput
+                    invalid={adminPortInvalid}
+                    onChange={setAdminPortText}
                     size="sm"
-                    type="number"
-                    value={daemonDraft.adminPort}
+                    t={t}
+                    value={adminPortText}
                   />
                 </Field>
                 <Field className="md:col-span-2">
@@ -578,13 +593,16 @@ function launchAgentDescription(
 
 function proxyPageChanged(
   draft: ProxyConfig,
+  listenPort: number | null,
   daemonDraft: DaemonDraft,
+  adminPort: number | null,
   snapshot: PageProps['snapshot']
 ): boolean {
   const config = snapshot.config
   return (
     draft.listenHost !== config.listenHost ||
-    draft.listenPort !== config.listenPort ||
+    listenPort === null ||
+    listenPort !== config.listenPort ||
     draft.upstreamBaseUrl !== config.upstreamBaseUrl ||
     draft.outboundProxy.mode !== config.outboundProxy.mode ||
     draft.outboundProxy.url !== config.outboundProxy.url ||
@@ -594,9 +612,46 @@ function proxyPageChanged(
     draft.rawCaptureEnabled !== config.rawCaptureEnabled ||
     draft.rawCaptureMaxBytes !== config.rawCaptureMaxBytes ||
     daemonDraft.adminHost !== snapshot.daemonControl.adminHost ||
-    daemonDraft.adminPort !== snapshot.daemonControl.adminPort ||
+    adminPort === null ||
+    adminPort !== snapshot.daemonControl.adminPort ||
     daemonDraft.launchAgentEnabled !== snapshot.daemonControl.launchAgent.enabled ||
     daemonDraft.adminToken.trim().length > 0
+  )
+}
+
+function PortInput({
+  invalid,
+  onChange,
+  size = 'default',
+  t,
+  value
+}: {
+  invalid: boolean
+  onChange: (value: string) => void
+  size?: 'default' | 'sm'
+  t: PageProps['t']
+  value: string
+}): ReactElement {
+  return (
+    <>
+      <Input
+        aria-invalid={invalid}
+        inputMode="numeric"
+        maxLength={5}
+        onChange={(event) => onChange(normalizePortText(event.target.value))}
+        pattern="[0-9]*"
+        size={size}
+        type="text"
+        value={value}
+      />
+      {invalid ? (
+        <FieldError match>{t('proxy.portRangeError', { max: PORT_MAX, min: PORT_MIN })}</FieldError>
+      ) : (
+        <FieldDescription>
+          {t('proxy.portRangeHint', { max: PORT_MAX, min: PORT_MIN })}
+        </FieldDescription>
+      )}
+    </>
   )
 }
 
@@ -645,14 +700,14 @@ function isOutboundMode(value: unknown): value is OutboundMode {
   return typeof value === 'string' && outboundModes.includes(value as OutboundMode)
 }
 
-function patchNumber(
-  setDraft: (value: ProxyConfig) => void,
-  draft: ProxyConfig,
-  key: 'listenPort' | 'maxRequestBodyBytes' | 'rawCaptureMaxBytes',
-  value: string
-): void {
-  const next = Number.parseInt(value, 10)
-  if (Number.isFinite(next)) {
-    setDraft({ ...draft, [key]: next })
+function normalizePortText(value: string): string {
+  return value.replace(/\D/g, '').slice(0, 5)
+}
+
+function parsePortText(value: string): number | null {
+  if (!/^\d{4,5}$/.test(value)) {
+    return null
   }
+  const port = Number.parseInt(value, 10)
+  return port >= PORT_MIN && port <= PORT_MAX ? port : null
 }

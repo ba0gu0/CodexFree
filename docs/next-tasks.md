@@ -238,6 +238,10 @@ T12 当前实现证据：
 - Confirmed：成功转发的 request ledger 只记录 Codex responses、compact responses 和 wham usage
   这类核心事件；`models` 只做托管 header 预检但不写成功请求行，analytics/plugins/apps/connectors
   等辅助接口只转发，不替换托管 header，也不写普通 request row。
+- Confirmed：Windows packaged app 的 Proxy 页面白屏根因是端口字段使用 native
+  `input[type="number"]` 触发原生 renderer crash。监听端口和管理端口已改为 text input
+  编辑态，输入时只保留数字，保存前校验 `1000-65535`，再以 number 写入
+  `saveProxyPageConfig`。
 - Passed：`rtk bun run lint`、`rtk bun run typecheck`、`rtk bun run test`
   （43 files、188 tests）和 `rtk git diff --check`。
 
@@ -355,7 +359,8 @@ Renderer refactor 状态：
   overview detail pass 移除 top recent-event summary，把 utility system button 改为 theme
   cycle，移除 account-health progress bar，按 event type 分类 recent logs，把
   `/backend-api/wham/remote/*` 标记为 original Codex account，并使用 email metadata 而不是
-  synthetic account ids。
+  synthetic account ids。Proxy 页面端口配置不得回退到 native `input[type="number"]`；
+  Windows packaged Electron 下该控件路径已确认会导致 renderer crash。
 - `docs/CodexFree-v2.pen`、`docs/CodexFree-v3.pen` 和 preview images 仍是设计参考，本身不能
   作为完成证明。
 

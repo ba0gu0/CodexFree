@@ -196,7 +196,10 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   checks 保持在显式按钮上，progress 渲染在发起操作的按钮上。
   Accounts 最近检查列现在在所有窗口尺寸下显示两行摘要：第一行是短状态，例如
   `401 认证失效`、`402 额度不可用`、`检查失败` 或 `检查正常`；第二行显示最近检查时间。
-  完整错误只保留在 tooltip 和右侧详情中。
+  完整错误只保留在 tooltip 和右侧详情中。Windows packaged app 的 Proxy 页面白屏问题已定位为
+  端口字段使用 native `input[type="number"]` 触发 Electron/Chromium 原生 renderer crash；
+  监听端口和管理端口现在改为文本输入态，只接受数字字符并在保存前校验 `1000-65535`，
+  保持保存到 SQLite/admin API 的值仍为 number。
 
 ## 已完成初始化
 
