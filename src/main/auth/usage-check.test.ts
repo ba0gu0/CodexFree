@@ -48,6 +48,27 @@ describe('account usage check', () => {
     }
   })
 
+  it('checks no files when selected account ids are empty', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'codexfree-empty-selected-usage-'))
+    writeAuthFile(directory, 'account-a')
+    const server = http.createServer((_request, response) => {
+      response.writeHead(500)
+      response.end()
+    })
+    await listen(server)
+
+    try {
+      await expect(
+        checkAuthDirectoryUsage(directory, {
+          accountIds: [],
+          usageUrl: usageUrl(server)
+        })
+      ).resolves.toEqual([])
+    } finally {
+      await closeServer(server)
+    }
+  })
+
   it('parses wham usage fields captured in HAR files', async () => {
     const server = http.createServer((_request, response) => {
       response.writeHead(200, { 'content-type': 'application/json' })
@@ -252,7 +273,7 @@ describe('account usage check', () => {
         secondaryUsedPercent: '78',
         statusCode: 402
       })
-      expect(result.error).toBeUndefined()
+      expect(result.error).toBe('usage check failed: 402')
     } finally {
       await closeServer(server)
     }

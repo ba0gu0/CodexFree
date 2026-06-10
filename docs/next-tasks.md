@@ -19,7 +19,7 @@
 | T12 | 已完成 | 按最新 proxy traffic field contract 优化全 app 数据展示 | T10、T11 |
 | T13 | 已完成 | 实现首次引导与配置助手首版 | T11、onboarding spec |
 | T14 | 已完成 | 编写中英文 README | 当前项目状态文档 |
-| T15 | 已完成 | 补齐 GitHub 开源 alpha 发布边界 | T14、packaging docs |
+| T15 | 已完成 | 补齐 GitHub 开源正式发布边界 | T14、packaging docs |
 
 ## 并行工作线
 
@@ -46,8 +46,9 @@
    account disable/delete/reset 和 clear。它不暴露 `/admin/start`、`/admin/stop` 或
    `/admin/restart`。Config saves 会持久化到 SQLite；desktop UI 通过 App process owner
    应用它们，而不是通过 admin lifecycle endpoints。`/admin/reload` 保留为供
-   daemon/admin clients 使用的本地工具 endpoint。Account-management actions 只刷新内存
-   account-pool cache，不关闭现有 WSS sessions。
+   daemon/admin clients 使用的本地工具 endpoint。Account-management actions 写 SQLite；
+   daemon 在后续 admin query、routing decision 和维护任务边界重读 SQLite，不维护权威
+   in-memory account-pool state，也不关闭现有 WSS sessions。
 3. 已完成：普通 daemon runs 会把 log events 写入 SQLite，不产生 request spam；`--debug`
    会从同一 event stream 打印可读行。
 4. 已完成：Electron main 不再嵌入 proxy service。打包构建包含 daemon JS bundle，并通过
@@ -191,7 +192,12 @@ T12 当前实现证据：
 - 已完成：Overview 现在包含 recent request purpose distribution，Accounts 暴露 reset/check/error
   details，同时把 quota history 过滤为 typed quota events。
 - 已完成：Accounts 的“待复核”summary card 和 `invalid` 状态筛选统一使用人工复核错误口径；
-  尚未查量但无错误的账号，以及旧的 `usage check failed: 402` 账号，不会被误计入待复核。
+  尚未查量但无错误的账号，以及 `usage check failed: 402` 账号，不会被误计入待复核。
+- 已完成：Accounts 的清理动作扩展为 401/402 清理，按 SQLite `last_usage_error` 识别账号，
+  删除 matching `proxy_accounts` rows 和托管 auth files，并让 status/counts 从 SQLite facts
+  重读，不再从 daemon 内存或 auth 文件目录推导。
+- 已完成：Accounts 最近检查列改为固定两行摘要，所有窗口尺寸下都显示关键信息和检查时间；
+  完整错误保留在 tooltip 和详情面板。
 - 已完成：User-feedback polish pass 添加 full-database request 和 usage summary cards、所有页面
   manual refresh buttons、refresh-on-navigation、top-center concise notices、触发按钮上的
   account usage progress、per-row usage refresh controls、sticky sortable list headers，以及
@@ -207,6 +213,7 @@ T12 当前实现证据：
 - Passed：`rtk bun run typecheck`。
 - Passed：`rtk bun run test`。
 - Passed：`rtk bun run build`。
+- Passed：`rtk bun run test -- src/main/auth/cleanup.test.ts src/main/proxy/ledger.test.ts src/main/proxy/service.test.ts src/renderer/src/pages/accounts-model.test.ts`。
 - Passed：`rtk bun run build:unpack`。
 - Passed：使用 Computer Use 进行 live dev-app inspection。当前验证应继续通过 Computer Use，
   且不能依赖 system screenshots。
@@ -222,9 +229,9 @@ T12 当前实现证据：
   `primary_window` 是 18000 秒 5 小时窗口，`secondary_window` 是 604800 秒周窗口。Accounts、
   Inspector、Dashboard 和 quota guard 已统一使用双窗口模型，team 不再只显示被错标的
   “周额度”，任一窗口达到 95% 保护线都会退出可用池。
-- Confirmed：额度检查 402 现在按 quota unavailable 处理，主窗口默认补为 100%，清空
-  `last_usage_error` 并进入耗尽保护；ledger schema 初始化会清理旧 402 待复核状态、quota warn
-  event 和 wham usage 402 request row。
+- Confirmed：额度检查 402 现在按 quota unavailable 处理，主窗口默认补为 100%，保留
+  `last_usage_error = "usage check failed: 402"` 作为最近检查摘要和 401/402 清理依据，并进入
+  耗尽保护；402 不进入“待复核”统计。
 - Confirmed：常规 SSE/WSS 观察日志已收敛为 turn summary 优先。正常 user、assistant、usage 和
   tool 参数/结果不再写入 `proxy_protocol_messages`；协议明细只保留错误/限流排障事件。Requests
   UI 以交互汇总数和 turn detail 为主，隐藏历史 tool protocol 碎片，`raw capture` 调试能力保持不变。
@@ -232,7 +239,7 @@ T12 当前实现证据：
   这类核心事件；`models` 只做托管 header 预检但不写成功请求行，analytics/plugins/apps/connectors
   等辅助接口只转发，不替换托管 header，也不写普通 request row。
 - Passed：`rtk bun run lint`、`rtk bun run typecheck`、`rtk bun run test`
-  （41 files、174 tests）和 `rtk git diff --check`。
+  （43 files、188 tests）和 `rtk git diff --check`。
 
 T13 当前实现证据：
 
@@ -279,13 +286,13 @@ T15 当前实现证据：
 - 已完成：根目录新增 MIT `LICENSE`，并在 `package.json` 声明 `"license": "MIT"`。
 - 已完成：根目录新增 `SECURITY.md`，明确漏洞报告不得附带真实 auth 文件、token、cookie、
   raw capture 或本地 SQLite 数据库。
-- 已完成：中英文 README 说明开源 alpha 状态、MIT 许可证、安全报告入口、非官方产品边界、
+- 已完成：中英文 README 说明开源正式发布状态、MIT 许可证、安全报告入口、非官方产品边界、
   只使用自有或获授权账号，以及本地 `test` 参考材料、抓包、数据库和构建产物不能手动上传。
 - 已完成：中英文 README 的 Codex `config.toml` 说明已经收敛到只移除顶层 `model_provider`；
   不删除 `[model_providers.<name>]`，也不写入 `model_provider = "openai"`。
 - 已完成：中英文 README 补充 `cc switch` 和其他 Codex 配置切换工具的并发写入提醒；
   不建议与 CodexFree 同时修改或频繁切换同一个 `config.toml`。
-- 已完成：macOS release 明确不签名、不公证；这是当前成本约束下的 alpha 发布策略，不是
+- 已完成：macOS release 明确不签名、不公证；这是当前成本约束下的发布策略，不是
   发布阻塞项。
 - 已完成：`electron-builder.yml` 移除未使用的 Camera、Microphone、Documents 和 Downloads
   权限说明，保留 `identity: null` 和 `notarize: false`。
@@ -546,8 +553,9 @@ T4 已针对 account-login proxy path 完成。最新切片添加了：
 - per-account disable/enable control；
 - exhausted-account reset control；
 - exported auth-file backup path；
-- in-memory conversation bindings 的 24 小时 retention pruning；
-- available、exhausted 和 disabled account counts 的 status reporting。
+- in-memory conversation bindings 的 24 小时 retention pruning；这些 bindings 只是短生命周期
+  转发上下文，不是账号事实来源；
+- available、exhausted 和 disabled account counts 从 SQLite 读取后 reporting。
 
 来自 `test/History-1778683339690.har` 和 raw captures 的最新证据进一步细化 T4：
 

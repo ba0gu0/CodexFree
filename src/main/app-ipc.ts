@@ -1,7 +1,8 @@
-import { copyFileSync, existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs'
+import { copyFileSync, existsSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { dialog, ipcMain, shell } from 'electron'
+import { deleteImportedAuthFilesForAccounts, isCleanableUsageError } from './auth/cleanup'
 import { importAuthFilesToDirectory, readImportedAuthAccounts } from './auth/import'
 import { writePlaceholderAuthFile } from './auth/placeholder'
 import { checkAuthDirectoryUsage } from './auth/usage-check'
@@ -117,7 +118,7 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
       selection.filePaths,
       runtime.importedAuthPoolPath
     )
-    runtime.syncAccounts(readImportedAuthAccounts(runtime.importedAuthPoolPath))
+    runtime.upsertAccounts(result.accounts)
     const importedAccountIds = uniqueAccountIds(result.accounts.map((account) => account.accountId))
     if (importedAccountIds.length > 0) {
       const usageResults = await checkAuthDirectoryUsage(runtime.importedAuthPoolPath, {
@@ -131,7 +132,9 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     return result
   })
   ipcMain.handle('proxy:check-account-usage', async (event) => {
+    const accountIds = currentManagedAccountIds(runtime)
     const results = await checkAuthDirectoryUsage(runtime.importedAuthPoolPath, {
+      accountIds,
       onProgress: (progress) => {
         event.sender.send('proxy:account-usage-progress', progress)
       }
@@ -140,8 +143,12 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     return { results, accounts }
   })
   ipcMain.handle('proxy:check-selected-account-usage', async (event, accountIds: string[]) => {
+    const managedAccountIds = new Set(currentManagedAccountIds(runtime))
+    const selectedAccountIds = uniqueAccountIds(accountIds).filter((accountId) =>
+      managedAccountIds.has(accountId)
+    )
     const results = await checkAuthDirectoryUsage(runtime.importedAuthPoolPath, {
-      accountIds,
+      accountIds: selectedAccountIds,
       onProgress: (progress) => event.sender.send('proxy:account-usage-progress', progress)
     })
     const accounts = runtime.updateAccountUsage(results)
@@ -158,9 +165,16 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     }
 
     let exported = 0
+    const accountIds = new Set(currentManagedAccountIds(runtime))
     if (existsSync(runtime.importedAuthPoolPath)) {
+      const importedAccounts = readImportedAuthAccounts(runtime.importedAuthPoolPath)
+      const fileNames = new Set(
+        importedAccounts
+          .filter((account) => accountIds.has(account.accountId))
+          .map((account) => account.fileName)
+      )
       for (const entry of readdirSync(runtime.importedAuthPoolPath, { withFileTypes: true })) {
-        if (!entry.isFile() || !entry.name.endsWith('.json')) {
+        if (!entry.isFile() || !fileNames.has(entry.name)) {
           continue
         }
         copyFileSync(
@@ -196,8 +210,10 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     if (typeof accountId !== 'string' || accountId.trim() === '') {
       throw new Error('accountId is required to write an imported account to Codex auth')
     }
+    if (!currentManagedAccountIds(runtime).includes(accountId)) {
+      throw new Error(`Cannot write Codex auth because account "${accountId}" is not managed`)
+    }
     const result = writeImportedAccountToCodexAuth(accountId, runtime.importedAuthPoolPath)
-    runtime.syncAccounts(readImportedAuthAccounts(runtime.importedAuthPoolPath))
     runtime.setLocalAuthAccount(result.accountId)
     return result
   })
@@ -217,7 +233,7 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
       throw new Error(daemonAdminUnavailableMessage(appLocale, error))
     })
     const { accounts, result } = await runtime.daemonClient.switchAccount(accountId)
-    return { accounts, result, status: (await runtime.daemonClient.status()).proxy }
+    return { accounts, result, status: await runtime.proxyStatus() }
   })
   ipcMain.handle(
     'proxy:set-accounts-disabled',
@@ -235,43 +251,30 @@ export function registerMainProcessHandlers(runtime: MainRuntime): void {
     }
   )
   ipcMain.handle('proxy:delete-accounts', async (_, accountIds: string[]) => {
-    if (existsSync(runtime.importedAuthPoolPath)) {
-      for (const entry of readdirSync(runtime.importedAuthPoolPath, { withFileTypes: true })) {
-        if (!entry.isFile()) {
-          continue
-        }
-        const filePath = join(runtime.importedAuthPoolPath, entry.name)
-        const fileAccountId = readAuthAccountId(filePath)
-        if (fileAccountId && accountIds.includes(fileAccountId)) {
-          unlinkSync(filePath)
-        }
-      }
-    }
+    const deletedFiles = deleteImportedAuthFilesForAccounts(
+      runtime.importedAuthPoolPath,
+      accountIds
+    )
     const deleted = runtime.deleteAccounts(accountIds)
-    return { ...deleted, status: await runtime.proxyStatus() }
+    return { ...deleted, deletedFiles, status: await runtime.proxyStatus() }
   })
   ipcMain.handle('proxy:clean-expired-accounts', async () => {
     const currentAccounts = runtime.managedAccounts()
     const expiredAccountIds = currentAccounts
-      .filter((account) => account.lastUsageError?.includes('401'))
+      .filter((account) => isCleanableUsageError(account.lastUsageError))
       .map((account) => account.accountId)
-    let deletedFiles = 0
-
-    if (existsSync(runtime.importedAuthPoolPath)) {
-      for (const entry of readdirSync(runtime.importedAuthPoolPath, { withFileTypes: true })) {
-        if (!entry.isFile()) {
-          continue
-        }
-        const fileAccountId = readAuthAccountId(join(runtime.importedAuthPoolPath, entry.name))
-        if (fileAccountId && expiredAccountIds.includes(fileAccountId)) {
-          unlinkSync(join(runtime.importedAuthPoolPath, entry.name))
-          deletedFiles += 1
-        }
-      }
-    }
+    const deletedFiles = deleteImportedAuthFilesForAccounts(
+      runtime.importedAuthPoolPath,
+      expiredAccountIds
+    )
 
     const deleted = runtime.deleteAccounts(expiredAccountIds)
-    return { deletedAccounts: deleted.deletedAccounts, deletedFiles, accounts: deleted.accounts }
+    return {
+      deletedAccounts: deleted.deletedAccounts,
+      deletedFiles,
+      accounts: deleted.accounts,
+      status: await runtime.proxyStatus()
+    }
   })
   ipcMain.handle('proxy:save-config', async (_, config: ProxyConfig) => {
     return runtime.saveProxyConfig(config)
@@ -305,6 +308,10 @@ function uniqueAccountIds(accountIds: string[]): string[] {
   return [...new Set(accountIds)]
 }
 
+function currentManagedAccountIds(runtime: MainRuntime): string[] {
+  return uniqueAccountIds(runtime.managedAccounts().map((account) => account.accountId))
+}
+
 function daemonAdminUnavailableMessage(locale: AppLocale, error: unknown): string {
   const detail = errorMessage(error)
   if (locale === 'en') {
@@ -327,22 +334,5 @@ async function openPathOrThrow(path: string): Promise<void> {
   const error = await shell.openPath(path)
   if (error) {
     throw new Error(`Failed to open local path "${path}": ${error}`)
-  }
-}
-
-function readAuthAccountId(path: string): string | undefined {
-  try {
-    const value = JSON.parse(readFileSync(path, 'utf8')) as unknown
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      return undefined
-    }
-    const tokens = (value as { tokens?: unknown }).tokens
-    if (typeof tokens !== 'object' || tokens === null || Array.isArray(tokens)) {
-      return undefined
-    }
-    const accountId = (tokens as { account_id?: unknown }).account_id
-    return typeof accountId === 'string' ? accountId : undefined
-  } catch {
-    return undefined
   }
 }

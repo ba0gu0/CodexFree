@@ -7,6 +7,7 @@ import { initializeLedgerSchema } from './ledger-schema'
 import { readRequestSummary, readUsageSummary } from './ledger-summary'
 import type {
   AccountPoolSnapshot,
+  AccountStatusCounts,
   AccountUsageInput,
   AccountUsageSummary,
   LogEventInput,
@@ -232,10 +233,34 @@ export class ProxyLedger {
       })
   }
 
+  upsertAccountPool(accounts: AccountPoolSnapshot[]): void {
+    const now = Date.now()
+    const transaction = this.sqlite.transaction((items: AccountPoolSnapshot[]) => {
+      this.upsertAccountPoolRows(items, now)
+    })
+    transaction(accounts)
+  }
+
   syncAccountPool(accounts: AccountPoolSnapshot[]): void {
     const now = Date.now()
     const transaction = this.sqlite.transaction((items: AccountPoolSnapshot[]) => {
-      const statement = this.sqlite.prepare(`
+      this.upsertAccountPoolRows(items, now)
+      const accountIds = new Set(items.map((account) => account.accountId))
+      const existingRows = this.sqlite
+        .prepare('SELECT account_id AS accountId FROM proxy_accounts')
+        .all() as { accountId: string }[]
+      const deleteStatement = this.sqlite.prepare('DELETE FROM proxy_accounts WHERE account_id = ?')
+      for (const row of existingRows) {
+        if (!accountIds.has(row.accountId)) {
+          deleteStatement.run(row.accountId)
+        }
+      }
+    })
+    transaction(accounts)
+  }
+
+  private upsertAccountPoolRows(accounts: AccountPoolSnapshot[], updatedAt: number): void {
+    const statement = this.sqlite.prepare(`
         INSERT INTO proxy_accounts (
           account_id, label, email, fingerprint, source_format, status, exhausted_at,
           quota_reset_at, refreshable, updated_at
@@ -255,26 +280,14 @@ export class ProxyLedger {
           source_format = excluded.source_format,
           updated_at = excluded.updated_at
       `)
-      for (const account of items) {
-        statement.run({
-          ...account,
-          email: account.email ?? null,
-          refreshable: account.refreshable === false ? 0 : 1,
-          updatedAt: now
-        })
-      }
-      const accountIds = new Set(items.map((account) => account.accountId))
-      const existingRows = this.sqlite
-        .prepare('SELECT account_id AS accountId FROM proxy_accounts')
-        .all() as { accountId: string }[]
-      const deleteStatement = this.sqlite.prepare('DELETE FROM proxy_accounts WHERE account_id = ?')
-      for (const row of existingRows) {
-        if (!accountIds.has(row.accountId)) {
-          deleteStatement.run(row.accountId)
-        }
-      }
-    })
-    transaction(accounts)
+    for (const account of accounts) {
+      statement.run({
+        ...account,
+        email: account.email ?? null,
+        refreshable: account.refreshable === false ? 0 : 1,
+        updatedAt
+      })
+    }
   }
 
   exhaustedAccountIds(): string[] {
@@ -291,6 +304,39 @@ export class ProxyLedger {
       .all() as { accountId: string }[]
 
     return rows.map((row) => row.accountId)
+  }
+
+  accountIds(): string[] {
+    const rows = this.sqlite
+      .prepare('SELECT account_id AS accountId FROM proxy_accounts')
+      .all() as { accountId: string }[]
+
+    return rows.map((row) => row.accountId)
+  }
+
+  accountStatusCounts(): AccountStatusCounts {
+    const rows = this.sqlite
+      .prepare('SELECT status, count(*) AS count FROM proxy_accounts GROUP BY status')
+      .all() as { count: number; status: string }[]
+    const counts: AccountStatusCounts = {
+      availableAccounts: 0,
+      disabledAccounts: 0,
+      exhaustedAccounts: 0,
+      totalAccounts: 0
+    }
+
+    for (const row of rows) {
+      counts.totalAccounts += row.count
+      if (row.status === 'available') {
+        counts.availableAccounts = row.count
+      } else if (row.status === 'disabled') {
+        counts.disabledAccounts = row.count
+      } else if (row.status === 'exhausted') {
+        counts.exhaustedAccounts = row.count
+      }
+    }
+
+    return counts
   }
 
   accounts(): ManagedAccountRow[] {

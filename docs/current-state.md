@@ -2,7 +2,7 @@
 
 ## 阶段
 
-账号登录代理核心阶段。当前仓库已补齐 GitHub 开源 alpha 发布所需的基础边界：
+账号登录代理核心阶段。当前仓库已补齐 GitHub 正式发布所需的基础边界：
 MIT 许可证、安全报告规则、README 发布说明、GitHub Actions 手动 release 工作流，以及
 未签名/未公证 macOS 产物的明确告知。
 
@@ -70,10 +70,9 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - quota guard 的远程查量结果会通过 `proxy_accounts` 更新账号 plan、用量百分比和 reset
   时间。真实上游 `usage_limit_reached` 或本地 95% 保护线标记账号耗尽时，也会在同一事务中
   更新账号用量字段，避免账号已耗尽但 UI 仍显示旧额度。
-- 额度检查返回 402 时不再写入 `last_usage_error`。它会被归类为 quota unavailable，按主窗口
-  100% 更新账号并进入耗尽保护；启动 ledger schema 时会清理旧的
-  `usage check failed: 402` 待复核状态、相关 quota warn event 和 `/backend-api/wham/usage`
-  402 request row。
+- 额度检查返回 402 时会归类为 quota unavailable，按主窗口 100% 更新账号并进入耗尽保护；
+  同时保留 `last_usage_error = "usage check failed: 402"`，作为最近检查摘要和 401/402 清理的
+  SQLite 事实。402 不进入“待复核”统计。
 - Daemon 现在有 quota reset 刷新任务，每 30 分钟检查一次账号池，只刷新
   `rate_limit_resets_at` 已过 5 分钟且当前 reset 窗口尚未刷新过的非禁用账号。刷新成功会写入
   `last_quota_refreshed_at` 和 `last_quota_refreshed_reset_at`，并记录 quota event，避免同一
@@ -94,18 +93,22 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - `/backend-api/wham/remote` 及其子路径是透明例外：代理会保留原始 Codex
   `Authorization` 和 `chatgpt-account-id` headers，而不是从 HTTP 和 WSS upgrade
   流量的托管 auth pool 中替换。
-- 账号可用性现在持久化在 SQLite 中。代理把加载的 auth 文件同步到
-  `proxy_accounts`，把路由决策记录到 `proxy_routing_events`，并把 quota exhaustion
-  详情记录到 `proxy_quota_events`。重启后的服务在路由新请求之前会重新加载持久化的
-  exhausted 账号。
+- 账号可用性现在持久化在 SQLite 中。导入边界把成功导入的 auth files materialize 到
+  `proxy_accounts`；路由时 auth 文件只提供 token material，并会按 SQLite account ids 过滤。
+  路由决策记录到 `proxy_routing_events`，quota exhaustion 详情记录到 `proxy_quota_events`。
+  重启后的服务在路由新请求之前会从 SQLite 重新读取 exhausted/disabled/active 账号事实。
 - 导入账号管理现在支持从 Electron 管理界面进行批量导入、批量 usage 检查、导出、
-  401 清理、单账号禁用/启用，以及 exhaustion reset。导入、usage 检查和运行时路由
+  401/402 清理、单账号禁用/启用，以及 exhaustion reset。导入、usage 检查和运行时路由
   都使用同一个 app 托管 auth-pool 目录。
+- 401/402 清理以 SQLite `proxy_accounts.last_usage_error` 中的 HTTP 状态码为准，删除
+  对应 `proxy_accounts` rows，并通过标准 auth 归一化逻辑删除匹配的托管 auth files。账号
+  统计从 SQLite 重读，不能从 daemon 内存或 auth 文件目录推导。
 - 账号页的“待复核”统计和状态筛选使用同一口径：只有需要人工处理的 `last_usage_error`
-  进入待复核；单纯尚未查量的账号和旧的 `usage check failed: 402` 不会显示为待复核，避免
+  进入待复核；单纯尚未查量的账号和 `usage check failed: 402` 不会显示为待复核，避免
   统计卡片和筛选结果不一致。
-- 导入后会按 account id 覆盖旧授权文件，并只对本次新增/覆盖的账号自动查量；daemon
-  同步仍读取托管目录中的全部有效账号，避免只导入一部分时误删旧账号状态。
+- 导入后会按 account id 覆盖旧授权文件，并只把本次成功导入的账号 upsert 到 SQLite；
+  不会重新扫描托管目录把历史残留 auth 文件恢复成账号事实。全量替换只保留在显式
+  admin sync 边界。
 - 导入账号现在以 `access_token` 为唯一硬必填字段。缺少 account id 的记录会先用该
   token 查询 `/backend-api/wham/usage`，从上游 usage 响应回填 account id 和 email；
   缺少 `refresh_token` 的账号会标记为不可刷新，仍可进入账号池，后续真实 401 会禁用。
@@ -119,21 +122,22 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   或 `/admin/restart`；app start/stop/restart 控件使用配置的 LaunchAgent、systemd
   user service、Windows service，或 app 拥有的 child process，并在 daemon 是在 app
   外部启动时报告诊断。
-- 代理配置只在 SQLite `proxy_settings` 中持久化。从桌面 UI 保存 config 时先写
-  SQLite，然后 App process manager 通过配置的 owner 重启 daemon：App child process、
-  LaunchAgent、systemd user service 或 Windows service。直接编辑数据库不会改变正在
-  运行的 daemon，直到 App owner 重启它，或本地 admin client 调用保留的
-  `/admin/reload` 工具 endpoint。
-- 账号管理动作写 SQLite，然后只刷新 daemon 的内存 account-pool cache。它们不会重启
-  proxy service，也不会关闭现有 WSS sessions。
+- 代理配置只在 SQLite `proxy_settings` 中持久化。daemon 没有独立的配置权威状态；
+  start、reload 和需要重新绑定监听端口的 restart 都从 SQLite 读取配置。已经运行的
+  listener 会保持启动时绑定的 host/port，直到 App owner 重启它，或本地 admin client
+  调用保留的 `/admin/reload` 工具 endpoint。
+- 账号管理动作写 SQLite。daemon 不拥有独立的账号池状态；后续 admin query、routing
+  decision、usage check、token refresh 和 quota maintenance 都必须回到 SQLite 读取最新账号
+  facts。账号管理动作不会重启 proxy service，也不会关闭现有 WSS sessions。
 - 账号管理页的“设为当前账号”动作通过 daemon admin
   `POST /admin/accounts/switch` 执行。daemon 会把目标可用账号写为 active account，
   并关闭现有 upgraded WSS sessions，让后续请求按新的当前账号路由。
-- 内存 conversation bindings 会在 24 小时后裁剪，避免旧 session 永久占用账号。
+- 内存 conversation bindings 只是短生命周期转发上下文，会在 24 小时后裁剪，避免旧
+  session 永久影响路由；它们不是账号事实来源。
 - 代理转发热路径不会刷新托管 ChatGPT token。daemon 账号维护任务会在启动时和每小时
-  扫描可刷新账号，根据 access token `exp` 或 `last_refresh` 判断是否需要调用
-  refresh-token flow，成功后写回托管 auth 文件并刷新内存账号池。不可刷新账号过期后由
-  真实 401 标记为 disabled。
+  从 SQLite 扫描可刷新账号，根据 access token `exp` 或 `last_refresh` 判断是否需要调用
+  refresh-token flow，成功后写回托管 auth 文件并更新 SQLite。不可刷新账号过期后由真实
+  401 标记为 disabled。
 - 进行中的 WebSocket streams 保持原始 auth。代理不能在已经升级的 WSS 连接上重写 auth。
 - 只有上游 WSS stream 返回结构化 `usage_limit_reached` quota error 后，session 才有
   资格替换 auth。网络断开、本地 `EPIPE`、代理重启和 Yakit/MITM 失败都不算 quota
@@ -190,6 +194,9 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   usage。最新 interaction pass 还为 list views 添加 sticky sortable headers，移除 request
   page auto-polling，改为 manual refresh 加 refresh-on-navigation，并让 account usage
   checks 保持在显式按钮上，progress 渲染在发起操作的按钮上。
+  Accounts 最近检查列现在在所有窗口尺寸下显示两行摘要：第一行是短状态，例如
+  `401 认证失效`、`402 额度不可用`、`检查失败` 或 `检查正常`；第二行显示最近检查时间。
+  完整错误只保留在 tooltip 和右侧详情中。
 
 ## 已完成初始化
 
@@ -227,8 +234,8 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   request/usage summaries，以及 recent request observations。renderer UI 已接入这些 controls。
 - 添加第一个 auth-file normalization module，支持 Codex native auth files 和 flat
   Codex/CPA-compatible token records。
-- 添加第一个内存 account pool router，支持 per-conversation binding、quota exhaustion
-  marking，以及 next-boundary replacement。
+- 添加第一个 SQLite-backed account router，支持短生命周期 per-conversation binding、quota
+  exhaustion marking，以及 next-boundary replacement。
 - Renderer 已进入 V3 desktop-console 模式。Dashboard、Accounts、Proxy、Requests 和 Usage
   页面已经实现并连接；`docs/CodexFree-v2.pen` 和 preview assets 只是设计参考。
 - 首次引导与配置助手首版已实现。新增入口位于顶部导航“助手”，由用户手动打开，不会在
@@ -268,7 +275,7 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - README 已更新为默认中文入口，并新增英文 `README_EN.md`。两份 README 覆盖 CodexFree
   的定位、工作原理、账号池使用流程、`auth.json` 和 `config.toml` 配置边界、安全注意事项、
   本地开发命令、项目结构和当前限制。
-- 开源 alpha 发布边界已补齐：`package.json` 声明 MIT license，仓库根目录新增
+- 开源正式发布边界已补齐：`package.json` 声明 MIT license，仓库根目录新增
   `LICENSE` 和 `SECURITY.md`，中英文 README 均说明 CodexFree 不是 OpenAI/ChatGPT/Codex
   官方产品、只应使用自有或获授权账号、不要上传本地 `test` 参考材料或 raw captures。
   macOS release 明确不签名、不公证，这是当前成本约束下的发布策略，不作为阻塞项。
@@ -280,7 +287,7 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - 除 flat Codex-token-compatible records 外，还需要更多真实世界 sub2api variants。
 - 安全加密或平台保护的 auth storage。
 - 如果未来改为正式商业分发，需要重新评估 Developer ID 签名、notarization、更新通道和密钥托管；
-  当前 GitHub alpha 发布不做签名/公证。
+  当前 GitHub 发布不做签名/公证。
 - 早期验证无法绑定 port `55555`；常规本地开发现在使用 `127.0.0.1:33333`，而 Docker
   验证可以临时把 host override 到 `0.0.0.0`。
 - 现有 `codex` Docker container 已安装 `codex-cli 0.130.0`，并且可以通过
@@ -303,7 +310,7 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   - `rtk bun run build`
   - Computer Use 检查 dev Electron 最小窗口：顶部“助手”入口、配置助手 Sheet、首次引导
     Dialog 的工作方式、代理、Codex config 和 Codex 登录步骤均可见，没有明显遮挡或溢出。
-- GitHub 开源 alpha 发布边界验证：
+- GitHub 开源发布边界验证：
   - `rtk bun run lint`
   - `rtk bun run typecheck`
   - `rtk bun run test`
@@ -480,7 +487,7 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
 - `bun run daemon` 现在启动 standalone daemon entrypoint，并使用共享的
   `codexfree.sqlite` ledger。Normal mode 把结构化 events 写入 SQLite，不打印每个请求；
   `--debug` 会把同样的 events 打印为可读 operator trace。
-- daemon 暴露受 token 保护的 admin endpoints，覆盖 status、config、accounts、usage
+- daemon 暴露受 token 保护的 admin endpoints，覆盖 process status、config、accounts、usage
   updates、requests、request summaries、usage summaries、log events、parsed WSS protocol
   messages、delete/disable/reset account actions 和 clear-records。它有意不暴露 daemon
   lifecycle endpoints。
@@ -489,6 +496,8 @@ CodexFree 是一个基于 Electron 的桌面系统，用于管理 Codex 账号 a
   protocol details 存储在 `proxy_protocol_messages`。Electron preload 暴露这些 surfaces 供
   app views 使用。
 - Admin write endpoints 现在会把成功 mutations 记录到 ledger audit log。
+- daemon 的 admin/account/config responses 不应被理解为 daemon 自有状态。除进程可达性、
+  监听 socket 和当前连接这类运行时事实外，返回值必须来自 SQLite 或写入 SQLite 后的重读。
 - Request、routing、quota、protocol 和 log ledger tables 会按默认 30 天 retention window
   自动裁剪。
 - Electron main process 已拆分为 runtime、IPC handlers、window bootstrap 和 Velopack/GitHub

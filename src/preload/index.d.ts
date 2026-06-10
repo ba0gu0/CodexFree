@@ -104,6 +104,7 @@ declare global {
       deleteAccounts: (accountIds: string[]) => Promise<{
         accounts: ManagedAccountDto[]
         deletedAccounts: number
+        deletedFiles: number
         status: ProxyStatusDto
       }>
       cleanExpiredAccounts: () => Promise<CleanExpiredAccountsDto>

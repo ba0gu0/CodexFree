@@ -2,6 +2,7 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
+import { accountUsageLastError } from './auth/usage-check'
 import {
   type CodexConfigBackupRestoreResult,
   type CodexConfigWriteResult,
@@ -90,6 +91,7 @@ export interface MainRuntime {
     accountId: string,
     disabled: boolean
   ) => { accounts: ManagedAccountRow[]; updatedAccounts: number }
+  upsertAccounts: (accounts: AccountPoolSnapshot[]) => ManagedAccountRow[]
   syncAccounts: (accounts: AccountPoolSnapshot[]) => ManagedAccountRow[]
   updateAccountUsage: (
     results: Array<AccountUsageInput & { error?: string }>
@@ -174,10 +176,12 @@ export function createMainRuntime(): MainRuntime {
   }
   const proxyStatus = async (): Promise<ProxyStatus> => {
     if (!appAutoStartEnabled && !(await daemonReachable())) {
-      return stoppedProxyStatus(readRuntimeConfig(), paths.rawCaptureDir)
+      return proxyStatusWithAccountCounts(
+        stoppedProxyStatus(readRuntimeConfig(), paths.rawCaptureDir)
+      )
     }
     await ensureDaemon()
-    return (await daemonClient.status()).proxy
+    return proxyStatusWithAccountCounts((await daemonClient.status()).proxy)
   }
   const restartProxy = async (): Promise<ProxyStatus> => {
     appAutoStartEnabled = true
@@ -186,7 +190,7 @@ export function createMainRuntime(): MainRuntime {
       setDaemonLaunchAgentEnabled(launchAgentOptions(), true)
       await restartDaemonLaunchAgent(launchAgentOptions())
       await waitForDaemonConfig(targetConfig)
-      return (await daemonClient.status()).proxy
+      return proxyStatusWithAccountCounts((await daemonClient.status()).proxy)
     }
     if (daemonProcess && isChildProcessRunning(daemonProcess)) {
       await stopOwnedDaemon(daemonProcess)
@@ -196,13 +200,13 @@ export function createMainRuntime(): MainRuntime {
     }
     daemonProcess = spawnDaemon(paths.dataDir)
     await waitForDaemonConfig(targetConfig)
-    return (await daemonClient.status()).proxy
+    return proxyStatusWithAccountCounts((await daemonClient.status()).proxy)
   }
   const startDaemonProxy = async (): Promise<ProxyStatus> => {
     appAutoStartEnabled = true
     const targetConfig = readRuntimeConfig()
     if (await daemonMatchesConfig(targetConfig)) {
-      return (await daemonClient.status()).proxy
+      return proxyStatusWithAccountCounts((await daemonClient.status()).proxy)
     }
     if (readLaunchAgentSettings().enabled) {
       setDaemonLaunchAgentEnabled(launchAgentOptions(), true)
@@ -211,7 +215,7 @@ export function createMainRuntime(): MainRuntime {
       daemonProcess = spawnDaemon(paths.dataDir)
     }
     await waitForDaemonConfig(targetConfig)
-    return (await daemonClient.status()).proxy
+    return proxyStatusWithAccountCounts((await daemonClient.status()).proxy)
   }
   const stopProxy = async (): Promise<ProxyStatus> => {
     appAutoStartEnabled = false
@@ -220,18 +224,24 @@ export function createMainRuntime(): MainRuntime {
       await stopDaemonLaunchAgent(launchAgentOptions())
       daemonProcess = undefined
       await waitForDaemonStop('launchAgent')
-      return stoppedProxyStatus(readRuntimeConfig(), paths.rawCaptureDir)
+      return proxyStatusWithAccountCounts(
+        stoppedProxyStatus(readRuntimeConfig(), paths.rawCaptureDir)
+      )
     }
     if (daemonProcess && isChildProcessRunning(daemonProcess)) {
       await stopOwnedDaemon(daemonProcess)
       daemonProcess = undefined
       await waitForDaemonStop('child')
-      return stoppedProxyStatus(readRuntimeConfig(), paths.rawCaptureDir)
+      return proxyStatusWithAccountCounts(
+        stoppedProxyStatus(readRuntimeConfig(), paths.rawCaptureDir)
+      )
     }
     if (await daemonReachable()) {
       throw new Error(nonAppStartedDaemonMessage(readRuntimeConfig(), daemonControl))
     }
-    return stoppedProxyStatus(readRuntimeConfig(), paths.rawCaptureDir)
+    return proxyStatusWithAccountCounts(
+      stoppedProxyStatus(readRuntimeConfig(), paths.rawCaptureDir)
+    )
   }
   const saveProxyConfig = async (
     config: ProxyConfig
@@ -299,9 +309,25 @@ export function createMainRuntime(): MainRuntime {
   const usageSummary = (): UsageSummary => readUsageSummary(paths.databasePath)
   const clearRecords = (): { deletedRequests: number } =>
     withLedger((ledger) => ({ deletedRequests: ledger.clear() }))
+  const proxyStatusWithAccountCounts = (status: ProxyStatus): ProxyStatus =>
+    withLedger((ledger) => {
+      const counts = ledger.accountStatusCounts()
+      return {
+        ...status,
+        authPoolAccounts: counts.totalAccounts,
+        authPoolAvailableAccounts: counts.availableAccounts,
+        authPoolDisabledAccounts: counts.disabledAccounts,
+        authPoolExhaustedAccounts: counts.exhaustedAccounts
+      }
+    })
   const syncAccounts = (accounts: AccountPoolSnapshot[]): ManagedAccountRow[] =>
     withLedger((ledger) => {
       ledger.syncAccountPool(accounts)
+      return ledger.accounts()
+    })
+  const upsertAccounts = (accounts: AccountPoolSnapshot[]): ManagedAccountRow[] =>
+    withLedger((ledger) => {
+      ledger.upsertAccountPool(accounts)
       return ledger.accounts()
     })
   const updateAccountUsage = (
@@ -313,9 +339,9 @@ export function createMainRuntime(): MainRuntime {
           accountId: result.accountId,
           email: result.email,
           label: result.label,
-          lastUsageError: result.quotaUnavailable
-            ? undefined
-            : (result.error ?? result.lastUsageError),
+          lastUsageError:
+            accountUsageLastError(result) ??
+            (result.quotaUnavailable ? undefined : result.lastUsageError),
           planType: result.planType,
           primaryUsedPercent: result.primaryUsedPercent,
           rateLimitResetsAt: result.rateLimitResetsAt,
@@ -384,7 +410,7 @@ export function createMainRuntime(): MainRuntime {
 
     await ensureDaemon()
     return {
-      proxy: (await daemonClient.status()).proxy,
+      proxy: proxyStatusWithAccountCounts((await daemonClient.status()).proxy),
       restarted: true,
       settings: { ...update.settings, launchAgent }
     }
@@ -422,6 +448,7 @@ export function createMainRuntime(): MainRuntime {
     stopProxy,
     syncAccounts,
     turnSummaries,
+    upsertAccounts,
     updateAccountUsage,
     usageSummary,
     writeCodexProxyConfig
@@ -522,7 +549,7 @@ export function createMainRuntime(): MainRuntime {
         daemonProcess = spawnDaemon(paths.dataDir)
       }
       await waitForDaemonConfig(targetConfig)
-      return (await daemonClient.status()).proxy
+      return proxyStatusWithAccountCounts((await daemonClient.status()).proxy)
     }
 
     if (previousDaemonProcess && isChildProcessRunning(previousDaemonProcess)) {
@@ -543,7 +570,7 @@ export function createMainRuntime(): MainRuntime {
       daemonProcess = spawnDaemon(paths.dataDir)
     }
     await waitForDaemonConfig(targetConfig)
-    return (await daemonClient.status()).proxy
+    return proxyStatusWithAccountCounts((await daemonClient.status()).proxy)
   }
 }
 

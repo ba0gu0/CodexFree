@@ -2,8 +2,8 @@
 
 [中文](./README.md)
 
-This repository is suitable for an alpha source release. macOS release builds are unsigned and not
-notarized by default because of release-cost constraints. If you install a release artifact
+This repository is suitable for an official GitHub release. macOS release builds are unsigned and
+not notarized by default because of release-cost constraints. If you install a release artifact
 directly, macOS may require a manual security override. For sensitive environments, build from
 source and review dependencies first.
 
@@ -183,4 +183,4 @@ bun run build:linux
 - API-key compatibility is future work and requires packet capture plus protocol confirmation first.
 - Production-grade auth encryption or platform credential storage still needs to be completed.
 - More real-world sub2api variants need ongoing verification.
-- macOS packages are currently unsigned and not notarized as an alpha cost-control limitation.
+- macOS packages are currently unsigned and not notarized as a cost-control limitation.

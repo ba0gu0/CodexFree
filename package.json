@@ -1,6 +1,6 @@
 {
   "name": "codexfree",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0",
   "description": "Electron desktop app and local Codex account proxy",
   "main": "./out/main/index.js",
   "author": "BaoGuo",

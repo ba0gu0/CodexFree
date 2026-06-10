@@ -122,7 +122,7 @@ export async function readSetupAssistantState(runtime: MainRuntime): Promise<Set
   const auth = inspectCodexAuth()
   const recentSuccess = findRecentSuccess(accounts)
   return {
-    accounts: summarizeAccounts(proxy.status, accounts),
+    accounts: summarizeAccounts(accounts),
     auth,
     availableModelCount: findAvailableModelCount(recentRequests),
     checkedAt: Date.now(),
@@ -379,7 +379,7 @@ function findAvailableModelCount(requests: RecentRequest[]): number | null {
   )
 }
 
-function summarizeAccounts(status: ProxyStatus, accounts: ManagedAccountRow[]): SetupAccountState {
+function summarizeAccounts(accounts: ManagedAccountRow[]): SetupAccountState {
   const lastUsageCheckedAt = accounts.reduce<number | null>((latest, account) => {
     if (account.lastUsageCheckedAt === null) {
       return latest
@@ -388,12 +388,13 @@ function summarizeAccounts(status: ProxyStatus, accounts: ManagedAccountRow[]): 
       ? account.lastUsageCheckedAt
       : Math.max(latest, account.lastUsageCheckedAt)
   }, null)
+  const counts = summarizeAccountCounts(accounts)
   return {
-    available: status.authPoolAvailableAccounts,
-    disabled: status.authPoolDisabledAccounts,
-    exhausted: status.authPoolExhaustedAccounts,
+    available: counts.available,
+    disabled: counts.disabled,
+    exhausted: counts.exhausted,
     lastUsageCheckedAt,
-    total: status.authPoolAccounts || accounts.length,
+    total: counts.total,
     usageCheckedAvailable: accounts.filter(
       (account) => account.status === 'available' && hasCompletedUsageCheck(account)
     ).length
@@ -441,13 +442,14 @@ async function readProxyStatus(runtime: MainRuntime): Promise<{ status: ProxySta
   } catch (error) {
     const config = runtime.readRuntimeConfig()
     const target = setupTargetConfig(config.listenHost, config.listenPort)
+    const counts = summarizeAccountCounts(runtime.managedAccounts())
     return {
       status: {
-        authPoolAccounts: 0,
-        authPoolAvailableAccounts: 0,
-        authPoolDisabledAccounts: 0,
+        authPoolAccounts: counts.total,
+        authPoolAvailableAccounts: counts.available,
+        authPoolDisabledAccounts: counts.disabled,
         authPoolEnabled: config.authPool.enabled,
-        authPoolExhaustedAccounts: 0,
+        authPoolExhaustedAccounts: counts.exhausted,
         endpoint: target.chatgptBaseUrl,
         lastError: error instanceof Error ? error.message : String(error),
         openaiBaseUrl: target.openaiBaseUrl,
@@ -460,6 +462,28 @@ async function readProxyStatus(runtime: MainRuntime): Promise<{ status: ProxySta
       }
     }
   }
+}
+
+function summarizeAccountCounts(accounts: ManagedAccountRow[]): {
+  available: number
+  disabled: number
+  exhausted: number
+  total: number
+} {
+  return accounts.reduce(
+    (counts, account) => {
+      counts.total += 1
+      if (account.status === 'available') {
+        counts.available += 1
+      } else if (account.status === 'disabled') {
+        counts.disabled += 1
+      } else if (account.status === 'exhausted') {
+        counts.exhausted += 1
+      }
+      return counts
+    },
+    { available: 0, disabled: 0, exhausted: 0, total: 0 }
+  )
 }
 
 async function readManagedAccounts(runtime: MainRuntime): Promise<ManagedAccountRow[]> {

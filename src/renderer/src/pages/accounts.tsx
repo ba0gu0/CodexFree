@@ -22,10 +22,10 @@ import {
   type AccountPlanFilter,
   type AccountStatusFilter,
   accountFormatLabel,
+  accountLastCheckSummary,
   accountNeedsReview,
   accountPlanKind,
   accountRemainingQuotaPercent,
-  accountReviewError,
   filterAccounts,
   fiveHourQuotaResetAt,
   hasShortQuotaWindow,
@@ -368,16 +368,7 @@ function AccountTable({
                 <AccountQuota account={account} locale={locale} t={t} />
               </td>
               <td className="max-w-0 overflow-hidden px-2.5 align-middle">
-                <span
-                  className="block truncate"
-                  title={
-                    accountReviewError(account) ??
-                    formatDateTime(account.lastUsageCheckedAt, locale)
-                  }
-                >
-                  {accountReviewError(account) ??
-                    formatDateTime(account.lastUsageCheckedAt, locale)}
-                </span>
+                <AccountLastCheck account={account} locale={locale} t={t} />
               </td>
               <td className="overflow-hidden px-2.5 align-middle">
                 <div className="flex justify-end gap-1.5">
@@ -418,6 +409,37 @@ function AccountTable({
       </table>
     </div>
   )
+}
+
+function AccountLastCheck({
+  account,
+  locale,
+  t
+}: Pick<PageProps, 'locale' | 't'> & { account: ManagedAccount }): ReactElement {
+  const summary = accountLastCheckSummary(account, locale, t)
+  return (
+    <div className="flex min-w-0 flex-col gap-1" title={summary.title}>
+      <span className={`truncate font-medium ${lastCheckSummaryClass(summary.severity)}`}>
+        {summary.label}
+      </span>
+      <span className="truncate text-muted-foreground text-[11px]">{summary.checkedAt}</span>
+    </div>
+  )
+}
+
+function lastCheckSummaryClass(
+  severity: ReturnType<typeof accountLastCheckSummary>['severity']
+): string {
+  if (severity === 'error') {
+    return 'text-destructive'
+  }
+  if (severity === 'warning') {
+    return 'text-amber-700 dark:text-amber-300'
+  }
+  if (severity === 'success') {
+    return 'text-emerald-700 dark:text-emerald-300'
+  }
+  return 'text-muted-foreground'
 }
 
 type SortDirection = 'asc' | 'desc'

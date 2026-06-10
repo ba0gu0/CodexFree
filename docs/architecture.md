@@ -5,7 +5,7 @@
 CodexFree 有三个主要 runtime surface，外加一个未来兼容 surface：
 
 1. Electron desktop app，用于账号管理、用量检查、导入/导出和操作控制。
-2. 独立本地 proxy daemon，拥有 forwarding socket 和账号 routing state。
+2. 独立本地 proxy daemon，拥有 forwarding socket 和短生命周期转发执行上下文。
 3. 本地 admin/control surface，app 用它来启动、停止、检查和配置 daemon。
 4. 未来在单独端口上的显式 API-key compatibility service。该模式默认关闭，并且必须提示 operator：把外部 API-key 流量适配到账号 WebSocket 流量可能增加账号检测或封禁风险。
 
@@ -42,17 +42,24 @@ account-login proxy 和未来 API-key compatibility service 是独立 trust boun
 
 ## 账号会话路由
 
-router 拥有：
+router 在每个可路由边界从 SQLite 读取账号与配置事实：
 
-- 从 app-managed import directory 选择 active auth file；
-- 每账号 health 和 quota status；
-- in-progress run binding；
-- next-message auth switching；
-- quota detection 和 account transitions 的 audit events。
+- 从 `proxy_accounts` 和 app-managed auth pool 选择 eligible auth file；
+- 从 SQLite 读取每账号 health、quota、disabled、exhausted 和 active 标记；
+- 只在内存中保存当前连接、probe buffer 和 in-progress turn binding；
+- next-message auth switching 的决策写回 SQLite，再由后续请求重新读取；
+- quota detection 和 account transitions 必须写入 SQLite audit events。
 
 关键规则是：quota exhaustion 不得强行改写 in-flight request stream 的 auth。只有识别出当前 run boundary 后，切换才应用到下一个 eligible request。
 
-runtime account source 有意不允许配置为任意路径。operator 将文件批量导入 app-managed auth pool，然后启用或禁用该 pool。这使 UI database、account status、usage checks 和 proxy routing 对齐到同一组文件。
+runtime account source 有意不允许配置为任意路径。operator 将文件批量导入
+app-managed auth pool，然后通过 SQLite 启用或禁用账号。这使 UI database、account
+status、usage checks 和 proxy routing 对齐到同一组文件。
+
+daemon 不是账号或配置的权威状态源。它可以报告进程可达性、监听端口和当前连接等运行时
+事实，但账号数量、账号状态、active account、usage、quota、配置和事件都以 SQLite 为准。
+不要通过“刷新 daemon 内存账号池”来描述账号管理动作；正确模型是写 SQLite，然后 daemon
+在下一次 admin query、routing decision 或维护任务边界重新读取 SQLite。
 
 Codex CLI 0.130 流量通过 request headers 暴露该边界：
 
@@ -65,10 +72,12 @@ Codex CLI 0.130 流量通过 request headers 暴露该边界：
 
 ## 存储
 
-SQLite 是以下内容的本地事实来源：
+SQLite 是以下内容的本地权威事实来源：
 
+- proxy configuration；
 - imported auth file metadata；
 - normalized account identifiers；
+- active、disabled、exhausted 和 usage account fields；
 - request records；
 - usage counters；
 - quota and rejection events；
@@ -92,12 +101,14 @@ CodexFree App -> local admin API / IPC -> codexfree-proxy daemon
 
 daemon 和 app 必须共享：
 
-- SQLite ledger 和 account state；
+- SQLite ledger、proxy config 和 account facts；
 - app-managed auth-pool directory；
-- proxy config file；
 - raw capture directory policy。
 
-daemon 拥有 forwarding、WSS parsing、quota decisions 和 active-account selection。app 拥有 account import/export、batch usage checks、settings 和 visual inspection。该拆分允许 proxy-core debugging 和 App UI work 并行推进，而不修改同一个 hot path。
+daemon 执行 forwarding、WSS parsing、quota decisions 和 active-account selection，但这些
+决策的输入和结果都以 SQLite 为事实来源。app 拥有 account import/export、batch usage
+checks、settings 和 visual inspection。该拆分允许 proxy-core debugging 和 App UI work
+并行推进，而不修改同一个 hot path。
 
 ## UI 区域
 
@@ -105,7 +116,7 @@ daemon 拥有 forwarding、WSS parsing、quota decisions 和 active-account sele
 
 - Dashboard：account pool health、active account、recent quota events。
 - Accounts：import、validate、tag、enable 或 disable、batch actions。
-- Proxy：local endpoint state、certificate status、request mode rejection counts。
+- Proxy：local endpoint reachability、certificate status、request mode rejection counts。
 - Requests：可搜索 request ledger 和 per-conversation activity。
 - Usage：account-level usage statistics 和 batch quota query。
 - Settings：Codex config helper、auth placeholder generation、data retention。

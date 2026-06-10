@@ -39,20 +39,27 @@ Electron app 不应直接拥有 long-running forwarding socket。启动时，它
 
 ## 守护进程职责
 
-daemon 拥有：
+daemon 执行：
 
 - listen host 和 port；
 - `/backend-api` 下的 account-login proxy routes；
 - 单独 `/v1` listener 或 port 下的可选未来 compatibility routes；
 - outbound proxy settings；
-- auth-pool takeover；
-- active account selection；
+- 由 SQLite account facts 驱动的 auth-pool header replacement；
+- 由 SQLite account facts 驱动的 active account selection；
 - quota exhaustion handling；
 - WSS frame parsing 和简洁 event logging；
 - request 和 protocol ledger writes；
 - 启用时的 raw capture files。
 
-daemon 启动时必须读取持久化 SQLite account state。它在普通开发或生产运行中不得回退到 in-memory account status，因为那会丢失 app 已收集的 exhausted、disabled、active 和 usage data。
+daemon 启动、admin query、routing decision、usage check、token refresh 和 quota maintenance
+边界都必须从 SQLite 读取账号与配置事实。daemon 不拥有权威 account/config state；它在普通开发或
+生产运行中不得回退到 in-memory account status，因为那会丢失 app 已收集的 exhausted、
+disabled、active 和 usage data。
+
+允许存在的 daemon 内存数据只限于执行上下文：当前 socket、WSS probe buffer、transport
+bookkeeping、短生命周期 conversation/turn binding 和调试抓包 buffer。这些数据不得作为 UI
+账号数量、账号状态、active account、usage 或配置的事实来源。
 
 ## 应用职责
 
@@ -98,9 +105,16 @@ admin surface 不得暴露 `/admin/start`、`/admin/stop` 或 `/admin/restart` �
 
 Configuration persistence 和 application 有意分离：`PUT /admin/config` 只把配置保存到 SQLite。`POST /admin/reload` 保留为本地 daemon/admin utility，让 daemon 再次读取 SQLite 并原地 restart proxy service。desktop UI 不使用 admin endpoints 管理 process lifecycle。UI save 写入 SQLite，然后要求 app process manager 通过 configured owner 重启 daemon：App child process、macOS LaunchAgent、Linux `systemctl --user` 或 Windows `sc`。
 
-database 是唯一 durable configuration source，但直接编辑它不会影响正在运行的 daemon，直到 app process owner 重启 daemon，或 local admin client 显式调用 reload。raw capture、listen host/port、upstream URL、outbound proxy、auth-pool directory、body limits 和 config monitoring 等 runtime settings 都遵循该规则。
+database 是唯一 configuration source。已经运行的 listener 对 host/port 等绑定型配置会保持当前
+process 已应用的值，直到 app process owner 重启 daemon，或 local admin client 显式调用 reload。
+raw capture、listen host/port、upstream URL、outbound proxy、auth-pool directory、body limits
+和 config monitoring 等 runtime settings 都遵循“SQLite 读取 + lifecycle 边界应用”的规则。
 
-Account-management actions 不是 proxy configuration changes。usage updates、enable/disable、reset exhausted、import sync 和 delete 等 admin actions 先写 database，然后只刷新 daemon 的 in-memory account-pool cache。它们不得 restart proxy service，也不得关闭已有 upgraded WSS sessions。
+Account-management actions 不是 proxy configuration changes。usage updates、enable/disable、
+reset exhausted、import sync 和 delete 等 admin actions 写 database；daemon 之后在 admin query、
+routing decision 和维护任务边界重新读取 database。不要实现或描述“刷新 daemon 的 in-memory
+account-pool cache”作为正确性要求。它们不得 restart proxy service，也不得关闭已有 upgraded
+WSS sessions。
 
 ## 打包后守护进程启动
 
@@ -217,7 +231,7 @@ Raw protocol frames 和 full bodies 只能进入 raw capture files 或 SQLite re
 - 用真实 Docker traffic 改进 terminal log event quality；
 - 修复 HTTP fallback `/backend-api/codex/responses` quota retry；
 - 稳定 WSS lifecycle 和 reconnect behavior；
-- 保持 account selection 由 persisted account state 驱动。
+- 保持 account selection 每次由 SQLite 中的 persisted account facts 驱动。
 
 验证：
 
@@ -238,7 +252,7 @@ Raw protocol frames 和 full bodies 只能进入 raw capture files 或 SQLite re
 
 当前重点：
 
-- 展示 daemon status，而不是假设 in-process proxy state；
+- 展示 daemon process/reachability status；账号、配置、usage 和 quota facts 从 SQLite 展示；
 - 导入账号并批量查询 usage；
 - 展示 active account、quota、reset time、exhausted count；
 - 暴露由实际 daemon process owner 支撑的 start/stop/restart controls；

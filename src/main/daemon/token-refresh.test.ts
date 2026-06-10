@@ -21,6 +21,14 @@ describe('token refresh maintainer', () => {
     let poolReloads = 0
 
     try {
+      ledger.syncAccountPool([
+        {
+          accountId: 'account-a',
+          fingerprint: 'fingerprint-a',
+          label: 'Account A',
+          sourceFormat: 'codex'
+        }
+      ])
       const maintainer = new TokenRefreshMaintainer({
         authPoolDir,
         ledger,
@@ -65,12 +73,52 @@ describe('token refresh maintainer', () => {
     const ledger = new ProxyLedger(join(root, 'ledger.sqlite'))
 
     try {
+      ledger.syncAccountPool([
+        {
+          accountId: 'account-a',
+          fingerprint: 'fingerprint-a',
+          label: 'Account A',
+          sourceFormat: 'codex'
+        }
+      ])
       const maintainer = new TokenRefreshMaintainer({
         authPoolDir: join(root, 'auth'),
         ledger,
         refreshAccountPool: () => proxyStatus(),
         refresher: async () => {
           throw new Error('should not refresh access-token-only accounts')
+        }
+      })
+
+      await expect(maintainer.refreshDueTokens()).resolves.toMatchObject({
+        checked: 0,
+        refreshed: 0,
+        skipped: 0
+      })
+      const stored = JSON.parse(readFileSync(authPath, 'utf8'))
+      expect(stored.tokens.access_token).toBe('old-access')
+    } finally {
+      ledger.close()
+    }
+  })
+
+  it('ignores auth files that are not present in SQLite account facts', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'codexfree-token-refresh-'))
+    const authPath = join(root, 'auth', 'account-a.json')
+    writeAuthFile(authPath, {
+      accessToken: 'old-access',
+      accountId: 'account-a',
+      refreshToken: 'refresh-token'
+    })
+    const ledger = new ProxyLedger(join(root, 'ledger.sqlite'))
+
+    try {
+      const maintainer = new TokenRefreshMaintainer({
+        authPoolDir: join(root, 'auth'),
+        ledger,
+        refreshAccountPool: () => proxyStatus(),
+        refresher: async () => {
+          throw new Error('should not refresh unmanaged files')
         }
       })
 

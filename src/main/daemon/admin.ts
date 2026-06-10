@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import http, { type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { accountUsageLastError } from '../auth/usage-check'
 import type {
   AccountPoolSnapshot,
   AccountUsageInput,
@@ -172,9 +173,9 @@ export class DaemonAdminServer {
           accountId: result.accountId,
           email: result.email,
           label: result.label,
-          lastUsageError: result.quotaUnavailable
-            ? undefined
-            : (result.error ?? result.lastUsageError),
+          lastUsageError:
+            accountUsageLastError(result) ??
+            (result.quotaUnavailable ? undefined : result.lastUsageError),
           planType: result.planType,
           primaryUsedPercent: result.primaryUsedPercent,
           rateLimitResetsAt: result.rateLimitResetsAt,

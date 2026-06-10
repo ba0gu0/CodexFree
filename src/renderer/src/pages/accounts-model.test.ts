@@ -1,6 +1,8 @@
 import type { ManagedAccount } from '@renderer/data/proxy-console'
+import { createTranslator } from '@renderer/i18n/copy'
 import { describe, expect, it } from 'vitest'
 import {
+  accountLastCheckSummary,
   accountNeedsReview,
   accountPlanKind,
   accountQuotaResetAt,
@@ -11,6 +13,8 @@ import {
   hasShortQuotaWindow,
   weeklyQuotaResetAt
 } from './accounts-model'
+
+const t = createTranslator('zh-CN')
 
 describe('accounts model quota windows', () => {
   it('treats team accounts as 5-hour plus weekly quota accounts', () => {
@@ -95,6 +99,57 @@ describe('accounts model quota windows', () => {
     expect(
       filterAccounts(accounts, '', 'invalid', 'all', 'all').map((account) => account.accountId)
     ).toEqual(['error-account'])
+  })
+
+  it('summarizes last usage check errors for compact account tables', () => {
+    const checkedAt = 1780927748000
+
+    expect(
+      accountLastCheckSummary(
+        managedAccount({
+          lastUsageCheckedAt: checkedAt,
+          lastUsageError: 'usage check failed: 401'
+        }),
+        'zh-CN',
+        t
+      )
+    ).toMatchObject({
+      checkedAt: expect.any(String),
+      label: '401 认证失效',
+      severity: 'error'
+    })
+    expect(
+      accountLastCheckSummary(
+        managedAccount({
+          lastUsageCheckedAt: checkedAt,
+          lastUsageError: 'usage check failed: 402'
+        }),
+        'zh-CN',
+        t
+      )
+    ).toMatchObject({
+      label: '402 额度不可用',
+      severity: 'warning'
+    })
+    expect(
+      accountLastCheckSummary(
+        managedAccount({
+          lastUsageCheckedAt: checkedAt,
+          lastUsageError: 'usage check failed: socket timeout'
+        }),
+        'zh-CN',
+        t
+      )
+    ).toMatchObject({
+      label: '检查失败',
+      severity: 'error'
+    })
+    expect(
+      accountLastCheckSummary(managedAccount({ lastUsageCheckedAt: checkedAt }), 'zh-CN', t)
+    ).toMatchObject({
+      label: '检查正常',
+      severity: 'success'
+    })
   })
 })
 

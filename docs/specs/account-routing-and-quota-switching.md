@@ -172,21 +172,24 @@ HTTP fallback retry 有更严格的安全边界。请求 body 可能在观察到
 
 如果所有可用账号都在 probe 期间返回 `usage_limit_reached`，或没有 replacement account 可用，代理会转发最终 quota frame，因为 pool 中已经没有可供 reconnect 选择的可用账号。
 
-## 持久化账号状态
+## SQLite 账号事实
 
-account pool 不只存在于内存中：
+账号事实必须以 SQLite 为准，不以 daemon 内存池为准：
 
 1. app-managed directory 中批量导入的 auth files 会同步到 SQLite `proxy_accounts`。
-2. restart 后 routing 前会应用已有 `proxy_accounts.status = exhausted` rows。
+2. routing decision 前会读取已有 `proxy_accounts.status = exhausted` rows。
 3. 每个 selected 或 retried account 都记录在 `proxy_routing_events`。
 4. 每个 WSS quota exhaustion 都记录在 `proxy_quota_events`，存在时包含 plan、active-limit、used-percent、reset-at 和 message fields。
 5. 清理 proxy records 会把 account exhaustion state 重置回 available。
-6. routing 前应用 disabled accounts，并从已有 conversation bindings 中排除。
-7. In-memory conversation bindings 会在 24 小时后 prune。
+6. routing 前读取 disabled accounts，并从已有 conversation bindings 中排除。
+7. In-memory conversation bindings 只是短生命周期 routing context，会在 24 小时后 prune；
+   它们不得作为账号数量、active account、usage、quota 或 disabled/exhausted 状态来源。
 
 代理仍然不会在 SQLite 中持久化 raw auth secrets。
 
-代理不得暴露自定义 account-directory setting。Runtime routing、batch import、export、enable/disable、usage checks 和 cleanup 都在 app-managed auth-pool directory 上操作，所以展示的 account state 与实际可选账号一致。
+代理不得暴露自定义 account-directory setting。Runtime routing、batch import、export、
+enable/disable、usage checks 和 cleanup 都在 app-managed auth-pool directory 和 SQLite
+`proxy_accounts` 上操作，所以展示的 account facts 与实际可选账号一致。
 
 ## 令牌状态规则
 
@@ -320,7 +323,9 @@ codex exec resume <same-thread-id> "Reply exactly: same-session-3"
 - `test/History-1778652315307.har` 验证了 `/backend-api/codex` base URL shape。`models` 返回 `200`，`responses` 返回 WebSocket `101`，auxiliary interfaces 与 raw `.http` capture 匹配，bodies 未改变，并使用选中的 auth/protocol headers。proxy boundary 两侧唯一有意的 request-header 差异是 `Host` 值。
 - WebSocket frame capture 写入 `websocket-upstream-to-codex.frames.jsonl` 和 `websocket-codex-to-upstream.frames.jsonl`；upstream compressed text frames 会用 connection-level `permessage-deflate` state 解码。
 - decoded upstream WSS frame observer 解析 `usage_limit_reached` messages，并把匹配的 request ledger row 更新为 `quota_exhausted`，status 为 `429`。
-- in-memory account pool 按 conversation key 绑定账号，并在 quota exhaustion 后的下一个 WSS request 切换到下一个 available account。
+- account router 每次从 SQLite 读取 eligible account facts；内存只保存 conversation key 到当前
+  turn/account 的短生命周期 binding，并在 quota exhaustion 后的下一个 WSS request 选择下一个
+  available account。
 
 ## 仍然需要
 

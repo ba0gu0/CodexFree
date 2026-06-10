@@ -82,7 +82,7 @@ describe('account quota guard', () => {
       })
       expect(usageUpdates[0]).toMatchObject({
         accountId: 'team-account',
-        lastUsageError: undefined,
+        lastUsageError: 'usage check failed: 402',
         primaryUsedPercent: '100'
       })
       expect(warnings).toEqual([])

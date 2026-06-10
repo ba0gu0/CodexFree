@@ -1,5 +1,5 @@
 import type { RequestOptions } from 'node:http'
-import { checkAccountUsageByAuthorization } from '../auth/usage-check'
+import { accountUsageLastError, checkAccountUsageByAuthorization } from '../auth/usage-check'
 import type { RoutedAccount } from './account-pool'
 import type { ProxyLedger } from './ledger'
 import type { ManagedAccountRow } from './ledger-types'
@@ -91,7 +91,7 @@ export class AccountQuotaGuard {
       accountId: result.accountId,
       email: result.email,
       label: result.label,
-      lastUsageError: result.ok || result.quotaUnavailable ? undefined : result.error,
+      lastUsageError: result.ok ? undefined : accountUsageLastError(result),
       planType: result.planType,
       primaryUsedPercent: result.primaryUsedPercent,
       rateLimitResetsAt: result.rateLimitResetsAt,

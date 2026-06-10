@@ -1,4 +1,4 @@
-import { checkAuthDirectoryUsage } from '../auth/usage-check'
+import { accountUsageLastError, checkAuthDirectoryUsage } from '../auth/usage-check'
 import type { ProxyLedger } from '../proxy/ledger'
 import type { ManagedAccountRow } from '../proxy/ledger-types'
 import type { ProxyStatus } from '../proxy/types'
@@ -73,7 +73,7 @@ export class QuotaResetRefresher {
           accountId: result.accountId,
           email: result.email,
           label: result.label,
-          lastUsageError: result.quotaUnavailable ? undefined : result.error,
+          lastUsageError: accountUsageLastError(result),
           planType: result.planType,
           primaryUsedPercent: result.primaryUsedPercent,
           rateLimitResetsAt: result.rateLimitResetsAt,

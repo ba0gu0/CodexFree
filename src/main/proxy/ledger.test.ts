@@ -46,6 +46,81 @@ describe('proxy ledger account sync', () => {
     }
   })
 
+  it('upserts imported accounts without deleting existing SQLite account facts', () => {
+    const ledger = new ProxyLedger(':memory:')
+    try {
+      ledger.syncAccountPool([
+        {
+          accountId: 'account-a',
+          fingerprint: 'fingerprint-a',
+          label: 'Account A',
+          sourceFormat: 'codex'
+        }
+      ])
+      ledger.upsertAccountPool([
+        {
+          accountId: 'account-b',
+          fingerprint: 'fingerprint-b',
+          label: 'Account B',
+          sourceFormat: 'codex'
+        }
+      ])
+
+      expect(new Set(ledger.accountIds())).toEqual(new Set(['account-a', 'account-b']))
+    } finally {
+      ledger.close()
+    }
+  })
+
+  it('reports account ids and status counts from SQLite account facts', () => {
+    const ledger = new ProxyLedger(':memory:')
+    try {
+      ledger.syncAccountPool([
+        {
+          accountId: 'account-a',
+          fingerprint: 'fingerprint-a',
+          label: 'Account A',
+          sourceFormat: 'codex'
+        },
+        {
+          accountId: 'account-b',
+          fingerprint: 'fingerprint-b',
+          label: 'Account B',
+          sourceFormat: 'codex'
+        },
+        {
+          accountId: 'account-c',
+          fingerprint: 'fingerprint-c',
+          label: 'Account C',
+          sourceFormat: 'codex'
+        }
+      ])
+      ledger.setAccountDisabled('account-b', true)
+      ledger.markAccountQuotaExhausted(
+        'account-c',
+        'request-quota',
+        undefined,
+        {
+          errorType: 'usage_limit_reached',
+          primaryUsedPercent: '100',
+          statusCode: 429
+        },
+        'usage_limit_reached status=429 used=100',
+        new Date(1_800_000_000_000)
+      )
+
+      expect(new Set(ledger.accountIds())).toEqual(new Set(['account-a', 'account-b', 'account-c']))
+      expect(ledger.accountStatusCounts()).toEqual({
+        availableAccounts: 1,
+        disabledAccounts: 1,
+        exhaustedAccounts: 1,
+        totalAccounts: 3
+      })
+    } finally {
+      ledger.close()
+    }
+  })
+
   it('marks local Codex auth account and activates another available account', () => {
     const ledger = new ProxyLedger(':memory:')
     try {
@@ -221,7 +296,7 @@ describe('proxy ledger account sync', () => {
     }
   })
 
-  it('cleans legacy usage 402 review state and noisy rows during schema init', () => {
+  it('preserves usage 402 cleanup facts during schema init', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'codexfree-ledger-402-cleanup-'))
     const databasePath = join(tempDir, 'ledger.sqlite')
     try {
@@ -263,13 +338,14 @@ describe('proxy ledger account sync', () => {
         expect(reopened.accounts()).toEqual([
           expect.objectContaining({
             accountId: 'account-a',
-            lastUsageError: null,
-            primaryUsedPercent: '100',
-            status: 'exhausted'
+            lastUsageError: 'usage check failed: 402',
+            status: 'available'
           })
         ])
-        expect(reopened.recentLogEvents()).toEqual([])
-        expect(reopened.recent().map((request) => request.id)).not.toContain('request-402')
+        expect(reopened.recentLogEvents().map((event) => event.message)).toContain(
+          'Quota guard usage check failed'
+        )
+        expect(reopened.recent().map((request) => request.id)).toContain('request-402')
       } finally {
         reopened.close()
       }

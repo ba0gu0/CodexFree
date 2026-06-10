@@ -369,6 +369,7 @@ export interface CleanExpiredAccountsDto {
   deletedAccounts: number
   deletedFiles: number
   accounts: ManagedAccountDto[]
+  status: ProxyStatusDto
 }
 
 export interface AuthExportResultDto {

@@ -6,6 +6,7 @@ import type { Duplex } from 'node:stream'
 import { HttpProxyAgent } from 'http-proxy-agent'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import { SocksProxyAgent } from 'socks-proxy-agent'
+import { accountUsageLastError } from '../auth/usage-check'
 import { AccountPool, type RoutedAccount } from './account-pool'
 import { formatAccountUsageText } from './account-usage-text'
 import { parseJsonRecord, summarizeBuffer } from './json-utils'
@@ -178,7 +179,7 @@ export class TransparentProxyService {
     const port =
       typeof address === 'object' && address !== null ? address.port : this.config.listenPort
 
-    const accountPoolStatus = this.currentAccountPool().status(this.config.authPool.enabled)
+    const accountCounts = this.accountStatusCounts()
     const origin = `http://${host}:${port}`
     const cpuUsage = process.cpuUsage()
     const memoryUsage = process.memoryUsage()
@@ -189,11 +190,11 @@ export class TransparentProxyService {
       openaiCompatibleEndpoint: `${origin}/v1`,
       upstreamBaseUrl: this.config.upstreamBaseUrl,
       outboundMode: this.config.outboundProxy.mode,
-      authPoolEnabled: accountPoolStatus.enabled,
-      authPoolAccounts: accountPoolStatus.totalAccounts,
-      authPoolAvailableAccounts: accountPoolStatus.availableAccounts,
-      authPoolExhaustedAccounts: accountPoolStatus.exhaustedAccounts,
-      authPoolDisabledAccounts: accountPoolStatus.disabledAccounts,
+      authPoolEnabled: this.config.authPool.enabled,
+      authPoolAccounts: accountCounts.totalAccounts,
+      authPoolAvailableAccounts: accountCounts.availableAccounts,
+      authPoolExhaustedAccounts: accountCounts.exhaustedAccounts,
+      authPoolDisabledAccounts: accountCounts.disabledAccounts,
       rawCaptureEnabled: this.config.rawCaptureEnabled,
       rawCaptureDir: this.rawCaptureDir,
       runtime: {
@@ -293,6 +294,10 @@ export class TransparentProxyService {
     }
     this.ledger.updateAccountUsage({
       accountId,
+      lastUsageError: accountUsageLastError({
+        quotaUnavailable,
+        statusCode: result.statusCode
+      }),
       ...usage
     })
     this.log.info('Ledger updated from usage response', {
@@ -667,9 +672,9 @@ export class TransparentProxyService {
           this.log.warn('Auth file skipped while loading account pool', warning)
       })
       if (config.authPool.enabled) {
+        pool.retainAccountIds(this.ledger.accountIds())
         pool.applyExhaustedAccountIds(this.ledger.exhaustedAccountIds())
         pool.applyDisabledAccountIds(this.ledger.disabledAccountIds())
-        this.ledger.syncAccountPool(pool.snapshot())
         pool.applyActiveAccountId(this.ledger.activeAccountId())
       }
       return pool
@@ -678,6 +683,10 @@ export class TransparentProxyService {
       this.log.warn('Failed to load auth pool; account routing is disabled', { error: message })
       return AccountPool.disabled()
     }
+  }
+
+  private accountStatusCounts() {
+    return this.ledger.accountStatusCounts()
   }
 }
 

@@ -75,8 +75,10 @@ export async function checkAuthDirectoryUsage(
   options: AccountUsageCheckOptions = {}
 ): Promise<AccountUsageCheckResult[]> {
   mkdirSync(directory, { recursive: true, mode: 0o700 })
-  const accountIdSet =
-    options.accountIds && options.accountIds.length > 0 ? new Set(options.accountIds) : null
+  if (options.accountIds && options.accountIds.length === 0) {
+    return []
+  }
+  const accountIdSet = options.accountIds ? new Set(options.accountIds) : null
   const files = readdirSync(directory)
     .filter((name) => name.endsWith('.json'))
     .sort()
@@ -185,6 +187,7 @@ export async function checkAccountUsageByAuthorization(
       return {
         accountId: accountId ?? '',
         email: emailFromUsageResponse(body) ?? input.email,
+        error: usageCheckStatusError(response.statusCode),
         label: input.label,
         ok: false,
         planType: planTypeFromUsageResponse(body) ?? input.planType,
@@ -243,6 +246,22 @@ export async function checkAccountUsageByAuthorization(
       ok: false
     }
   }
+}
+
+export function accountUsageLastError(
+  result: Pick<AccountUsageCheckResult, 'error' | 'quotaUnavailable' | 'statusCode'>
+): string | undefined {
+  if (result.error) {
+    return result.error
+  }
+  if (result.quotaUnavailable && result.statusCode) {
+    return usageCheckStatusError(result.statusCode)
+  }
+  return undefined
+}
+
+function usageCheckStatusError(statusCode: number): string {
+  return `usage check failed: ${statusCode}`
 }
 
 async function fetchUsage(

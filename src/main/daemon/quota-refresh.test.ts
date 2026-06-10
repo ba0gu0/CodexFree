@@ -166,7 +166,7 @@ describe('quota reset refresher', () => {
       const account = ledger.accounts()[0]
       expect(checkedAccounts).toEqual(['account-a'])
       expect(account.status).toBe('exhausted')
-      expect(account.lastUsageError).toBeNull()
+      expect(account.lastUsageError).toBe('usage check failed: 402')
       expect(account.primaryUsedPercent).toBe('100')
       expect(account.lastQuotaRefreshedResetAt).toBe(resetAt)
       expect(ledger.recentLogEvents(5)).toEqual([])

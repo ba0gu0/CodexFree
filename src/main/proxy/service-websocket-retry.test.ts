@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Duplex } from 'node:stream'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { ProxyLedger } from './ledger'
 import { TransparentProxyService } from './service'
 import {
   closeServer,
@@ -14,6 +13,7 @@ import {
   createServerTextFrame,
   listen,
   rawHttpRequestBufferWithHead,
+  withLedgerAccountFacts,
   writeAuthFile
 } from './service-test-utils'
 
@@ -284,22 +284,25 @@ function createManagedService(
   authDirectory: string
 ): TransparentProxyService {
   const exhaustedAccounts: string[] = []
-  const ledger = {
-    insert: () => undefined,
-    syncAccountPool: () => undefined,
-    exhaustedAccountIds: () => exhaustedAccounts,
-    disabledAccountIds: () => [],
-    activeAccountId: () => undefined,
-    setActiveAccount: () => 1,
-    recordRoutingEvent: () => undefined,
-    markAccountQuotaExhausted: (accountId: string | undefined) => {
-      if (accountId) {
-        exhaustedAccounts.push(accountId)
-      }
+  const ledger = withLedgerAccountFacts(
+    {
+      insert: () => undefined,
+      syncAccountPool: () => undefined,
+      exhaustedAccountIds: () => exhaustedAccounts,
+      disabledAccountIds: () => [],
+      activeAccountId: () => undefined,
+      setActiveAccount: () => 1,
+      recordRoutingEvent: () => undefined,
+      markAccountQuotaExhausted: (accountId: string | undefined) => {
+        if (accountId) {
+          exhaustedAccounts.push(accountId)
+        }
+      },
+      markQuotaExhausted: () => undefined,
+      recent: () => []
     },
-    markQuotaExhausted: () => undefined,
-    recent: () => []
-  } as unknown as ProxyLedger
+    ['account-a', 'account-b', 'account-c']
+  )
   return new TransparentProxyService(
     { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
     ledger,

@@ -1,5 +1,6 @@
-import { normalizePercent } from '@renderer/data/format'
+import { formatDateTime, normalizePercent } from '@renderer/data/format'
 import { accountStatusKey, type ManagedAccount } from '@renderer/data/proxy-console'
+import type { Locale } from '@renderer/i18n/copy'
 import type { PageProps } from './types'
 
 export type AccountStatusFilter = 'all' | 'available' | 'exhausted' | 'disabled' | 'invalid'
@@ -51,6 +52,48 @@ export function accountReviewError(account: ManagedAccount): string | null {
     return null
   }
   return error
+}
+
+export interface AccountLastCheckSummary {
+  checkedAt: string
+  label: string
+  severity: 'default' | 'error' | 'success' | 'warning'
+  title: string
+}
+
+export function accountLastCheckSummary(
+  account: ManagedAccount,
+  locale: Locale,
+  t: PageProps['t']
+): AccountLastCheckSummary {
+  const checkedAt = formatDateTime(account.lastUsageCheckedAt, locale)
+  const error = account.lastUsageError?.trim()
+  if (error) {
+    const status = usageErrorStatus(error)
+    const label =
+      status === '401'
+        ? t('accounts.lastCheckAuthInvalid')
+        : status === '402'
+          ? t('accounts.lastCheckQuotaUnavailable')
+          : t('accounts.lastCheckFailed')
+    return {
+      checkedAt,
+      label,
+      severity: status === '402' ? 'warning' : 'error',
+      title: `${label} · ${checkedAt}\n${error}`
+    }
+  }
+
+  const label =
+    account.lastUsageCheckedAt === null
+      ? t('accounts.lastCheckUnchecked')
+      : t('accounts.lastCheckOk')
+  return {
+    checkedAt,
+    label,
+    severity: account.lastUsageCheckedAt === null ? 'default' : 'success',
+    title: `${label} · ${checkedAt}`
+  }
 }
 
 export function accountPlanKind(account: ManagedAccount): AccountPlanFilter {
@@ -213,4 +256,14 @@ export function statusTone(account: ManagedAccount): 'default' | 'success' | 'wa
 
 function isQuotaUnavailableUsageError(error: string): boolean {
   return /^usage check failed: 402(?:\b|$)/.test(error)
+}
+
+function usageErrorStatus(error: string): '401' | '402' | undefined {
+  if (/\b401\b/.test(error)) {
+    return '401'
+  }
+  if (/\b402\b/.test(error)) {
+    return '402'
+  }
+  return undefined
 }

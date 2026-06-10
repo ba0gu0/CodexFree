@@ -47,11 +47,12 @@ export class TokenRefreshMaintainer {
     this.running = true
     try {
       const files = authJsonFiles(this.options.authPoolDir)
+      const managedAccountIds = new Set(this.options.ledger.accountIds())
       let checked = 0
       let refreshed = 0
       let skipped = 0
       for (const filePath of files) {
-        const result = await this.refreshFileIfDue(filePath, now)
+        const result = await this.refreshFileIfDue(filePath, managedAccountIds, now)
         checked += result.checked
         refreshed += result.refreshed
         skipped += result.skipped
@@ -82,7 +83,11 @@ export class TokenRefreshMaintainer {
     }
   }
 
-  private async refreshFileIfDue(filePath: string, now: Date): Promise<TokenRefreshStats> {
+  private async refreshFileIfDue(
+    filePath: string,
+    managedAccountIds: Set<string>,
+    now: Date
+  ): Promise<TokenRefreshStats> {
     let normalized: ReturnType<typeof normalizeAuthFile>
     try {
       normalized = normalizeAuthFile(JSON.parse(readFileSync(filePath, 'utf8')) as unknown, {
@@ -92,6 +97,9 @@ export class TokenRefreshMaintainer {
     } catch (error) {
       this.recordSkipped(undefined, filePath, error)
       return { checked: 0, refreshed: 0, skipped: 1 }
+    }
+    if (!managedAccountIds.has(normalized.accountId)) {
+      return { checked: 0, refreshed: 0, skipped: 0 }
     }
     if (!normalized.refreshable || !shouldRefreshChatGptAuth(normalized.codexAuth, now)) {
       return { checked: 0, refreshed: 0, skipped: 0 }

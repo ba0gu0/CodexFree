@@ -161,6 +161,30 @@ export class AccountPool {
     this.nextAccountIndex = Math.min(this.nextAccountIndex, Math.max(this.accounts.length - 1, 0))
   }
 
+  retainAccountIds(accountIds: Iterable<string>): void {
+    const retainedIds = new Set(accountIds)
+    this.accounts = this.accounts.filter((account) => retainedIds.has(account.accountId))
+    this.accountsById.clear()
+    for (const account of this.accounts) {
+      this.accountsById.set(account.accountId, account)
+    }
+    for (const accountId of this.exhaustedAccountIds) {
+      if (!retainedIds.has(accountId)) {
+        this.exhaustedAccountIds.delete(accountId)
+      }
+    }
+    for (const accountId of this.disabledAccountIds) {
+      if (!retainedIds.has(accountId)) {
+        this.disabledAccountIds.delete(accountId)
+      }
+    }
+    if (this.activeAccountId && !retainedIds.has(this.activeAccountId)) {
+      this.activeAccountId = undefined
+    }
+    this.pruneUnavailableConversationBindings()
+    this.nextAccountIndex = Math.min(this.nextAccountIndex, Math.max(this.accounts.length - 1, 0))
+  }
+
   selectActiveAccount(accountId?: string): RoutedAccount | undefined {
     const available = this.availableAccounts()
     if (available.length === 0) {

@@ -65,6 +65,12 @@ upstream authentication headers when proxying through managed account auth files
 - Do not mutate proxied request bodies unless a future spec explicitly allows it.
 - Do not log access tokens, refresh tokens, authorization headers, cookies, or
   raw auth file contents.
+- SQLite is the authoritative source for proxy config, imported account
+  metadata, active/disabled/exhausted flags, usage, request rows, and audit
+  events. Do not model daemon-owned account/config state. The daemon may keep
+  only ephemeral execution context such as open sockets, probe buffers, and
+  current turn bindings; account management writes SQLite and daemon reads must
+  come back to SQLite at request/admin/maintenance boundaries.
 - Do not create package-manager files or install dependencies until the project
   dependency plan is confirmed.
 - Do not mark quota-switching complete until it is verified against provided

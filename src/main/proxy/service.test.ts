@@ -1,11 +1,17 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { ProxyLedger } from './ledger'
+import { ProxyLedger } from './ledger'
 import { TransparentProxyService } from './service'
-import { closeServer, createConfig, listen, writeAuthFile } from './service-test-utils'
+import {
+  closeServer,
+  createConfig,
+  listen,
+  withLedgerAccountFacts,
+  writeAuthFile
+} from './service-test-utils'
 import type { RequestLedgerEntry } from './types'
 
 const log = {
@@ -40,10 +46,10 @@ describe('transparent proxy service http handling', () => {
     upstreams.push(upstream)
 
     const entries: RequestLedgerEntry[] = []
-    const ledger = {
+    const ledger = withLedgerAccountFacts({
       insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
       recent: () => []
-    } as unknown as ProxyLedger
+    })
     const service = new TransparentProxyService(createConfig(upstream), ledger, log)
     services.push(service)
     const status = await service.start()
@@ -82,10 +88,10 @@ describe('transparent proxy service http handling', () => {
     upstreams.push(upstream)
 
     const entries: RequestLedgerEntry[] = []
-    const ledger = {
+    const ledger = withLedgerAccountFacts({
       insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
       recent: () => []
-    } as unknown as ProxyLedger
+    })
     const config = { ...createConfig(upstream), maxRequestBodyBytes: 8 }
     const service = new TransparentProxyService(config, ledger, log)
     services.push(service)
@@ -141,16 +147,19 @@ describe('transparent proxy service http handling', () => {
     upstreams.push(upstream)
 
     const entries: RequestLedgerEntry[] = []
-    const ledger = {
-      activeAccountId: () => undefined,
-      disabledAccountIds: () => [],
-      exhaustedAccountIds: () => [],
-      insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
-      recordRoutingEvent: () => undefined,
-      recent: () => [],
-      setActiveAccount: () => 1,
-      syncAccountPool: () => undefined
-    } as unknown as ProxyLedger
+    const ledger = withLedgerAccountFacts(
+      {
+        activeAccountId: () => undefined,
+        disabledAccountIds: () => [],
+        exhaustedAccountIds: () => [],
+        insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
+        recordRoutingEvent: () => undefined,
+        recent: () => [],
+        setActiveAccount: () => 1,
+        syncAccountPool: () => undefined
+      },
+      ['account-a']
+    )
     const service = new TransparentProxyService(
       { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
       ledger,
@@ -173,6 +182,55 @@ describe('transparent proxy service http handling', () => {
     expect(entries).toEqual([])
   })
 
+  it('reports account counts from SQLite and does not re-add deleted auth files', async () => {
+    const authDirectory = mkdtempSync(join(tmpdir(), 'codexfree-auth-pool-'))
+    const databaseDirectory = mkdtempSync(join(tmpdir(), 'codexfree-ledger-'))
+    const ledger = new ProxyLedger(join(databaseDirectory, 'ledger.sqlite'))
+    try {
+      writeAuthFile(authDirectory, 'a.json', 'account-a', 'managed-a')
+      writeAuthFile(authDirectory, 'b.json', 'account-b', 'managed-b')
+      ledger.syncAccountPool([
+        {
+          accountId: 'account-a',
+          fingerprint: 'fingerprint-a',
+          label: 'Account A',
+          sourceFormat: 'codex'
+        },
+        {
+          accountId: 'account-b',
+          fingerprint: 'fingerprint-b',
+          label: 'Account B',
+          sourceFormat: 'codex'
+        }
+      ])
+      ledger.deleteAccounts(['account-b'])
+
+      const upstream = http.createServer((_request, response) => {
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end('{}')
+      })
+      await listen(upstream)
+      upstreams.push(upstream)
+
+      const service = new TransparentProxyService(
+        { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
+        ledger,
+        log
+      )
+      services.push(service)
+
+      const status = await service.start()
+
+      expect(status.authPoolAccounts).toBe(1)
+      expect(status.authPoolAvailableAccounts).toBe(1)
+      expect(ledger.accountIds()).toEqual(['account-a'])
+    } finally {
+      ledger.close()
+      rmSync(authDirectory, { force: true, recursive: true })
+      rmSync(databaseDirectory, { force: true, recursive: true })
+    }
+  })
+
   it('rejects API-key mode requests without forwarding upstream', async () => {
     let upstreamHits = 0
     const upstream = http.createServer((_request, response) => {
@@ -184,10 +242,10 @@ describe('transparent proxy service http handling', () => {
     upstreams.push(upstream)
 
     const entries: RequestLedgerEntry[] = []
-    const ledger = {
+    const ledger = withLedgerAccountFacts({
       insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
       recent: () => []
-    } as unknown as ProxyLedger
+    })
     const service = new TransparentProxyService(createConfig(upstream), ledger, log)
     services.push(service)
     const status = await service.start()
@@ -220,10 +278,10 @@ describe('transparent proxy service http handling', () => {
     upstreams.push(upstream)
 
     const entries: RequestLedgerEntry[] = []
-    const ledger = {
+    const ledger = withLedgerAccountFacts({
       insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
       recent: () => []
-    } as unknown as ProxyLedger
+    })
     const service = new TransparentProxyService(createConfig(upstream), ledger, log)
     services.push(service)
     const status = await service.start()
@@ -262,20 +320,23 @@ describe('transparent proxy service http handling', () => {
 
     const entries: RequestLedgerEntry[] = []
     const disabledAccounts: string[] = []
-    const ledger = {
-      activeAccountId: () => undefined,
-      disabledAccountIds: () => disabledAccounts,
-      exhaustedAccountIds: () => [],
-      insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
-      recordRoutingEvent: () => undefined,
-      recent: () => [],
-      setAccountDisabled: (accountId: string) => {
-        disabledAccounts.push(accountId)
-        return 1
+    const ledger = withLedgerAccountFacts(
+      {
+        activeAccountId: () => undefined,
+        disabledAccountIds: () => disabledAccounts,
+        exhaustedAccountIds: () => [],
+        insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
+        recordRoutingEvent: () => undefined,
+        recent: () => [],
+        setAccountDisabled: (accountId: string) => {
+          disabledAccounts.push(accountId)
+          return 1
+        },
+        setActiveAccount: () => 1,
+        syncAccountPool: () => undefined
       },
-      setActiveAccount: () => 1,
-      syncAccountPool: () => undefined
-    } as unknown as ProxyLedger
+      ['account-a', 'account-b']
+    )
     const service = new TransparentProxyService(
       { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
       ledger,
@@ -313,15 +374,18 @@ describe('transparent proxy service http handling', () => {
     upstreams.push(upstream)
 
     const entries: RequestLedgerEntry[] = []
-    const ledger = {
-      activeAccountId: () => undefined,
-      disabledAccountIds: () => [],
-      exhaustedAccountIds: () => [],
-      insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
-      recent: () => [],
-      setActiveAccount: () => 1,
-      syncAccountPool: () => undefined
-    } as unknown as ProxyLedger
+    const ledger = withLedgerAccountFacts(
+      {
+        activeAccountId: () => undefined,
+        disabledAccountIds: () => [],
+        exhaustedAccountIds: () => [],
+        insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
+        recent: () => [],
+        setActiveAccount: () => 1,
+        syncAccountPool: () => undefined
+      },
+      ['account-a']
+    )
     const service = new TransparentProxyService(
       { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
       ledger,
@@ -362,16 +426,19 @@ describe('transparent proxy service http handling', () => {
     upstreams.push(upstream)
 
     const entries: RequestLedgerEntry[] = []
-    const ledger = {
-      activeAccountId: () => undefined,
-      disabledAccountIds: () => [],
-      exhaustedAccountIds: () => [],
-      insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
-      recordRoutingEvent: () => undefined,
-      recent: () => [],
-      setActiveAccount: () => 1,
-      syncAccountPool: () => undefined
-    } as unknown as ProxyLedger
+    const ledger = withLedgerAccountFacts(
+      {
+        activeAccountId: () => undefined,
+        disabledAccountIds: () => [],
+        exhaustedAccountIds: () => [],
+        insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
+        recordRoutingEvent: () => undefined,
+        recent: () => [],
+        setActiveAccount: () => 1,
+        syncAccountPool: () => undefined
+      },
+      ['account-a']
+    )
     const service = new TransparentProxyService(
       { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
       ledger,
@@ -411,10 +478,10 @@ describe('transparent proxy service http handling', () => {
     await listen(upstream)
     upstreams.push(upstream)
 
-    const ledger = {
+    const ledger = withLedgerAccountFacts({
       insert: () => undefined,
       recent: () => []
-    } as unknown as ProxyLedger
+    })
     const service = new TransparentProxyService(
       { ...createConfig(upstream), listenHost: '0.0.0.0' },
       ledger,

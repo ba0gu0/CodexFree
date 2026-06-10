@@ -2,6 +2,7 @@ import { writeFileSync } from 'node:fs'
 import type http from 'node:http'
 import net from 'node:net'
 import { join } from 'node:path'
+import type { ProxyLedger } from './ledger'
 import type { ProxyConfig } from './types'
 
 export function createConfig(upstream: http.Server): ProxyConfig {
@@ -48,6 +49,40 @@ export function writeAuthFile(
       last_refresh: '2026-05-14T00:00:00.000Z'
     })
   )
+}
+
+export function withLedgerAccountFacts<T extends Record<string, unknown>>(
+  ledger: T,
+  accountIds: string[] = []
+): ProxyLedger {
+  return {
+    accountIds: () => accountIds,
+    accountStatusCounts: () => ({
+      availableAccounts: accountIds.filter(
+        (accountId) =>
+          !testAccountIds(ledger.disabledAccountIds).includes(accountId) &&
+          !testAccountIds(ledger.exhaustedAccountIds).includes(accountId)
+      ).length,
+      disabledAccounts: accountIds.filter((accountId) =>
+        testAccountIds(ledger.disabledAccountIds).includes(accountId)
+      ).length,
+      exhaustedAccounts: accountIds.filter((accountId) =>
+        testAccountIds(ledger.exhaustedAccountIds).includes(accountId)
+      ).length,
+      totalAccounts: accountIds.length
+    }),
+    ...ledger
+  } as unknown as ProxyLedger
+}
+
+function testAccountIds(value: unknown): string[] {
+  if (typeof value !== 'function') {
+    return []
+  }
+  const result = value()
+  return Array.isArray(result)
+    ? result.filter((item): item is string => typeof item === 'string')
+    : []
 }
 
 export function listen(server: http.Server): Promise<void> {

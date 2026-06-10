@@ -3,7 +3,6 @@ import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { ProxyLedger } from './ledger'
 import { TransparentProxyService } from './service'
 import {
   closeServer,
@@ -12,6 +11,7 @@ import {
   listen,
   rawHttpRequest,
   rawHttpRequestAndDestroyAfterMatch,
+  withLedgerAccountFacts,
   writeAuthFile
 } from './service-test-utils'
 import type { RequestLedgerEntry } from './types'
@@ -52,24 +52,27 @@ describe('transparent proxy terminal account routing states', () => {
     upstreams.push(upstream)
 
     const entries: RequestLedgerEntry[] = []
-    const ledger = {
-      accountUsageSummary: () => undefined,
-      activeAccountId: () => undefined,
-      accounts: () => [],
-      disabledAccountIds: () => [],
-      exhaustedAccountIds: () => exhaustedAccounts,
-      insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
-      markAccountQuotaExhausted: (accountId: string | undefined) => {
-        if (accountId) {
-          exhaustedAccounts.push(accountId)
-        }
+    const ledger = withLedgerAccountFacts(
+      {
+        accountUsageSummary: () => undefined,
+        activeAccountId: () => undefined,
+        accounts: () => [],
+        disabledAccountIds: () => [],
+        exhaustedAccountIds: () => exhaustedAccounts,
+        insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
+        markAccountQuotaExhausted: (accountId: string | undefined) => {
+          if (accountId) {
+            exhaustedAccounts.push(accountId)
+          }
+        },
+        markQuotaExhausted: () => undefined,
+        recordRoutingEvent: () => undefined,
+        recent: () => [],
+        setActiveAccount: () => 1,
+        syncAccountPool: () => undefined
       },
-      markQuotaExhausted: () => undefined,
-      recordRoutingEvent: () => undefined,
-      recent: () => [],
-      setActiveAccount: () => 1,
-      syncAccountPool: () => undefined
-    } as unknown as ProxyLedger
+      ['account-a']
+    )
     const service = new TransparentProxyService(
       { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
       ledger,
@@ -127,24 +130,27 @@ describe('transparent proxy terminal account routing states', () => {
     upstreams.push(upstream)
 
     const entries: RequestLedgerEntry[] = []
-    const ledger = {
-      accountUsageSummary: () => undefined,
-      activeAccountId: () => undefined,
-      accounts: () => [],
-      disabledAccountIds: () => [],
-      exhaustedAccountIds: () => exhaustedAccounts,
-      insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
-      markAccountQuotaExhausted: (accountId: string | undefined) => {
-        if (accountId) {
-          exhaustedAccounts.push(accountId)
-        }
+    const ledger = withLedgerAccountFacts(
+      {
+        accountUsageSummary: () => undefined,
+        activeAccountId: () => undefined,
+        accounts: () => [],
+        disabledAccountIds: () => [],
+        exhaustedAccountIds: () => exhaustedAccounts,
+        insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
+        markAccountQuotaExhausted: (accountId: string | undefined) => {
+          if (accountId) {
+            exhaustedAccounts.push(accountId)
+          }
+        },
+        markQuotaExhausted: () => undefined,
+        recordRoutingEvent: () => undefined,
+        recent: () => [],
+        setActiveAccount: () => 1,
+        syncAccountPool: () => undefined
       },
-      markQuotaExhausted: () => undefined,
-      recordRoutingEvent: () => undefined,
-      recent: () => [],
-      setActiveAccount: () => 1,
-      syncAccountPool: () => undefined
-    } as unknown as ProxyLedger
+      ['account-a', 'account-b', 'account-c']
+    )
     const service = new TransparentProxyService(
       { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
       ledger,
@@ -201,24 +207,27 @@ describe('transparent proxy terminal account routing states', () => {
     upstreams.push(upstream)
 
     const entries: RequestLedgerEntry[] = []
-    const ledger = {
-      accountUsageSummary: () => undefined,
-      activeAccountId: () => undefined,
-      accounts: () => [],
-      disabledAccountIds: () => [],
-      exhaustedAccountIds: () => exhaustedAccounts,
-      insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
-      markAccountQuotaExhausted: (accountId: string | undefined) => {
-        if (accountId) {
-          exhaustedAccounts.push(accountId)
-        }
+    const ledger = withLedgerAccountFacts(
+      {
+        accountUsageSummary: () => undefined,
+        activeAccountId: () => undefined,
+        accounts: () => [],
+        disabledAccountIds: () => [],
+        exhaustedAccountIds: () => exhaustedAccounts,
+        insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
+        markAccountQuotaExhausted: (accountId: string | undefined) => {
+          if (accountId) {
+            exhaustedAccounts.push(accountId)
+          }
+        },
+        markQuotaExhausted: () => undefined,
+        recordRoutingEvent: () => undefined,
+        recent: () => [],
+        setActiveAccount: () => 1,
+        syncAccountPool: () => undefined
       },
-      markQuotaExhausted: () => undefined,
-      recordRoutingEvent: () => undefined,
-      recent: () => [],
-      setActiveAccount: () => 1,
-      syncAccountPool: () => undefined
-    } as unknown as ProxyLedger
+      ['account-a', 'account-b']
+    )
     const service = new TransparentProxyService(
       { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
       ledger,
@@ -263,7 +272,7 @@ describe('transparent proxy terminal account routing states', () => {
     upstreams.push(upstream)
 
     const entries: RequestLedgerEntry[] = []
-    const ledger = {
+    const ledger = withLedgerAccountFacts({
       accountUsageSummary: () => undefined,
       activeAccountId: () => undefined,
       accounts: () => [],
@@ -275,7 +284,7 @@ describe('transparent proxy terminal account routing states', () => {
       recent: () => [],
       setActiveAccount: () => 1,
       syncAccountPool: () => undefined
-    } as unknown as ProxyLedger
+    })
     const service = new TransparentProxyService(
       { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
       ledger,
@@ -324,34 +333,37 @@ describe('transparent proxy terminal account routing states', () => {
     upstreams.push(upstream)
 
     const entries: RequestLedgerEntry[] = []
-    const ledger = {
-      insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
-      syncAccountPool: () => undefined,
-      exhaustedAccountIds: () => exhaustedAccounts,
-      disabledAccountIds: () => [],
-      activeAccountId: () => undefined,
-      accountUsageSummary: () => undefined,
-      accounts: () => [],
-      setActiveAccount: () => 1,
-      recordRoutingEvent: (event: { eventType: string; reason: string }) => {
-        routingEvents.push(`${event.eventType}:${event.reason}`)
+    const ledger = withLedgerAccountFacts(
+      {
+        insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
+        syncAccountPool: () => undefined,
+        exhaustedAccountIds: () => exhaustedAccounts,
+        disabledAccountIds: () => [],
+        activeAccountId: () => undefined,
+        accountUsageSummary: () => undefined,
+        accounts: () => [],
+        setActiveAccount: () => 1,
+        recordRoutingEvent: (event: { eventType: string; reason: string }) => {
+          routingEvents.push(`${event.eventType}:${event.reason}`)
+        },
+        markAccountQuotaExhausted: (accountId: string | undefined) => {
+          if (accountId) {
+            exhaustedAccounts.push(accountId)
+          }
+        },
+        markQuotaExhausted: (id: string, errorMessage: string, completedAt: Date) => {
+          const entry = entries.find((item) => item.id === id)
+          if (entry) {
+            entry.outcome = 'quota_exhausted'
+            entry.statusCode = 429
+            entry.errorMessage = errorMessage
+            entry.completedAt = completedAt
+          }
+        },
+        recent: () => []
       },
-      markAccountQuotaExhausted: (accountId: string | undefined) => {
-        if (accountId) {
-          exhaustedAccounts.push(accountId)
-        }
-      },
-      markQuotaExhausted: (id: string, errorMessage: string, completedAt: Date) => {
-        const entry = entries.find((item) => item.id === id)
-        if (entry) {
-          entry.outcome = 'quota_exhausted'
-          entry.statusCode = 429
-          entry.errorMessage = errorMessage
-          entry.completedAt = completedAt
-        }
-      },
-      recent: () => []
-    } as unknown as ProxyLedger
+      ['account-a']
+    )
     const service = new TransparentProxyService(
       { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
       ledger,
@@ -398,7 +410,7 @@ describe('transparent proxy terminal account routing states', () => {
     upstreams.push(upstream)
 
     const entries: RequestLedgerEntry[] = []
-    const ledger = {
+    const ledger = withLedgerAccountFacts({
       insert: (entry: RequestLedgerEntry) => entries.unshift(entry),
       syncAccountPool: () => undefined,
       exhaustedAccountIds: () => [],
@@ -410,7 +422,7 @@ describe('transparent proxy terminal account routing states', () => {
       recordRoutingEvent: () => undefined,
       markAccountQuotaExhausted: () => undefined,
       recent: () => []
-    } as unknown as ProxyLedger
+    })
     const service = new TransparentProxyService(
       { ...createConfig(upstream), authPool: { enabled: true, directory: authDirectory } },
       ledger,

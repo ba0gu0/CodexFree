@@ -65,6 +65,13 @@ export interface AccountUsageSummary {
   secondaryUsedPercent: string | null
 }
 
+export interface AccountStatusCounts {
+  availableAccounts: number
+  disabledAccounts: number
+  exhaustedAccounts: number
+  totalAccounts: number
+}
+
 export interface ProtocolMessageInput {
   cachedInputTokens?: number
   callId?: string
